@@ -101,6 +101,68 @@ Proof. intro h.
        induction n as [ n IHn ] using    
         (well_founded_induction lt_wf). eauto. Qed.
 
+
+(** An arbitrary reflexive relation relates equal terms *)
+Lemma ereflexivity {A} {R} `{Reflexive A R} {x y} :
+  x = y -> R x y.
+Proof.
+  intros ->.
+  reflexivity.
+Qed.
+
+(** Equations library *)
+
+
+Section AllInP.
+  Context {A : Type}.
+
+  Equations forallb_InP (l : list A) (H : forall x : A, In x l -> bool) : bool :=
+  | nil, _ := true ;
+  | (cons x xs), H := (H x _) && (forallb_InP (l := xs) (fun x inx => H x _)).
+End AllInP.
+
+Arguments forallb_InP {_} _ _.
+
+Lemma forallb_InP_spec {A} (f : A -> bool) (l : list A) :
+  forallb_InP l (fun x _ => f x) = List.forallb f l.
+Proof.
+  remember (fun x _ => f x) as g.
+  funelim (forallb_InP l g) => //; simpl. f_equal.
+  now rewrite (H0 f).
+Qed.
+
+
+Section MapInP.
+  Context {A B : Type}.
+
+  Equations map_InP (l : list A) (f : forall x : A, In x l -> B) : list B :=
+  @map_InP nil _ := nil;
+  @map_InP (cons x xs) f := cons (f x _) (map_InP (l := xs) (fun x inx => f x _)).
+End MapInP.
+
+Arguments map_InP {_ _} _ _.
+
+Lemma map_InP_spec {A B : Type} (f : A -> B) (l : list A) :
+  map_InP l (fun (x : A) _ => f x) = List.map f l.
+Proof.
+  remember (fun (x : A) _ => f x) as g.
+  funelim (map_InP l g) => //; simpl. f_equal. cbn in H.
+  now rewrite (H f0).
+Qed.
+
+Equations onSomeP {A} (o : option A) (p : forall (x : A), o = Some x -> bool) : bool :=
+  @onSomeP _ (Some a) p := p a _ ;
+  @onSomeP _ None _ => false.
+
+Arguments onSomeP {_} _ _.
+
+Lemma onSomeP_spec {A : Type} (o : option A) (f : A -> bool) :
+  onSomeP o (fun (x : A) _ => f x) = match o with | Some v => f v | None => false end.
+Proof.
+  remember (fun (x : A) _ => f x) as g.
+  funelim (onSomeP o g) => //.
+Qed.
+
 Module Raw.
 
 (* Finite elements: raw form.
@@ -134,27 +196,24 @@ Inductive elt :=
 
  *)
 
-Fixpoint rk (u : elt) : nat :=
-  let fix rk_fun f :=
+Fixpoint _rk_fun (rk : elt -> nat) f :=
     match f with
       | nil => 0
-      | (ui, vi) :: tl => max (max (rk ui) (rk vi)) (rk_fun tl)
-    end in
+      | (ui, vi) :: tl => max (max (rk ui) (rk vi)) (_rk_fun rk tl)
+    end.
+
+Fixpoint rk (u : elt) : nat :=
   match u with 
   | bot => 0 
   | tnat => 1
   | tuniv k => 1
   | zero => 1 
   | succ v => 1 + rk v
-  | tpi a f => 1 + (max (rk a) (rk_fun f))
-  | abs f => 1 + rk_fun f
+  | tpi a f => 1 + (max (rk a) (_rk_fun rk f))
+  | abs f => 1 + _rk_fun rk f
   end.
 
-Fixpoint rk_fun (f : list (elt * elt)) := 
-    match f with
-      | nil => 0
-      | (ui, vi) :: tl => max (max (rk ui) (rk vi)) (rk_fun tl)
-    end.
+Notation rk_fun := (_rk_fun rk).
 
 (* --------------------------------------------------- *)
 (* ** compatibility and lub *)
@@ -226,7 +285,199 @@ Definition lub_list_opt : list (option elt) -> option elt :=
 
 (* Fold lub over a list of elements. *)
 Definition lub_list (xs : list elt) : option elt := 
-  lub_list_opt (List.map Some xs).   
+  lub_list_opt (List.map Some xs).
+
+
+
+(** * Theory about rk *)
+
+Lemma In_rk_fun1 {p l} : In p l -> rk p.1 <= rk_fun l.
+induction l as [|[]].
+- intro h. inversion h.
+- intros [|?%IHl].
+  all: subst ; cbn ; lia.
+Qed.
+
+Lemma In_rk_fun2 {p l} : In p l -> rk p.2 <= rk_fun l.
+induction l as [|[]].
+- intro h. inversion h.
+- intros [|?%IHl].
+  all: subst ; cbn ; lia.
+Qed.
+
+Lemma rk_fun_append {f g} : 
+  rk_fun (f ++ g) = max (rk_fun f) (rk_fun g).
+Proof.
+  induction f.
+  all: cbn. done.
+  destruct a as [u v].
+  rewrite IHf.
+  lia.
+Qed.
+
+Lemma rk_lub u v w : 
+  lub u v = Some w -> rk w = max (rk u) (rk v).
+Proof.
+  move: v w.
+  induction u.
+  all: intros v w.
+  all: cbn.
+  all: destruct v.
+  all: intros h; inversion h; subst.
+  all: cbn; auto.
+  - destruct PeanoNat.Nat.eqb; inversion h. cbn. reflexivity.
+  - destruct (lub u v) eqn:LU; cbn in h; inversion h. 
+    cbn. f_equal. eauto. 
+  - fold rk_fun.
+    destruct (lub u v) eqn:LU;
+    destruct compatible_fun eqn:C; 
+    inversion h.
+    cbn. fold rk_fun. f_equal.
+    apply IHu in LU. rewrite LU.
+    rewrite rk_fun_append. 
+    lia.
+  - destruct compatible_fun eqn:C. 2: done.
+    inversion h. cbn.
+    f_equal. fold rk_fun.
+    rewrite rk_fun_append. 
+    reflexivity.
+Qed.
+
+Lemma rk_lub_list xs u : 
+  lub_list xs = Some u -> rk u = List.list_max (List.map rk xs).
+Proof.  
+  move: u.
+  induction xs.
+  - intros u h; inversion h. subst. done.
+  - cbn; intros u h. unfold lub_list_opt, lub_opt in h. 
+    destruct fold_right eqn:L. 2: done.
+    cbn in h. 
+    apply IHxs in L. unfold List.list_max in L. rewrite <- L.
+    eapply rk_lub.
+    done.
+Qed.
+
+Equations? _app (f : list (elt*elt)) (u : elt)
+  (le_proto : forall x x' : elt, (Init.Nat.max (rk x) (rk x') < 1 + Init.Nat.max (rk_fun f) (rk u))%nat -> bool)
+  : option elt := 
+  @_app f u le := lub_list (map_InP f
+    (fun p' hp' => 
+        if le p'.1 u _ then p'.2 else bot)).
+Proof.
+  pose proof (In_rk_fun1 hp').
+  cbn in *.
+  lia.
+Qed.
+
+Arguments _app _ _ _ : clear implicits.
+
+Lemma _rk_app : forall f u le w , 
+       _app f u le = Some w -> rk w <= rk_fun f.
+Proof.
+    intros f u le w.
+    simp _app.
+    intros h. rewrite (rk_lub_list h). clear h.
+    induction f in le |- *.
+    - simp map_InP. cbn. auto.
+    - destruct a as [ui vi]. simp map_InP ; cbn.
+      eapply Nat.max_le_compat.
+      + destruct (le ui u _) ; cbn ; lia. 
+      + rewrite -/(List.list_max _).
+        etransitivity.
+        2: eapply (IHf (fun x x' _ => le x x' _)).
+        apply ereflexivity.
+        do 3 f_equal ; cbn.
+        ext.
+        erewrite (proof_irrelevance _ (_app_obligation_1 u _)).
+        reflexivity.
+        Unshelve.
+        cbn ; lia.
+Qed.
+
+Equations _le_fun (f g : list (elt*elt))
+  (le_proto : forall x x' : elt, (Init.Nat.max (rk x) (rk x') < 1 + Init.Nat.max (rk_fun f) (rk_fun g))%nat -> bool)
+  : bool := 
+  @_le_fun f g le :=
+    forallb_InP f (fun p hp =>
+      onSomeP (_app g p.1 (fun x x' _ => le x x' _)) (fun x h => le p.2 x _)).
+Next Obligation.
+  pose proof (In_rk_fun1 hp).
+  cbn in * ; lia.
+Qed.
+Next Obligation.
+  pose proof (In_rk_fun2 hp).
+  cbn in *.
+  apply _rk_app in h.
+  lia.
+Qed.
+
+Arguments _le_fun _ _ _ : clear implicits.
+
+#[tactic="idtac"] Equations?
+le (u v : elt) : bool by wf (max (rk u) (rk v)) Peano.lt :=
+le bot _ := true ;
+le tnat tnat := true ;
+le zero zero := true ;
+le (succ u') (succ v') := le u' v' ;
+le (tpi a f) (tpi a' f') := (le a a') && (@_le_fun f f' (fun x x' _ => le x x')) ;
+le (tuniv i) (tuniv j) => i =? j ;
+le (abs f) (abs f') => @_le_fun f f' le ;
+le _ _ := false.
+Proof.
+  all: cbn ; lia.
+Qed.
+
+Definition app f u := lub_list (List.map (fun p' => if le p'.1 u then p'.2 else bot) f).
+
+Lemma app_eq f u : _app f u (fun x x' => fun=> le x x') = app f u.
+Proof.
+  simp _app.
+  rewrite map_InP_spec.
+  reflexivity.
+Qed.
+
+Lemma rk_app : forall f u w, app f u = Some w -> rk w <= rk_fun f.
+Proof.
+  intros * h.
+  eapply _rk_app.
+  now erewrite app_eq.
+Qed.
+
+Definition le_fun f f' := 
+  forallb_InP f (fun p hp =>
+      match (app f' p.1) with
+      | Some v => le p.2 v
+      | None => false
+      end).
+
+Lemma le_fun_eq f f' :
+  _le_fun f f' (fun x x' : elt => fun=> le x x') = le_fun f f'.
+Proof.
+  simp _le_fun.
+  unfold le_fun.
+  f_equal.
+  ext.
+  rewrite onSomeP_spec app_eq //.
+Qed.
+
+Lemma le_abs f f' : le (abs f) (abs f') = le_fun f f'.
+Proof.
+  simp le.
+  now apply le_fun_eq. 
+Qed.
+
+Remove Hints le_graph_equation_43 : le.
+Hint Rewrite le_abs : le.
+
+Lemma le_pi a f a' f' :
+  le (tpi a f) (tpi a' f') = (le a a') && (le_fun f f').
+Proof.
+  simp le.
+  now rewrite le_fun_eq.
+Qed.
+
+Remove Hints le_graph_equation_35 : le.
+Hint Rewrite le_pi : le.
 
 (* --------------- le ---------------- *)
 
@@ -236,74 +487,6 @@ Definition lub_list (xs : list elt) : option elt :=
    However, we also want a decidable definition. 
    so we look at all of the (ui,vi) in f and see what they do in g.
 *) 
-
-(* ACKTUALLY le should be called leb because it is decidable. *)
-
-(* The termination metric for this definition is (max (rk u) (rk v)). *)
-(* NB: cannot use equations as it doesn't support mutual definitions *)
-Fixpoint le' (u v : elt) k : bool := 
-  let app g ui m : option elt := 
-    lub_list (List.map 
-                (fun '(uj,vj) => 
-                   if compatible uj ui && le' uj ui m then vj else bot) g) in
-      
-  let le_fun f g m := 
-    List.forallb (fun '(ui,vi) => match (app g ui m) with 
-                               | Some v => le' vi v m
-                               | None => false
-                               end) f 
-  in
-  match u , v with 
-  | bot , _ => true
-  | tnat , tnat => true
-  | zero , zero => true
-  | succ u0 , succ v0 => 
-      match k with 
-      | 0 => false 
-      | S m => le' u0 v0 m
-      end
-  | tpi a f , tpi b g => 
-      match k with 
-      | 0 => false 
-      | S m => (le' a b m) && (le_fun f g m)
-      end
-  | tuniv i , tuniv j => Nat.eqb i j
-  | abs f , abs g => 
-      match k with 
-      | 0 => false 
-      | S m => le_fun f g m
-      end
-  | _ , _ => false
-  end.
-
-
-Definition app' (f : list (elt * elt)) (u : elt) m : option elt := 
-   lub_list (List.map (fun '(ui,vi) => 
-           if compatible ui u && le' ui u m then vi else bot) f).
-
-
-Definition le_fun' f g m := 
-  List.forallb (fun '(ui,vi) => 
-                  match (app' g ui m) with 
-                  | Some v => le' vi v m
-                  | None => false
-                  end) f.
-
-(* leFinEl *)
-Definition le (u v : elt) := le' u v (max (rk u) (rk v)).
-
-
-(* EvalFun *)
-Definition app (f : list (elt * elt)) (u : elt) : option elt := 
-   lub_list (List.map (fun '(ui,vi) => 
-           if compatible ui u && le ui u then vi else bot) f).
-
-(* leFun *)
-Definition le_fun f g := 
-  List.forallb (fun '(ui,vi) => match (app g ui) with 
-                  | Some v => le vi v 
-                  | None => false
-                  end) f.
 
 (* strict less than (still decidable) *)
 Definition lt u v := le u v && ~~(le v u).
@@ -318,7 +501,7 @@ Fixpoint app_alt (f : list (elt * elt)) (u : elt) : option elt :=
   | nil => Some bot
   | ((ui,vi) :: tail) => 
       let appt := app_alt tail u in 
-      if compatible ui u && (le ui u) then
+      if (le ui u) then
         match appt with 
         | Some t => lub vi t | None => None end else appt
   end.
@@ -331,7 +514,7 @@ Proof.
   - ext. 
     destruct a as [ui vi].
     cbn.
-    destruct (compatible ui x0 && le ui x0) eqn:LE.
+    destruct (le ui x0) eqn:LE.
     + rewrite <- IHx. 
       reflexivity.
     + rewrite <- IHx.
@@ -347,7 +530,7 @@ reflexivity. Qed.
 
 
 Lemma app_cons_eq : 
-  forall ui vi f u, app (cons (ui,vi) f) u = if compatible ui u && le ui u then 
+  forall ui vi f u, app (cons (ui,vi) f) u = if le ui u then 
                                           match app f u with 
                                           | Some t => lub vi t
                                           | None => None
@@ -408,97 +591,6 @@ Proof. reflexivity. Qed.
 (* --------------------------------------------------------- *)
 (* --------------------------------------------------------- *)
 
-(** * Theory about rk *)
-
-Lemma In_rk_fun1 {ui vi l} : In (ui, vi) l -> rk ui <= rk_fun l.
-induction l.
-- intro h. inversion h.
-- intros [->|h1].
-  + cbn. lia.
-  + destruct a as [uj vj]. cbn.
-    apply IHl in h1. lia.
-Qed.
-
-Lemma In_rk_fun2 {ui vi l} : In (ui, vi) l -> rk vi <= rk_fun l.
-induction l.
-- intro h. inversion h.
-- intros [->|h1].
-  + cbn. lia.
-  + destruct a as [uj vj]. cbn.
-    apply IHl in h1. lia.
-Qed.
-
-Lemma rk_fun_append {f g} : 
-  rk_fun (f ++ g) = max (rk_fun f) (rk_fun g).
-Proof.
-  induction f.
-  all: cbn. done.
-  destruct a as [u v].
-  rewrite IHf.
-  lia.
-Qed.
-
-Lemma rk_lub u v w : 
-  lub u v = Some w -> rk w = max (rk u) (rk v).
-Proof.
-  move: v w.
-  induction u.
-  all: intros v w.
-  all: cbn.
-  all: destruct v.
-  all: intros h; inversion h; subst.
-  all: cbn; auto.
-  - destruct PeanoNat.Nat.eqb; inversion h. cbn. reflexivity.
-  - destruct (lub u v) eqn:LU; cbn in h; inversion h. 
-    cbn. f_equal. eauto. 
-  - fold rk_fun.
-    destruct (lub u v) eqn:LU;
-    destruct compatible_fun eqn:C; 
-    inversion h.
-    cbn. fold rk_fun. f_equal.
-    apply IHu in LU. rewrite LU.
-    rewrite rk_fun_append. 
-    lia.
-  - destruct compatible_fun eqn:C. 2: done.
-    inversion h. cbn.
-    f_equal. fold rk_fun.
-    rewrite rk_fun_append. 
-    reflexivity.
-Qed.
-
-Lemma rk_lub_list xs u : 
-  lub_list xs = Some u -> rk u = List.list_max (List.map rk xs).
-Proof.  
-  move: u.
-  induction xs.
-  - intros u h; inversion h. subst. done.
-  - cbn; intros u h. unfold lub_list_opt, lub_opt in h. 
-    destruct fold_right eqn:L. 2: done.
-    cbn in h. 
-    apply IHxs in L. unfold List.list_max in L. rewrite <- L.
-    eapply rk_lub.
-    done.
-Qed.    
-
-(* 
-   rk(f(u)) <= rk(f) for all u   
-*)
-Lemma rk_app': forall m f u w, 
-       app' f u m = Some w -> rk w <= rk_fun f.
-Proof.
-    intros m f u w.
-    unfold app'.
-    intros h. rewrite (rk_lub_list h). clear h.
-    induction f.
-    - cbn. auto.
-    - destruct a as [ui vi]. cbn.
-      eapply Nat.max_le_compat.
-      2: { eapply IHf. } 
-      destruct (compatible ui u && le' ui u m). 
-      lia. cbn. lia.
-Qed.
-
-
 (** * Raw Theory about compatibility *)
 
 (* These properties are proven by strong induction on 
@@ -521,13 +613,13 @@ Proof.
   move: h2 => /forallb_forall h2.
   specialize (h2 _ Inl0). cbn in h2.
   move: h2 => /implyP h2.
-  move: (In_rk_fun2 Inl) => Levj. 
-  move: (In_rk_fun2 Inl0) => Levi. 
+  move: (In_rk_fun2 Inl) => /= Levj. 
+  move: (In_rk_fun2 Inl0) => /= Levi. 
   intro x. eapply ih; eauto. lia.
   eapply h2.
   eapply ih; eauto. 
-  move: (In_rk_fun1 Inl) => Leuj. 
-  move: (In_rk_fun1 Inl0) => Leui. 
+  move: (In_rk_fun1 Inl) => /= Leuj.
+  move: (In_rk_fun1 Inl0) => /= Leui.
   lia.
 Qed.
 
@@ -558,7 +650,7 @@ Lemma compatible_sym : forall (u v : elt),
 Proof.
   intros u v.
   eapply compatible_sym'; eauto.
-Qed.  
+Qed.
 
 Lemma compatible_fun_sym : 
   forall f g, compatible_fun f g -> compatible_fun g f.
