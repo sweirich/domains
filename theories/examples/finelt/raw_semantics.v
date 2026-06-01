@@ -496,6 +496,13 @@ Proof.
     auto.
 Qed.
 
+
+Lemma lub_up : 
+  forall a b c a0 b0 c0, 
+    le a a0 -> le b b0 -> lub a b = Some c -> lub a0 b0 = Some c0 -> le c c0.
+Proof.
+Admitted.
+
 Lemma EvalRel_compatible_lub {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
   EvalRel M ρ a -> EvalRel M ρ b -> 
@@ -531,7 +538,7 @@ Proof.
       move: (IHM1 _ _ _ Vρ E1 E2) => [Cab h3].
       destruct (compatible_lub_exists Cab) as [c LUB].
       have Vc: valid c. eapply (@valid_lub a b); eauto.
-      have WTc: wt c tuniv. eapply (@wt_lub a _ _ b); eauto.
+      have WTc: wt c tuniv. eapply (@wt_lub a _ WT1 b _ WT2); eauto.
       destruct (EvalRel_fun_compatible Vρ IHM2 Va Vl h1 Vb Vl0 h2 LUB) 
         as [Cll0 EAPP].
       split. 
@@ -642,50 +649,69 @@ Proof.
 
   - (* zero *)
     move=> L1 L2.
-    destruct a; try done; destruct b; try done. 
+    destruct a; try done; destruct b; try done.
     all: cbn.
     all: split; auto.
     all: move=>c h; inversion h; subst; done.
-Admitted.
-(* TODO: finish proof.
   - (* succ M *)
-    destruct (is_bot a) eqn:IBa; try done;
-    destruct (is_bot b) eqn:IBb; try done.
-    destruct a; try done. destruct b; done.
-    destruct a; try done. destruct b; done.
-    destruct b; try done. destruct a; done.
-    move=> [Va [a0 [LEa Ea]]].
-    move=> [Vb [b0 [LEb Eb]]].
-    move: (IHM _ _ _ Vρ Ea Eb) => C.
-    destruct a; try done.
-    destruct b; try done.
-    cbn. rewrite le_succ in LEa. rewrite le_succ in LEb.
-    cbn in Va. cbn in Vb.
-    move: (comp_down LEa C) => Ca.  
-    move: (compatible_sym Ca) => CC.   
-    move: (comp_down LEb CC) => Cb.
-    eapply compatible_sym. eauto.
+    move=> H1 H2.
+    destruct (is_bot a) eqn:IBa.
+    { destruct a; try done.
+      split.
+      - destruct b; done.
+      - move=> c LUB. rewrite lub_bot_l in LUB. inversion LUB. subst c.
+        destruct (is_bot b); done. }
+    destruct (is_bot b) eqn:IBb.
+    { destruct b; try done.
+      split.
+      - destruct a; done.
+      - move=> c LUB. rewrite lub_bot_r in LUB. inversion LUB. subst c.
+        rewrite IBa. done. }
+    move: H1 => [Va [a0 [LEa Ea0]]].
+    move: H2 => [Vb [b0 [LEb Eb0]]].
+    specialize (IHM ρ a0 b0 Vρ Ea0 Eb0). destruct IHM as [C0 IH0].
+    destruct a; try solve [cbn in LEa; done].
+    rewrite le_succ in LEa.
+    destruct b; try solve [cbn in LEb; done].
+    rewrite le_succ in LEb.
+    split.
+    + cbn. eapply comp_down_pair; eauto.
+    + move=> c LUB. cbn in LUB. clear IBa IBb.
+      move: (compatible_lub_exists C0) => [w EQ].
+      destruct (is_bot c); try done.
+      destruct (lub a b) eqn:EqLUB; inversion LUB; subst. clear LUB.
+      have Ve: valid e.
+      { cbn in Va, Vb |- *.
+         eapply (valid_lub Va Vb); eauto. } 
+      split. auto.
+      specialize (IH0 _ EQ). 
+      move: (lub_up LEa LEb EqLUB EQ) => LEw.
+      exists w.
+      split; eauto.
   - (* nrec *)
-    destruct (is_bot a) eqn:IBa; try done;
-    destruct (is_bot b) eqn:IBb; try done.
-    destruct a; try done. destruct b; done.
+    move=> H1 H2.
+    destruct a; cbn in H1; try done.
+    destruct b; cbn in H2; try done.
+    split; first done.
+    move=> c h. cbn in h. inversion h; subst c. cbn. done.
   - (* tnat *)
-    move=> LE1 LE2.
-    destruct a; try done. destruct b; done.
-    destruct b; done.
-  - (* tpi *)
-    destruct a; try done. destruct b; done.
-    destruct b; try done.
-    move=> [Va [Vl [WTa [Ea h]]]];
-    move=> [Vb [Vl0 [WTb [Eb ]]]].
-    cbn. erewrite IHM1; eauto. cbn.
-      eapply EvalRel_fun_compatible; eauto.
+    move=> L1 L2.
+    destruct a; try done; destruct b; try done.
+    all: cbn.
+    all: split; auto.
+    all: move=> c h; inversion h; subst c; done.
+  - (* tpi A B *)
+    rename M1 into A. rename M2 into B.
+    (* The tpi case requires full lub-of-tpi construction.
+       Admitted; mirrors the abs case structurally. *)
+    admit.
   - (* tuniv *)
-    move=> LE1 LE2.
-    destruct a; try done. destruct b; done.
-    destruct b; try done.
-Qed. *)
-
+    move=> L1 L2.
+    destruct a; try done; destruct b; try done.
+    all: cbn.
+    all: split; auto.
+    all: move=> c h; inversion h; subst c; done.
+Admitted.
 
 Lemma EvalRel_compatible {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->

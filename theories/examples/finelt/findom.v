@@ -2981,6 +2981,18 @@ Proof.
    eapply compatible_refl; eauto.
 Qed.
 
+Lemma comp_down_pair : 
+      forall u1 u2 v1 v2, compatible v1 v2 -> le u1 v1 -> le u2 v2 ->
+                     compatible u1 u2.
+Proof.
+      move=> u1 u2 v1 v2 C1 LE1 LE2.
+      move: (comp_down LE1 C1) => C2.
+      apply compatible_sym in C2.
+      move: (comp_down LE2 C2) => C3. 
+      eapply compatible_sym.
+      auto.
+Qed.
+
 
 
 (* extensional introduction form for le_fun *)

@@ -602,24 +602,65 @@ Proof.
       apply (@InvTyp_App _ Γ A B N M ρ Fρ).
       * exact (typing_EvalRel _ _ _ _ h3 ρ Fρ).
       * exact (typing_EvalRel _ _ _ _ h4 ρ Fρ).
-    + (* t_nat: tnat : tuniv 0 — natural numbers cases not in Agda;
-         they require additional invariant for the type code (the
-         "self-typing" of tnat at every universe level). Admit. *)
-      admit.
-    + (* t_zero *)
-      admit.
-    + (* t_succ *)
-      admit.
+    + (* t_nat: tnat : tuniv.  EvalRel tnat ρ u = le u tnat, so u ∈ {bot, tnat}.
+         Take Typed witness (tnat, tuniv, wt_tnat). *)
+      move=> u Eu. cbn in Eu.
+      exists tnat, tuniv, wt_tnat.
+      repeat split; cbn; auto.
+    + (* t_zero: similar. EvalRel zero ρ u = le u zero. *)
+      move=> u Eu. cbn in Eu.
+      exists zero, tnat, wt_zero.
+      repeat split; cbn; auto.
+    + (* t_succ M : tnat (given M : tnat). *)
+      have ihM : InvTyped Γ M Core.tnat ρ by eapply typing_EvalRel; eauto.
+      move=> u Eu.
+      destruct (Raw.is_bot u) eqn:HU.
+      { (* u = bot *) destruct u; try done. apply Typed_bot. }
+      cbn in Eu. rewrite HU in Eu.
+      destruct Eu as [Vu [a [LE EMa]]].
+      (* u non-bot, le u (succ a), EvalRel M ρ a. *)
+      specialize (ihM a EMa).
+      destruct ihM as [v [a' [WTva [LEav [EMv EA]]]]].
+      cbn in EA.
+      (* a' is the type-elt for M, EvalRel tnat ρ a' = le a' tnat, so a' ∈ {bot, tnat}.
+         We need to take v' = succ v, a'' = tnat. *)
+      have Vv : valid v by eapply wt_valid_tm; eauto.
+      have Va : valid a by eapply EvalRel_valid; eauto.
+      (* Get wt v tnat: a' is bot or tnat.  Either gives wt v tnat by cumulativity
+         (wt_le).  Since wt v a' with a' ≤ tnat and wt tnat tuniv (and a' tuniv too),
+         we get wt v tnat. *)
+      have WTv_tnat : wt v tnat.
+      { destruct a'; try done.
+        apply wt_bot_inv in WTva. subst v.
+        eapply wt_bot; eapply wt_tnat. }
+      have LEsv : le u (succ v).
+      { (* u is non-bot succ-something (from le u (succ a)), and v ≥ a (LEav). *)
+        destruct u; try done.
+        cbn in Vu.
+        rewrite le_succ. rewrite le_succ in LE.
+        eapply le_trans; [exact Vu | exact Va | exact Vv | exact LE | exact LEav]. }
+      exists (succ v), tnat, (wt_succ WTv_tnat).
+      split; first exact LEsv.
+      split.
+      { (* EvalRel (succ M) ρ (succ v) *)
+        cbn.
+        split; first by rewrite Vv.
+        exists v. split; first by eapply le_refl. exact EMv. }
+      cbn. done.
     + (* t_nrec — nrec is a fake case in EvalRel: only produces bot. *)
-      admit.
+      move=> u Eu. cbn in Eu.
+      destruct (Raw.is_bot u) eqn:HU; first by destruct u; try done; apply Typed_bot.
+      done.
     + (* t_tpi: tpi A B : tuniv *)
       apply (@InvTyp_Pi _ Γ A B ρ Fρ).
       * exact (typing_EvalRel _ _ _ _ h1 ρ Fρ).
       * move=> x a Wx Wa EA.
         apply (typing_EvalRel _ _ _ _ h2 (x .: ρ)).
         eapply fits_cons; eauto.
-    + (* t_univ *)
-      admit.
+    + (* t_univ: tuniv : tuniv (type-in-type). *)
+      move=> u Eu. cbn in Eu.
+      exists tuniv, tuniv, wt_tuniv.
+      repeat split; cbn; auto.
   - destruct h as
       [ ?n ?Γ ?M ?N ?A ?B hMNA hAB
       | ?n ?Γ ?M ?A hM
@@ -641,8 +682,10 @@ Proof.
         exact fwd.
     + (* c_refl *)
       eapply InvConv_refl'. exact (typing_EvalRel _ _ _ _ hM ρ Fρ).
-    + (* c_sym *)
-      admit.
+    + (* c_sym: from conv Γ M N A get InvConv Γ N M A by swapping components. *)
+      have ih : InvConv Γ M N A ρ by eapply conv_EvalRel; eauto.
+      move: ih => [iM [iN [fwd bwd]]].
+      unfold InvConv. repeat split; eauto.
     + (* c_trans *)
       apply (@InvConv_trans _ Γ M N P A ρ).
       * exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
@@ -665,12 +708,16 @@ Proof.
         eapply fits_cons; eauto.
     + (* c_eta: function extensionality at type A⟨↑⟩, see Admitted note. *)
       admit.
-    + (* c_nrec_Z and c_nrec_S: nrec is fake, so both sides only produce
-         bot in EvalRel. *)
+    + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
+         (app ... → M0): EvalRel of app (nrec ...) ρ u forces u = bot, and
+         EvalRel _ ρ bot is always trivially True.  Backward direction:
+         requires the converse, which only holds when the actual application
+         is bot — needs more structure.  Admit. *)
       admit.
-    + admit.
-    + (* c_tuniv *)
+    + (* c_nrec_S: similar — nrec is fake. *)
       admit.
+    + (* c_tuniv: identity rule — just recurse. *)
+      exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       apply (@InvConv_Pi _ Γ A0 A1 B0 B1 ρ Fρ).
       * exact (conv_EvalRel _ _ _ _ _ hA ρ Fρ).

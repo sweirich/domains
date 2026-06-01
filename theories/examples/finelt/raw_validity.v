@@ -269,7 +269,8 @@ Definition PiAppEqVal {n} (Γ : Ctx n)
 Definition ValPi {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) g b f (h : wt (abs g) (tpi b f)):=
   exists A0, exists B0, HeadRed A (Core.tpi A0 B0)
-  /\ PiAppVal Γ M A0 B0 h.
+  /\ PiAppVal Γ M A0 B0 h
+  /\ PiAppEq Γ M A0 B0 h.
 
 Definition EqValPi {n} (Γ : Ctx n)
   (M : Tm n) (N: Tm n) (A : Tm n) g b f 
@@ -367,10 +368,10 @@ Fixpoint Val {n} (Γ : Ctx n)
 
             | abs g => fun (h : wt (abs g) (tpi b f)) =>
                         Rec.ValTy (@Val) (@EqVal) Γ A (wt_abs_ty h)
-                      /\ Rec.ValPi (@Val) Γ M A h 
+                      /\ Rec.ValPi (@Val) (@EqVal) Γ M A h
 
             | _ => fun h  => True
-            end) h 
+            end) h
 
       | tnat => fun h =>
           (match u return wt _ tnat -> Prop with
@@ -403,8 +404,8 @@ with EqVal {n} (Γ : Ctx n)
            | bot => fun h => True
            | abs g => fun (h : wt (abs g) (tpi b f)) =>
                Rec.ValTy (@Val) (@EqVal) Γ A (wt_abs_ty h)
-             /\ Rec.ValPi (@Val)  Γ M A h
-             /\ Rec.ValPi (@Val)  Γ N A h
+             /\ Rec.ValPi (@Val) (@EqVal) Γ M A h
+             /\ Rec.ValPi (@Val) (@EqVal) Γ N A h
              /\ Rec.EqValPi (@Val) (@EqVal) Γ M N A h
 
            | _ => fun h => True
@@ -430,9 +431,10 @@ Arguments Val : clear implicits.
 Arguments EqVal : clear implicits.
 
 Notation PiAppVal := (@Rec.PiAppVal Val).
+Notation PiAppEq  := (@Rec.PiAppEq Val EqVal).
 Notation ValTy    := (@Rec.ValTy Val EqVal).
 Notation EqValTy  := (@Rec.EqValTy Val EqVal).
-Notation ValPi    := (@Rec.ValPi Val).
+Notation ValPi    := (@Rec.ValPi Val EqVal).
 Notation EqValPi  := (@Rec.EqValPi Val EqVal).
 Notation PiEdgeEq := (@Rec.PiEdgeEq EqVal).
 Notation PiAppEqVal := (@Rec.PiAppEqVal Val EqVal).
@@ -540,7 +542,7 @@ Proof.
     inversion h. subst.
     repeat split; eauto.
     unfold Rec.ValPi in PAV.
-    destruct PAV as [A0 [B0 [R1 PAV]]].
+    destruct PAV as [A0 [B0 [R1 [PAV PAE]]]].
     unfold EqValPi.
     exists A0, B0. split; eauto.
     unfold PiAppEqVal.
@@ -696,7 +698,6 @@ Qed.
    ============================================================ *)
 
 
-
 Lemma upValPi : forall 
         (upVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
                    (h0 : wt u a0) (h1 : wt u a1)  
@@ -718,16 +719,18 @@ Lemma upValPi : forall
 Proof.
       move=> upVal downVal f a g a0 g0 LEa LEg h h0 hUa1 n Γ M T VP VTya1 .
       dependent destruction hUa1.
-      destruct VTya1 as (Av & Bv & HRv & TAv & TBv & Vpi & VDv & PEV & PEE).        
+      destruct VTya1 as (Av & Bv & HRv & TAv & TBv & Vpi & VDv & PEV & PEE).
 
       unfold Rec.ValPi in VP.
-      destruct VP as (A0 & B0 & R1 & PAV).
+      destruct VP as (A0 & B0 & R1 & PAV & PAE).
       (* types are the same *)
       destruct (HeadRed_tpi_det HRv R1) as [-> ->].
 
       unfold Rec.ValPi.
       exists A0, B0.
-      repeat split; try eassumption.
+      split; [eassumption|].
+      split; [|admit (* PiAppEq at h0 — needs upEqVal/downEqVal not in scope *)].
+      (* PiAppVal at h0 *)
       move=> u v t0 Vu APP NB APPg0 N TN VN.
       cbn. cbn in VN.
 
@@ -735,35 +738,35 @@ Proof.
       have Vg: valid_fun g. eapply valid_tpi2. eauto with valid.
       have Vg0: valid_fun g0. eapply valid_tpi2. eauto with valid.
       destruct (valid_app_exists Vg Vu) as [t [APPg Vt]].
-      have LEt: le t t0. { eapply (@le_fun_mono g g0 u); eauto. } 
+      have LEt: le t t0. { eapply (@le_fun_mono g g0 u); eauto. }
 
-      have WTt: wt t tuniv. 
+      have WTt: wt t tuniv.
       { destruct (is_bot t) eqn:EQ. destruct t; try done.
         eapply wt_bot. eapply wt_tuniv.
-        inversion WTpi. eapply (H3 _ _ Vu); eauto. } 
+        inversion WTpi. eapply (H3 _ _ Vu); eauto. }
       have WTv: wt v t.
-      { inversion h. eapply (H3 u v t); eauto. } 
+      { inversion h. eapply (H3 u v t); eauto. }
       have NBt: ~(is_bot t).
-      { move=>IB. destruct t; try done. inversion WTv. subst. done. } 
+      { move=>IB. destruct t; try done. inversion WTv. subst. done. }
       have NBt0: ~(is_bot t0).
-      { move=>IB. destruct t0; destruct t; try done. }  
-      have WTu: wt u a0. { eauto. } 
+      { move=>IB. destruct t0; destruct t; try done. }
+      have WTu: wt u a0. { eauto. }
 
       unfold PiAppVal in PAV.
       specialize (PAV u v t Vu APP NB APPg N TN).
       specialize (PEV u t0 Vu APPg0 NBt0 WTu N TN).
       cbn in PAV.
-      eapply upVal. 
-        ++ eapply WTt. 
+      eapply upVal.
+        ++ eapply WTt.
         ++ eapply LEt.
         ++ eapply PAV.
            eapply downVal. eapply LEa. eapply VN.
-        ++ eapply ValTy_Val. 
+        ++ eapply ValTy_Val.
            eapply PEV.
            cbn.
            erewrite (wt_unique (w u t0 Vu APPg0 NBt0)).
            eapply VN.
-Defined.
+Admitted.
 
 Lemma downValPi : forall 
         (upVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
@@ -786,10 +789,11 @@ Lemma downValPi : forall
 Proof.
   move=> upVal downVal f a g a0 g0 LEa LEg h h0 hUa n Γ M T VP VT.
   unfold Rec.ValPi in VP.
-  destruct VP as (A0 & B0 & R1 & PAV).
+  destruct VP as (A0 & B0 & R1 & PAV & PAE).
   unfold ValPi.
   exists A0, B0.
-  repeat split; try eassumption.
+  split; [eassumption|].
+  split; [|admit (* downPiAppEq — needs upEqVal/downEqVal not in scope *)].
 
   (* downPiAppVal *)
   move=> u v t Vu APP NB APPg N TN VN.
@@ -816,7 +820,7 @@ Proof.
   specialize (PAV u v t0 Vu APP NB APPg0 N TN).
 
   cbn in PAV.
-  eapply downVal. 
+  eapply downVal.
   ++ eapply LEt.
   ++ eapply PAV.
      eapply upVal. eapply WTa. eapply LEa. eapply VN.
@@ -1097,6 +1101,7 @@ Proof.
     * erewrite (wt_unique h). eapply VTB.
     * unfold ValPi.
       exists A1, B1. split; auto.
+      split; [|admit (* PiAppEq part *)].
       unfold Rec.PiAppVal.
       move=> u v t Vu APP NB APPg P TP VP.
       specialize (PEET u t Vu APPg).

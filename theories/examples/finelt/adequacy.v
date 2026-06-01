@@ -25,8 +25,8 @@ Require Import syntax.relations.
 Require Import findom.
 Import Raw.
 Require Import types.
-Require Import typing_semantics.
 Require Import raw_semantics.
+Require Import typing_semantics.
 Require Import raw_validity.
 Require Import eval_substitution.
 
@@ -152,21 +152,78 @@ Proof.
     eapply hyp0; eauto.
 Qed.    
 
+(* Syntactic pointwise conv between substitutions.  Mirrors Agda's
+   WtConvSub: σ and σ' are conv at every variable, in the target context Δ.
+   Together with subst_conv_cross, this lets us derive conv Δ M[σ] M[σ'] A[σ]
+   from typing Γ M A — the syntactic counterpart of EqValSub.                *)
+Definition ConvSub {h} {g} (Δ : Ctx h) (Γ : Ctx g)
+  (σ1 σ2 : Sub g h) : Prop :=
+  forall i, conv Δ (σ1 i) (σ2 i) (lookup i Γ)[σ1].
+
+Lemma ConvSub_empty {h} (Δ : Ctx h)(σ1 σ2 : Sub 0 h) :
+  ConvSub Δ ctx_empty σ1 σ2.
+Proof. unfold ConvSub. by case. Qed.
+
+Lemma ConvSub_refl {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ : Sub g h) :
+  typing_subst Δ σ Γ -> ConvSub Δ Γ σ σ.
+Proof.
+  move=> TS i. eapply c_refl; eauto.
+Qed.
+
+Lemma ConvSub_cons {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h)
+  (A : Tm g) (M1 M2 : Tm h) :
+  conv Δ M1 M2 A[σ1] ->
+  ConvSub Δ Γ σ1 σ2 ->
+  ConvSub Δ (Γ ++ A) (M1 .: σ1) (M2 .: σ2).
+Proof.
+  move=> hM hC [i|]; cbn; asimpl.
+  - move: (hC i). asimpl. done.
+  - asimpl. done.
+Qed.
+
+Lemma ConvSub_id {n} (Γ : Ctx n) :
+  ctx Γ -> ConvSub Γ Γ var var.
+Proof.
+  move=> CΓ i. asimpl. eapply c_refl; eauto.
+  apply: t_var. exact CΓ.
+Qed.
+
+(* Cross-substitution conv: if M is typed at A in Γ, and σ ≈ σ' pointwise
+   (both as ConvSub and well-typed), then M[σ] is conv to M[σ'] at A[σ].
+   This is the syntactic analog of EqValSub's effect at any well-typed M.
+   Proof would go by induction on typing — admitted here, to be developed
+   alongside the other syntactic substitution lemmas. *)
+Lemma subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) :
+  typing Γ M A ->
+  forall m (Δ : Ctx m) (σ σ' : Sub n m),
+    ctx Δ ->
+    typing_subst Δ σ Γ ->
+    typing_subst Δ σ' Γ ->
+    ConvSub Δ Γ σ σ' ->
+    conv Δ M[σ] M[σ'] A[σ].
+Proof. Admitted.
+
 Definition semantic_typing {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) :=
-  forall ρ m (Δ : Ctx m) (σ : Sub n m) (TS : typing_subst Δ σ Γ) (F : fits Γ ρ)
-    (VS : ValSub Δ Γ σ ρ) (cΔ : ctx Δ),
+  forall ρ m (Δ : Ctx m) (σ σ': Sub n m) (TS : typing_subst Δ σ Γ)
+    (TS' : typing_subst Δ σ' Γ)
+    (CS : ConvSub Δ Γ σ σ')
+    (F : fits Γ ρ)
+    (VS : EqValSub Δ Γ σ σ' ρ) (cΔ : ctx Δ),
   forall u a (WT : wt u a),
     EvalRel M ρ u ->
     EvalRel A ρ a ->
-    Val Δ M[σ] A[σ] WT.
+    Val Δ M[σ] A[σ] WT /\
+    EqVal Δ M[σ] M[σ'] A[σ] WT.
 Definition semantic_conv2 {n} (Γ : Ctx n) (M N: Tm n) (A : Tm n) :=
   forall ρ  m (Δ : Ctx m) σ1 σ2 (TS1 : typing_subst Δ σ1 Γ)
     (TS2 : typing_subst Δ σ2 Γ)
+    (CS : ConvSub Δ Γ σ1 σ2)
     (F : fits Γ ρ)
-    (VS : EqValSub Δ Γ σ1 σ2 ρ ) (cΔ : ctx Δ),
+    (EVS : EqValSub Δ Γ σ1 σ2 ρ) (cΔ : ctx Δ),
   forall u a (WT : wt u a),
     EvalRel M ρ u ->
     EvalRel A ρ a ->
+    EqVal Δ M[σ1] N[σ1] A[σ1] WT /\
     EqVal Δ M[σ1] N[σ2] A[σ1] WT.
 
 Lemma EqValSub_ValSub_left {n} (Γ : Ctx n) ρ {m} (Δ : Ctx m) σ1 σ2 :
@@ -189,15 +246,6 @@ Proof.
   eapply Val_EqVal.
   auto.
 Qed.
-
-Definition semantic_conv {n} (Γ : Ctx n) (M N: Tm n) (A : Tm n) :=
-  forall ρ m (Δ : Ctx m) σ (TS : typing_subst Δ σ Γ) (F : fits Γ ρ)
-    (VS : ValSub Δ Γ σ ρ),
-  forall u a (WT : wt u a),
-    EvalRel M ρ u ->
-    EvalRel A ρ a ->
-    EqVal Δ M[σ] N[σ] A[σ] WT.
-
 
 (* ============================================================
    Bridging lemmas needed by st_app.
@@ -284,11 +332,12 @@ Lemma st_var (x : fin n) :
 (* ------------------------- *)
   (semantic_typing Γ (var x) (lookup x Γ)).
 Proof.
-  move=> h. 
-  move=> ρ m σ Δ TS FR VS CD u1 a1 WT1 Ex ER.
+  move=> h.
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex ER.
   cbn in *. move: Ex => [Vu1 Le1].
-  specialize (VS x).
-  eapply VS; eauto.
+  split.
+  - eapply EqValSub_ValSub_left; eauto.
+  - eapply (VS x); eauto.
 Qed.
 
 Lemma st_conv M A B :
@@ -311,28 +360,32 @@ Proof.
        h2 ≈ adequacyEqSub2 d2
        Val_EqVal_fwd ≈ Val2-EqValTy2-fwd *)
   move=> T1 C2 h1 h2.
-  move=> ρ m Δ σ TS FR VS CD u1 a1 WT1 Ex Ea1.
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex Ea1.
   (* Step 1: bridge EvalRel B ρ a1 → EvalRel A ρ a1 via conv_EvalRel C2. *)
   move: (conv_EvalRel C2 FR) => [_ [_ [_ bwd]]].
   have Ea1_A : EvalRel A ρ a1 by apply bwd.
   (* Step 2: apply h1 (semantic_typing Γ M A) to get Val Δ M[σ] A[σ] WT1. *)
-  have valM_A : Val Δ M[σ] A[σ] WT1
-    by exact (h1 ρ m Δ σ TS FR VS CD u1 a1 WT1 Ex Ea1_A).
+  have [valM_A eqvalM_A] : Val Δ M[σ] A[σ] WT1 /\ EqVal Δ M[σ] M[σ'] A[σ] WT1
+    by exact (h1 ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex Ea1_A).
   (* Step 3: apply h2 (semantic_conv2 Γ A B tuniv) at (a1, tuniv).
      We need wt a1 tuniv (extracted from WT1 via wt_ty_tuniv). *)
   have WTa1_univ : wt a1 tuniv by eapply wt_ty_tuniv; exact WT1.
   have evU : EvalRel Core.tuniv ρ tuniv by [].
-  have eqAB : EqVal Δ A[σ] B[σ] Core.tuniv[σ] WTa1_univ
-    by exact (h2 ρ m Δ σ σ TS TS FR (ValSub_EqValSub VS) CD
-                a1 tuniv WTa1_univ Ea1_A evU).
+  have VS_diag : EqValSub Δ Γ σ σ ρ
+    by exact (ValSub_EqValSub (EqValSub_ValSub_left VS)).
+  move: (h2 ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS_diag CD
+                a1 tuniv WTa1_univ Ea1_A evU) => [eqAB _].
   asimpl in eqAB.
   (* Step 4: extract EqValTy from EqVal at tuniv via EqVal_EqValTy. *)
   have eqAB_ty : EqValTy Δ A[σ] B[σ] WTa1_univ
     by eapply EqVal_EqValTy; exact eqAB.
   (* Step 5: transport Val Δ M[σ] A[σ] WT1 → Val Δ M[σ] B[σ] WT1
-     via Val_EqVal_fwd. *)
+     via Val_EqVal_fwd, and EqVal M[σ] M[σ'] A[σ] → EqVal M[σ] M[σ'] B[σ]
+     via EqVal_EqVal_fwd. *)
   asimpl.
-  eapply Val_EqVal_fwd; [exact valM_A | exact eqAB_ty].
+  split.
+  - eapply Val_EqVal_fwd; [exact valM_A | exact eqAB_ty].
+  - eapply EqVal_EqVal_fwd; [exact eqvalM_A | exact eqAB_ty].
 Qed.
 
 Lemma st_abs A B M :
@@ -360,9 +413,11 @@ Proof.
        evM_u'_v'    ↦  evM_u'       (after EvalRel_mono_env to (u' .: ρ))
        evB_u'_ef    ↦  evB_u'       (EvalRel B at (u' .: ρ)) *)
   move=> T1 T2 s1 s2 s3.
-  move=> ρ m Δ σ TS FR VS CD u_sem a_sem WT EvA1 EvA2.
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u_sem a_sem WT EvA1 EvA2.
   cbn in EvA1, EvA2.
   asimpl.
+  have VSl : ValSub Δ Γ σ ρ by exact (EqValSub_ValSub_left VS).
+  split; [|admit].
   dependent destruction WT.
   - (* wt_bot: u_sem = bot. *) apply Val_Bot.
   - (* wt_tuniv: EvA1 forces u_sem = abs, but here u_sem = tuniv. *) done.
@@ -405,6 +460,7 @@ Proof.
       unfold Rec.ValPi.
       exists A[σ], B[⇑σ].
       split; first by apply ms_refl.
+      split; [|admit (* PiAppEq for abstraction — needs adequacyEqSub recursion *)].
       (* PiAppVal: forall u v t Vu APP NB APPg P, typing P A[σ] -> Val P A[σ] -> Val (app abs P) B[P..]. *)
       unfold Rec.PiAppVal.
       intros u v_body t_codom Vu APPgbody NBv APPfpi P TP VP.
@@ -446,7 +502,7 @@ Proof.
         - exact WTu_dom.
         - exact FR. }
       have VS_ext : ValSub Δ (Γ ++ A) (P .: σ) (u .: ρ).
-      { eapply ValSub_cons; [|exact VS].
+      { eapply ValSub_cons; [|exact VSl].
         intros uu Vuu Leu aa hwtu ERAu.
         (* VP : Val Δ P A[σ] (wt_abs_inv1 .. : wt u b_dom).
            Goal: Val Δ P A[σ] hwtu where hwtu : wt uu aa.
@@ -455,7 +511,9 @@ Proof.
            issue as st_app's VT_c.  Admitted. *)
         admit. }
       (* Apply s3 at the extended substitution. *)
-      have h_val := s3 (u .: ρ) m Δ (P .: σ) TS_ext FR_ext VS_ext CD _ _
+      have [h_val _] := s3 (u .: ρ) m Δ (P .: σ) (P .: σ) TS_ext TS_ext
+                       (ConvSub_refl TS_ext) FR_ext
+                       (ValSub_EqValSub VS_ext) CD _ _
                        (wt_abs_inv2 (wt_abs w_keys w_vals V_abs_g WT) Vu APPgbody NBv APPfpi)
                        evM_u evB_u.
       (* h_val : Val Δ M[P .: σ] B[P .: σ] (wt_abs_inv2 ...) *)
@@ -504,19 +562,22 @@ Proof.
        val_app_raw          ↦  val_app_raw         (PiAppVal applied)
    *)
   move=> T1 T2 T3 T4 s1 s2 s3 s4.
-  move=> ρ m Δ σ TS FR VS CD u1 a1 WT1 Ex ER.
-  specialize (s1 ρ m Δ σ TS FR VS CD).
-  specialize (s3 ρ m Δ σ TS FR VS CD).
-  specialize (s4 ρ m Δ σ TS FR VS CD).
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex ER.
+  have VSl : ValSub Δ Γ σ ρ by exact (EqValSub_ValSub_left VS).
+  (* Specialize at (σ, σ') so that .1 still gives Val at σ and .2 gives the
+     off-diagonal EqVal M[σ] M[σ'] / N[σ] N[σ'] we need for the EqVal goal. *)
+  specialize (s1 ρ m Δ σ σ TS TS (ConvSub_refl TS) FR (ValSub_EqValSub VSl) CD).
+  specialize (s3 ρ m Δ σ σ' TS TS' CS FR VS CD).
+  specialize (s4 ρ m Δ σ σ' TS TS' CS FR VS CD).
   cbn in Ex.
   destruct (Raw.is_bot u1) eqn:HB.
   - (* EvalRel (app M N) is bot *)
     destruct u1; try done.
     dependent destruction WT1. cbn.
-    destruct a; try done.
+    split; destruct a; try done.
   -
     have TD : typing Δ N[σ] A[σ].
-    { eapply (substitution_tm); eauto. } 
+    { eapply (substitution_tm); eauto. }
 
     (* EvalRel (app M N) decomposes: there is an argument value v0 such that
        M evaluates to the singleton (v0 ↦ u1) and N evaluates to v0. *)
@@ -569,23 +630,35 @@ Proof.
     move: (le_fun_mono_arg Vf_pi Vv0 Vu_arg C_arg le_arg
              APP_f_pi_v0 APP_f_pi_arg) => [_ le_t_sup].
 
-    (* Apply s3 (semantic_typing of M) at the big witness. *)
-    specialize (s3 _ _ wt_big evF_big evPi).
-    asimpl in s3.
+    (* Apply s3 (semantic_typing of M) at the big witness — extract both
+       Val Δ M[σ] (tpi A B)[σ] and EqVal Δ M[σ] M[σ'] (tpi A B)[σ]. *)
+    move: (s3 _ _ wt_big evF_big evPi) => [s3val s3eqval].
+    asimpl in s3val.
+    asimpl in s3eqval.
     dependent destruction wt_big.
-    cbn in s3.
-    move: s3 => [vt_pi vpi_fun].
+    cbn in s3val.
+    cbn in s3eqval.
+    move: s3val => [vt_pi vpi_fun].
+    move: s3eqval => [_ [vpi_fun_σ [vpi_fun_σ' eqvpi_fun]]].
     (* Further destruct to expose the inner wt_tpi (b_pi, f_pi, ...). *)
     dependent destruction wt_big.
     apply ValTy_Val in vt_pi.
     cbn in vt_pi.
     destruct vt_pi as (A_pi & B_pi & red_pi & _ & _ & _ & vA_pi & piEV & piEE).
     unfold Rec.ValPi in vpi_fun.
-    destruct vpi_fun as (A0 & B0 & red_fun & pav_fun).
+    destruct vpi_fun as (A0 & B0 & red_fun & pav_fun & pae_fun).
+    (* From vpi_fun_σ' extract pae_fun_σ' (PiAppEq for M[σ']). *)
+    unfold Rec.ValPi in vpi_fun_σ'.
+    destruct vpi_fun_σ' as (A0' & B0' & red_fun_σ' & pav_fun_σ' & pae_fun_σ').
+    (* From eqvpi_fun extract paeqv_fun (function-differs, same-arg). *)
+    unfold Rec.EqValPi in eqvpi_fun.
+    destruct eqvpi_fun as (A0_eq & B0_eq & red_eq & paeqv_fun).
     have red_refl : HeadRed (Core.tpi A[σ] B[⇑ (σ)]) (Core.tpi A[σ] B[⇑ (σ)])
       by eapply ms_refl; eauto.
     move: (HeadRed_tpi_det red_fun red_refl) => [eqA_self eqB_self].
     move: (HeadRed_tpi_det red_fun red_pi)   => [eqA_pi   eqB_pi].
+    move: (HeadRed_tpi_det red_fun_σ' red_refl) => [eqA_σ' eqB_σ'].
+    move: (HeadRed_tpi_det red_eq red_refl) => [eqA_eq eqB_eq].
     subst.
 
     (* Validity / non-bot facts. *)
@@ -622,8 +695,9 @@ Proof.
        a single rewrite bridges them.                                       *)
     have WT_u_arg_a : wt u_arg a
       := w u_arg e_sup Vu_arg APP_g_big_arg NBe_sup.
-    move: (s4 u_arg a WT_u_arg_a evA_arg evA_a) => Val_N.
+    move: (s4 u_arg a WT_u_arg_a evA_arg evA_a) => [Val_N EqVal_N].
     erewrite (wt_unique WT_u_arg_a) in Val_N.
+    erewrite (wt_unique WT_u_arg_a) in EqVal_N.
     specialize (pav_fun Val_N).
     (* pav_fun : Val Δ (Core.app M[σ] N[σ]) B[⇑σ][N[σ]..] (wt_abs_inv2 ...) *)
 
@@ -720,18 +794,18 @@ Proof.
         - move=> [j|]; cbn; auto using le_refl.
           apply le_refl, Vρ. }
       (* (5) Build extended substitution typing / fits / ValSub. *)
-      have TS' : typing_subst Δ (N[σ] .: σ) (Γ ++ A)
+      have TS_ext : typing_subst Δ (N[σ] .: σ) (Γ ++ A)
         by eapply typing_subst_cons; eauto.
       have FR' : fits (Γ ++ A) (u' .: ρ)
         by eapply fits_cons; eauto.
       have VS' : ValSub Δ (Γ ++ A) (N[σ] .: σ) (u' .: ρ).
-      { eapply ValSub_cons; [|exact VS].
+      { eapply ValSub_cons; [|exact VSl].
         intros uu Vuu Leu aa hwtu ERAu.
         have ERN_uu : EvalRel N ρ uu by eapply EvalRel_down; eauto.
-        eapply s4; eauto. }
+        destruct (s4 uu aa hwtu ERN_uu ERAu) as [v _]; exact v. }
       (* (6) Apply s2 at extended substitution. *)
       have evU : EvalRel Core.tuniv (u' .: ρ) tuniv by [].
-      move: (s2 (u' .: ρ) m Δ (N[σ] .: σ) TS' FR' VS' CD c tuniv WT_c_univ evB_u'_c evU) => h_val.
+      move: (s2 (u' .: ρ) m Δ (N[σ] .: σ) (N[σ] .: σ) TS_ext TS_ext (ConvSub_refl TS_ext) FR' (ValSub_EqValSub VS') CD c tuniv WT_c_univ evB_u'_c evU) => [h_val _].
       asimpl in h_val.
       (* h_val : Val Δ B[N[σ] .: σ] Core.tuniv WT_c_univ
          Goal  : Val Δ B[N .: var][σ] Core.tuniv WT_c_univ
@@ -745,7 +819,7 @@ Proof.
     erewrite (wt_unique _ WT_e_sup_t_sup) in pav_fun.
 
     move: (@upVal _ Δ _ _ _ _ _ WT_e_sup_t_sup WT_e_sup_c
-                WT_t_sup_univ WT_c_univ le_t_sup_c pav_fun VT_c)=> Val_esup_c. 
+                WT_t_sup_univ WT_c_univ le_t_sup_c pav_fun VT_c)=> Val_esup_c.
 
 
     (* restrictVal: Val (e_sup, c) → Val (u1, c). *)
@@ -753,8 +827,48 @@ Proof.
       := @restrictVal _ Δ _ _ _ _ _ WT_u1_c WT_e_sup_c
                        le_u1_e_sup Val_esup_c.
 
-    (* downVal: Val (u1, c) → Val (u1, a1). *)
-    exact (@downVal _ Δ _ _ _ _ _ WT1 WT_u1_c le_a1_c Val_u1_c).
+    (* ===== EqVal construction =====
+       Build EqVal Δ (app M[σ] N[σ]) (app M[σ'] N[σ']) B[N..][σ] WT1.
+
+       Strategy (mirrors Agda's adequacyConvSub2-App-core, transitivity
+       through (app M[σ'] N[σ])):
+         step1: EqVal (app M[σ] N[σ]) (app M[σ'] N[σ]) — paeqv_fun (fn-differs/arg-same)
+         step2: EqVal (app M[σ'] N[σ]) (app M[σ'] N[σ']) — pae_fun_σ' (PiAppEq using
+                 subst_conv_cross for the conv premise and EqVal_N from s4.2)
+         trans → EqVal (app M[σ] N[σ]) (app M[σ'] N[σ']) at B[⇑σ][N[σ]..] (wt_e_sup_t_sup)
+       Then upEqVal → restrictEqVal → downEqVal to reach WT1.                *)
+    have conv_NN' : conv Δ N[σ] N[σ'] A[σ]
+      by eapply subst_conv_cross; eauto.
+    (* Step 1: paeqv_fun at (u_arg, e_sup, t_sup, ..., N[σ]). *)
+    specialize (paeqv_fun u_arg e_sup t_sup Vu_arg APP_g_big_arg NBe_sup
+                          APP_f_pi_arg N[σ] TD Val_N).
+    (* paeqv_fun : EqVal Δ (app M[σ] N[σ]) (app M[σ'] N[σ]) B[⇑σ][N[σ]..]
+                          (wt_abs_inv2 ...). *)
+    rewrite subst_comm in paeqv_fun.
+    erewrite (wt_unique _ WT_e_sup_t_sup) in paeqv_fun.
+    (* Step 2: pae_fun_σ' at (u_arg, e_sup, t_sup, ..., N[σ], N[σ'], conv, EqVal). *)
+    specialize (pae_fun_σ' u_arg e_sup t_sup Vu_arg APP_g_big_arg NBe_sup
+                            APP_f_pi_arg N[σ] N[σ'] conv_NN' EqVal_N).
+    (* pae_fun_σ' : EqVal Δ (app M[σ'] N[σ]) (app M[σ'] N[σ']) B[⇑σ][N[σ]..]
+                          (wt_abs_inv2 ...). *)
+    rewrite subst_comm in pae_fun_σ'.
+    erewrite (wt_unique _ WT_e_sup_t_sup) in pae_fun_σ'.
+    (* EqVal_trans: combine. *)
+    have EqVal_esup_t_sup : EqVal Δ (Core.app M[σ] N[σ]) (Core.app M[σ'] N[σ']) B[N..][σ] WT_e_sup_t_sup
+      by eapply EqVal_trans; [exact paeqv_fun | exact pae_fun_σ'].
+
+    move: (@upEqVal _ Δ _ _ _ _ _ _ WT_e_sup_t_sup WT_e_sup_c
+                WT_t_sup_univ WT_c_univ le_t_sup_c EqVal_esup_t_sup VT_c)
+      => EqVal_esup_c.
+    have EqVal_u1_c
+      := @restrictEqVal _ Δ _ _ _ _ _ _ WT_u1_c WT_e_sup_c
+                         le_u1_e_sup EqVal_esup_c.
+
+    split.
+    + (* Val Δ (app M[σ] N[σ]) B[N..][σ] WT1 — final downVal. *)
+      exact (@downVal _ Δ _ _ _ _ _ WT1 WT_u1_c le_a1_c Val_u1_c).
+    + (* EqVal Δ (app M[σ] N[σ]) (app M[σ'] N[σ']) B[N..][σ] WT1 — final downEqVal. *)
+      exact (@downEqVal _ Δ _ _ _ _ _ _ WT1 WT_u1_c le_a1_c EqVal_u1_c).
 Qed.
 
 (* t_nat: ctx Γ ⟹ tnat : tuniv 0 *)
@@ -763,8 +877,9 @@ Lemma st_nat :
 (* ------------------------- *)
   semantic_typing Γ Core.tnat Core.tuniv.
 Proof.
-  move=> _ ρ m Δ σ TS FR VS CD u a WT EM EA.
+  move=> _ ρ m Δ σ σ' TS TS' CS FR VS CD u a WT EM EA.
   asimpl.
+  split; [|admit].
   destruct u; cbn in EM; try done.
   - apply Val_Bot.
   - (* u = tnat *)
@@ -772,7 +887,7 @@ Proof.
     + (* a = bot: wt tnat bot impossible *) inversion WT.
     + (* a = tuniv n0; le (tuniv n0) (tuniv 0) ⟹ n0 = 0 *)
       dependent destruction WT. done.
-Qed.
+Admitted.
 
 (* t_zero: ctx Γ ⟹ zero : tnat *)
 Lemma st_zero :
@@ -780,8 +895,9 @@ Lemma st_zero :
 (* ------------------------- *)
   semantic_typing Γ Core.zero Core.tnat.
 Proof.
-  move=> _ ρ m Δ σ TS FR VS CD u a WT EM EA.
+  move=> _ ρ m Δ σ σ' TS TS' CS FR VS CD u a WT EM EA.
   asimpl.
+  split; [|admit].
   destruct u; cbn in EM; try done.
   - apply Val_Bot.
   - (* u = zero *)
@@ -790,7 +906,7 @@ Proof.
     + (* a = tnat *)
       dependent destruction WT.
       cbn. exact ms_refl.
-Qed.
+Admitted.
 
 (* t_succ: M : tnat ⟹ succ M : tnat *)
 Lemma st_succ M :
@@ -799,8 +915,10 @@ Lemma st_succ M :
 (* ------------------------- *)
   semantic_typing Γ (Core.succ M) Core.tnat.
 Proof.
-  move=> T1 ST ρ m Δ σ TS FR VS CD u a WT EM EA.
+  move=> T1 ST ρ m Δ σ σ' TS TS' CS FR VS CD u a WT EM EA.
   asimpl.
+  have VSl : ValSub Δ Γ σ ρ by exact (EqValSub_ValSub_left VS).
+  split; [|admit].
   destruct (Raw.is_bot u) eqn:HU.
   { destruct u; try done. apply Val_Bot. }
   cbn in EM. rewrite HU in EM.
@@ -809,7 +927,7 @@ Proof.
   destruct a; cbn in EA; try done.
   - (* a = bot: wt (succ v0) bot impossible *) inversion WT.
   - (* a = tnat *)
-    dependent destruction WT. 
+    dependent destruction WT.
     cbn.
     exists M[σ]. split; first by apply ms_refl.
     rewrite le_succ in LEs.
@@ -817,8 +935,9 @@ Proof.
     { eapply EvalRel_down with (u := a'); eauto.
       apply fits_valid_env in FR. exact FR. }
     have EvT : EvalRel Core.tnat ρ tnat by [].
-    exact (ST ρ m Δ σ TS FR VS CD u tnat WT EvM_v EvT).
-Qed.
+    move: (ST ρ m Δ σ σ TS TS (ConvSub_refl TS) FR (ValSub_EqValSub VSl) CD u tnat WT EvM_v EvT) => [val_M _].
+    exact val_M.
+Admitted.
 
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
@@ -851,9 +970,11 @@ Proof.
        - building PiEdgeVal via per-edge s2 application,
        - building PiEdgeEq similarly.                     *)
   move=> T1 T2 s1 s2.
-  move=> ρ m Δ σ TS FR VS CD u_sem a_sem WT EvA1 EvA2.
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u_sem a_sem WT EvA1 EvA2.
   asimpl.
   cbn in EvA1, EvA2.
+  have VSl : ValSub Δ Γ σ ρ by exact (EqValSub_ValSub_left VS).
+  split; [|admit].
   dependent destruction WT.
   - (* wt_bot: u_sem = bot. *)
     apply Val_Bot.
@@ -894,8 +1015,9 @@ Proof.
     split; [|split].
     { (* Val Δ A[σ] Core.tuniv (wt_tpi_dom (wt_tpi ...)) — domain ValTy. *)
       have evU_b : EvalRel Core.tuniv ρ tuniv by [].
-      exact (s1 ρ m Δ σ TS FR VS CD b_dom tuniv
-               (wt_tpi_dom (wt_tpi WT w_dom w_codom V_tpi)) evA_b evU_b). }
+      move: (s1 ρ m Δ σ σ TS TS (ConvSub_refl TS) FR (ValSub_EqValSub VSl) CD b_dom tuniv
+               (wt_tpi_dom (wt_tpi WT w_dom w_codom V_tpi)) evA_b evU_b) => [v _].
+      exact v. }
     + (* PiEdgeVal: forall u v Vu APP NB WTu N typing-N Val-N,
            ValTy Δ B[N..] (wt_tpi_inv2 (wt_tpi ...) Vu APP NB). *)
       intros u v_codom Vu APPfc NBv WTu_dom N TN VN.
@@ -920,13 +1042,15 @@ Proof.
         - exact WTu_dom.
         - exact FR. }
       have VS_ext : ValSub Δ (Γ ++ A) (N .: σ) (u .: ρ).
-      { eapply ValSub_cons; [|exact VS].
+      { eapply ValSub_cons; [|exact VSl].
         intros uu Vuu Leu aa hwtu ERAu.
         (* Same compatibility issue as in st_abs / st_app's VT_c.
            Admitted. *)
         admit. }
       have evU : EvalRel Core.tuniv (u .: ρ) tuniv by [].
-      have h_val := s2 (u .: ρ) m Δ (N .: σ) TS_ext FR_ext VS_ext CD _ _
+      have [h_val _] := s2 (u .: ρ) m Δ (N .: σ) (N .: σ) TS_ext TS_ext
+                       (ConvSub_refl TS_ext) FR_ext
+                       (ValSub_EqValSub VS_ext) CD _ _
                        (wt_tpi_inv2 (wt_tpi WT w_dom w_codom V_tpi) Vu APPfc NBv)
                        evB_u evU.
       (* h_val : Val Δ B[N .: σ] Core.tuniv (wt_tpi_inv2 ...)
@@ -949,8 +1073,9 @@ Lemma st_univ :
 (* ------------------------- *)
   semantic_typing Γ Core.tuniv Core.tuniv.
 Proof.
-  move=> _ ρ m Δ σ TS FR VS CD u a WT EM EA.
+  move=> _ ρ m Δ σ σ' TS TS' CS FR VS CD u a WT EM EA.
   asimpl.
+  split; [|admit].
   destruct u; cbn in EM; try done.
   - apply Val_Bot.
   - (* u = tuniv n0; le (tuniv n0) (tuniv i) ⟹ n0 = i *)
@@ -959,7 +1084,7 @@ Proof.
     + (* a = tuniv n1; le (tuniv n1) (tuniv j) ⟹ n1 = j *)
       dependent destruction WT.
       cbn. done.
-Qed.
+Admitted.
 
 
 (* -------- semantic conversion rules -------- *)
@@ -993,20 +1118,19 @@ Proof.
        (3) Bridge the right-hand-side M[σ1] ↔ M[σ2] via the fundamental
            lemma for semantic substitution equivalence (admitted). *)
   move=> T1 h_typ.
-  move=> ρ m Δ σ1 σ2 TS1 TS2 FR VS_eq CD u a WT EM EA.
-  (* Step 1: get Val at σ1. *)
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA.
+  (* Step 1: get Val and EqVal at (σ1, σ2) from h_typ. *)
   have VS1 : ValSub Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
-  have val_M : Val Δ M[σ1] A[σ1] WT
-    by exact (h_typ ρ m Δ σ1 TS1 FR VS1 CD u a WT EM EA).
-  (* Step 2: diagonal Val_EqVal. *)
-  have eq_diag : EqVal Δ M[σ1] M[σ1] A[σ1] WT
-    by apply Val_EqVal; exact val_M.
-  (* Step 3: bridge M[σ1] ↔ M[σ2] on the right via the semantic substitution
-     equivalence implicit in VS_eq.  This is the fundamental lemma for
-     EqValSub at any well-typed term, proved analogously to adequacyEqSub2
-     for conv-refl with non-trivial substitution.  Admitted. *)
-  admit.
-Admitted.
+  move: (h_typ ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD u a WT EM EA)
+    => [val_M _].
+  move: (h_typ ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA)
+    => [_ eq_M].
+  split.
+  - (* EqVal Δ M[σ1] M[σ1] A[σ1] WT — diagonal via Val_EqVal. *)
+    apply Val_EqVal. exact val_M.
+  - (* EqVal Δ M[σ1] M[σ2] A[σ1] WT — directly from h_typ at (σ1, σ2). *)
+    exact eq_M.
+Qed.
 
 (* c_sym: M ≡ N : A ⟹ N ≡ M : A *)
 Lemma sc_sym M N A :
@@ -1014,7 +1138,32 @@ Lemma sc_sym M N A :
   semantic_conv2 Γ M N A ->
 (* ------------------------- *)
   semantic_conv2 Γ N M A.
-Proof. Admitted.
+Proof.
+  (* Following Adequacy2.agda's conv-sym (lines 610-615):
+       huN  = convSound-inv d → bridge EvalRel N ρ u to EvalRel M ρ u
+       eq   = adequacyEqSub2 d ... huN → EqVal M[σ] N[σ] A[σ] WT
+       result = EqVal2-sym eq → EqVal N[σ] M[σ] A[σ] WT
+     Coq counterparts:
+       conv_EvalRel CN's bwd direction ≈ convSound-inv
+       hMN ≈ adequacyEqSub2 d
+       EqVal_sym ≈ EqVal2-sym
+     In Agda a single σ is used everywhere so swap is trivial.  Coq's
+     semantic_conv2 carries (σ1, σ2) potentially different, which makes
+     swapping require a σ1↔σ2 bridge on the type substitution. *)
+  move=> CN hMN.
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EN EA.
+  (* Step 1: bridge EvalRel N ρ u → EvalRel M ρ u via conv_EvalRel's bwd. *)
+  move: (conv_EvalRel CN FR) => [_ [_ [_ bwd]]].
+  have EM : EvalRel M ρ u by apply bwd; exact EN.
+  (* Step 2: apply hMN to get EqVal pair (M[σ1] N[σ1] and M[σ1] N[σ2]) at A[σ1]. *)
+  move: (hMN ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA) => [eq_MN_diag eq_MN_off].
+  split.
+  - (* EqVal Δ N[σ1] M[σ1] A[σ1] WT *)
+    eapply EqVal_sym. exact eq_MN_diag.
+  - (* EqVal Δ N[σ1] M[σ2] A[σ1] WT — σ1/σ2 crossed.  Requires bridging M[σ1]↔M[σ2]
+       via the FTLR for the M-side, currently not directly derivable. *)
+    admit.
+Admitted.
 
 (* c_trans: M ≡ N : A, N ≡ P : A ⟹ M ≡ P : A *)
 Lemma sc_trans M N P A :
@@ -1052,10 +1201,12 @@ Proof.
        g_big, b_pi, f_pi ↦ post-destruct names
        paeqv_fun        ↦ paeqv_fun (PiAppEqVal extracted from EqVal) *)
   move=> T1 T2 CN T4 s1 s2 scN s4.
-  move=> ρ m Δ σ1 σ2 TS1 TS2 FR VS_eq CD u1 a1 WT1 Ex ER.
-  specialize (s1 ρ m Δ σ1 TS1 FR (EqValSub_ValSub_left VS_eq) CD).
-  specialize (s4 ρ m Δ σ1 TS1 FR (EqValSub_ValSub_left VS_eq) CD).
-  specialize (scN ρ m Δ σ1 σ2 TS1 TS2 FR VS_eq CD).
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u1 a1 WT1 Ex ER.
+  have VSl : ValSub Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
+  specialize (s1 ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VSl) CD).
+  specialize (s4 ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VSl) CD).
+  specialize (scN ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD).
+  split; [|admit].
   cbn in Ex.
   destruct (Raw.is_bot u1) eqn:HB.
   - (* EvalRel (app N M) is bot *)
@@ -1104,13 +1255,13 @@ Proof.
     move: (le_fun_mono_arg Vf_pi Vv0 Vu_arg C_arg le_arg
              APP_f_pi_v0 APP_f_pi_arg) => [_ le_t_sup].
 
-    (* Apply scN (semantic_conv2 of N N') at the big witness.  Yields EqVal. *)
-    specialize (scN _ _ wt_big evF_big evPi).
-    asimpl in scN.
+    (* Apply scN (semantic_conv2 of N N') at the big witness — project diagonal. *)
+    move: (scN _ _ wt_big evF_big evPi) => [scN_diag _].
+    asimpl in scN_diag.
     dependent destruction wt_big.
-    cbn in scN.
+    cbn in scN_diag.
     (* EqVal at (abs g_big, tpi b f) = ValTy /\ ValPi(M) /\ ValPi(N) /\ EqValPi. *)
-    move: scN => [vt_pi [vpi_N [vpi_N' eqvpi_fun]]].
+    move: scN_diag => [vt_pi [vpi_N [vpi_N' eqvpi_fun]]].
     dependent destruction wt_big.
     apply ValTy_Val in vt_pi.
     cbn in vt_pi.
@@ -1147,7 +1298,7 @@ Proof.
     (* Discharge the Val premise via s4 (semantic_typing of M). *)
     have WT_u_arg_a : wt u_arg a
       := w u_arg e_sup Vu_arg APP_g_big_arg NBe_sup.
-    move: (s4 u_arg a WT_u_arg_a evA_arg evA_a) => Val_M.
+    move: (s4 u_arg a WT_u_arg_a evA_arg evA_a) => [Val_M _].
     erewrite (wt_unique WT_u_arg_a) in Val_M.
     specialize (paeqv_fun Val_M).
 
@@ -1222,13 +1373,15 @@ Proof.
       have FR' : fits (Γ ++ A) (u' .: ρ)
         by eapply fits_cons; eauto.
       have VS' : ValSub Δ (Γ ++ A) (M[σ1] .: σ1) (u' .: ρ).
-      { eapply ValSub_cons; [|exact (EqValSub_ValSub_left VS_eq)].
+      { eapply ValSub_cons; [|exact VSl].
         intros uu Vuu Leu aa hwtu ERAu.
         have ERN_uu : EvalRel M ρ uu by eapply EvalRel_down; eauto.
-        eapply s4; eauto. }
+        destruct (s4 uu aa hwtu ERN_uu ERAu) as [v _]; exact v. }
       have evU : EvalRel Core.tuniv (u' .: ρ) tuniv by [].
-      move: (s2 (u' .: ρ) m Δ (M[σ1] .: σ1) TS' FR' VS' CD c tuniv WT_c_univ evB_u'_c evU)
-        => h_val.
+      move: (s2 (u' .: ρ) m Δ (M[σ1] .: σ1) (M[σ1] .: σ1) TS' TS'
+                (ConvSub_refl TS') FR'
+                (ValSub_EqValSub VS') CD c tuniv WT_c_univ evB_u'_c evU)
+        => [h_val _].
       asimpl in h_val.
       auto_unfold in *. rewrite eq_subst. exact h_val. }
 
@@ -1244,17 +1397,11 @@ Proof.
       := @restrictEqVal _ Δ _ _ _ _ _ _ WT_u1_c WT_e_sup_c
                          le_u1_e_sup EqVal_esup_c.
 
-    (* downEqVal: EqVal (u1, c) → EqVal (u1, a1).
-       Bridges to EqVal at the goal type, but PiAppEqVal returns
-       EqVal of (app N[σ1] M[σ1]) (app N'[σ2] M[σ1]) — with M[σ1]
-       in both slots — while the goal requires M[σ2] on the right.
-       Bridging M[σ1] ≡ M[σ2] requires the semantic_conv2 of M (i.e.,
-       sc_refl applied to T4), which is itself admitted.  Left admitted. *)
-    have eq_step : EqVal Δ (Core.app N[σ1] M[σ1]) (Core.app N'[σ2] M[σ1])
-                        B[M..][σ1] WT1
-      by exact (@downEqVal _ Δ _ _ _ _ _ _ WT1 WT_u1_c le_a1_c EqVal_u1_c).
-    (* Now bridge M[σ1] = M[σ2] on the right via sc_refl-style reasoning. *)
-    admit.
+    (* downEqVal: EqVal (u1, c) → EqVal (u1, a1). With diagonal scN projection,
+       paeqv_fun produces EqVal (app N[σ1] M[σ1]) (app N'[σ1] M[σ1]) — both
+       sides at σ1 — matching the diagonal goal. *)
+    asimpl.
+    exact (@downEqVal _ Δ _ _ _ _ _ _ WT1 WT_u1_c le_a1_c EqVal_u1_c).
 Admitted.
 
 (* c_app2: N : (tpi A B), M ≡ M' : A ⟹ app N M ≡ app N M' : B[M..] *)
@@ -1269,7 +1416,106 @@ Lemma sc_app2 A B N M M' :
   semantic_conv2 Γ M M' A ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.app N M) (Core.app N M') B[M..].
-Proof. Admitted.
+Proof.
+  (* Following Adequacy2.agda's adequacyEqSub2-App-arg(-core) (lines 1983-2200).
+     Variable naming follows st_app/sc_app1.  Differences from sc_app1:
+       - N is typed (not conv'd) — use sN to get Val of N[σ1] at (tpi A B)[σ1].
+       - M is conv'd to M' — use scM to get EqVal of M[σ1] M'[σ2] at A[σ1].
+       - Result is EqVal of (app N M)[σ1] (app N M')[σ2] at (B[M..])[σ1].
+     The combining step needs PiAppEq (one function applied to two conv'd
+     args), which is defined in Rec but not exposed by the Val structure
+     of N at (tpi b_pi f_pi).  Bridging requires either:
+       (a) An ad-hoc derivation of PiAppEq from PiAppVal + conv, or
+       (b) Combining two PiAppVal applications (for M and M') via a separate
+           Val→EqVal step.
+     Either route is structural work not currently provided by the Val
+     fixpoint.  Below we set up the typed-enlargement scaffold and admit
+     at the combining step. *)
+  move=> T1 T2 T3 CM s1 s2 sN scM.
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u1 a1 WT1 Ex ER.
+  have VS1 : ValSub Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
+  specialize (s1 ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD).
+  specialize (sN ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD).
+  specialize (scM ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD).
+  split; [|admit].
+  cbn in Ex.
+  destruct (Raw.is_bot u1) eqn:HB.
+  - (* EvalRel (app N M) is bot — EqVal_Bot. *)
+    destruct u1; try done.
+    dependent destruction WT1. cbn.
+    destruct a; try done.
+  -
+    (* For PiAppEq-style use, we would need typing of M[σ1] at A[σ1].
+       The hypothesis CM : conv Γ M M' A only gives conv, not direct typing.
+       This is the structural mismatch with PiAppVal's typing premise. *)
+    move: Ex => [v0 [evF_sing evA_v0]].
+    (* Typed enlargement of N via T3 (typing Γ N (tpi A B)). *)
+    move: (typing_EvalRel T3 FR) => typed_f.
+    unfold InvTyped in typed_f.
+    move: (typed_f _ evF_sing) =>
+      [u_big [a_pi [wt_big [le_sing [evF_big evPi]]]]].
+    clear typed_f.
+    unfold singleton in le_sing. rewrite HB in le_sing.
+    destruct u_big as [| | | | | | g_big]; try done.
+    inversion wt_big. subst.
+    rewrite le_abs in le_sing.
+    cbn in le_sing.
+    destruct (app g_big v0) eqn:APP_g_big_v0; try done.
+    rewrite Bool.andb_true_r in le_sing.
+
+    have Vg_big : valid_fun g_big by eauto with valid.
+    have Vu1 : valid u1 by eapply wt_valid_tm; eauto.
+    have Vv0 : valid v0 by eapply EvalRel_valid; eauto.
+
+    (* Typed enlargement of M via conv_EvalRel CM (using forward direction
+       on InvConv). *)
+    move: (conv_EvalRel CM FR) => [InvTypM [InvTypM' _]].
+    move: (InvTypM _ evA_v0) =>
+      [u_arg [t_arg [wt_arg [le_arg [evA_arg evT_arg]]]]].
+    clear InvTypM.
+    have Vu_arg : valid u_arg by eauto with valid.
+
+    destruct (valid_app_exists Vg_big Vu_arg) as [e_sup [APP_g_big_arg Ve_sup]].
+    move: (le_valid_compatible Vu_arg le_arg) => C_arg.
+    move: (le_fun_mono_arg Vg_big Vv0 Vu_arg C_arg le_arg APP_g_big_v0 APP_g_big_arg)
+      => [_ le_e_sup].
+
+    have Vf_pi : valid_fun g by eauto with valid.
+    destruct (valid_app_exists Vf_pi Vu_arg) as [t_sup [APP_f_pi_arg Vt_sup]].
+    destruct (valid_app_exists Vf_pi Vv0) as [t_sup_v0 [APP_f_pi_v0 Vt_sup_v0]].
+    move: (le_fun_mono_arg Vf_pi Vv0 Vu_arg C_arg le_arg
+             APP_f_pi_v0 APP_f_pi_arg) => [_ le_t_sup].
+
+    (* Apply sN (semantic_typing of N) at the big witness — project Val. *)
+    move: (sN _ _ wt_big evF_big evPi) => [sNval _].
+    asimpl in sNval.
+    dependent destruction wt_big.
+    cbn in sNval.
+    move: sNval => [vt_pi vpi_fun].
+    dependent destruction wt_big.
+    apply ValTy_Val in vt_pi.
+    cbn in vt_pi.
+    destruct vt_pi as (A_pi & B_pi & red_pi & _ & _ & _ & vA_pi & piEV & piEE).
+    unfold Rec.ValPi in vpi_fun.
+    destruct vpi_fun as (A0 & B0 & red_fun & pav_fun & pae_fun).
+    have red_refl : HeadRed (Core.tpi A[σ1] B[⇑ (σ1)]) (Core.tpi A[σ1] B[⇑ (σ1)])
+      by eapply ms_refl; eauto.
+    move: (HeadRed_tpi_det red_fun red_refl) => [eqA_self eqB_self].
+    move: (HeadRed_tpi_det red_fun red_pi)   => [eqA_pi   eqB_pi].
+    subst.
+
+    (* From here, combining requires PiAppEq (one function, two conv'd args).
+       The Val structure of N only exposes PiAppVal.  To finish:
+         - Apply pav_fun with M[σ1]'s Val to get Val of (app N[σ1] M[σ1]).
+         - Apply pav_fun (transported through CM) with M'[σ2]'s Val to get
+           Val of (app N[σ1] M'[σ2]).
+         - Combine via the EqVal-of-arg (from scM) into the desired EqVal
+           of (app N[σ1] M[σ1]) (app N[σ1] M'[σ2]).
+       The combining step has no direct support in the current Val/EqVal
+       structure and requires adding a "PiAppEq-from-Val+conv" lemma.
+       Admitted. *)
+    admit.
+Admitted.
 
 (* c_beta: A, B, body N, arg M ⟹ app (abs A N) M ≡ N[M..] : B[M..] *)
 Lemma sc_beta A B M N :
@@ -1575,7 +1821,7 @@ Proof.
   move:
     (@adequacyEqSub _ Γ A0 (Core.tpi B1 F1) Core.tuniv Cv) => ev2.
   unfold semantic_conv2 in ev2.
-  specialize (ev2 ρ _ Γ σ σ TSσ TSσ Fρ EVSσ CΓ
+  specialize (ev2 ρ _ Γ σ σ TSσ TSσ (ConvSub_id CΓ) Fρ EVSσ CΓ
        u tuniv Hwt EvA0 EvUni) as ev2.
   (* ev2 : EqVal Γ A0[σ] (tpi B1 F1)[σ] (tuniv i)[σ] Hwt *)
 
@@ -1587,7 +1833,7 @@ Proof.
   dependent destruction Hwt.
   cbn in ev2.
 
-  destruct ev2 as [_ [_ EQTy]].
+  destruct ev2 as [[_ [_ EQTy]] _].
   cbn in EQTy.
   destruct EQTy as [_ [_ ExA]].
   destruct ExA as [A [B [HRA0 [A' [B' rest]]]]].

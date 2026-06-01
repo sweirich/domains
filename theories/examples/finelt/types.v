@@ -83,6 +83,131 @@ Inductive wt : elt -> elt -> Type :=
     wt (abs f) (tpi a g).
 
 
+From Stdlib Require Import Lia Inverse_Image Wellfounded.Inclusion Wf_nat.
+
+Inductive wt_ord := 
+  | wt_ord_zero : wt_ord
+  | wt_ord_succ : wt_ord -> wt_ord 
+  | wt_ord_tpi : wt_ord -> 
+      (forall (u v : elt), wt_ord) ->
+      (forall (u v t : elt), wt_ord) ->
+      wt_ord
+  | wt_ord_abs :
+    (forall (u v : elt), wt_ord) -> 
+    (forall (u v t : elt), wt_ord) -> 
+    wt_ord ->
+    wt_ord.
+
+Fixpoint lt_wt_ord (w1 w2 : wt_ord ) : Prop := 
+  match w1, w2 with 
+  | wt_ord_zero , wt_ord_zero => False
+  | wt_ord_zero , _ => True 
+  | wt_ord_succ _ , wt_ord_zero => False
+  | wt_ord_succ n1, wt_ord_succ n2 =>  lt_wt_ord n1 n2 
+  | wt_ord_succ _ , _ => True 
+  | wt_ord_tpi _ _ _ , wt_ord_zero => False
+  | wt_ord_tpi _ _ _ , wt_ord_succ _ => False
+  | wt_ord_tpi h1 h2 h3, wt_ord_tpi h1' h2' h3' => 
+      lt_wt_ord h1 h1' /\   
+      (forall u v, 
+        lt_wt_ord (h2 u v) (h2' u v)) /\
+      (forall u v t, 
+        lt_wt_ord (h3 u v t) (h3' u v t))
+  | wt_ord_tpi _ _ _ , _ => True
+  | wt_ord_abs h1 h2 h3, wt_ord_abs h1' h2' h3' => 
+      (forall u v, 
+        lt_wt_ord (h1 u v) (h1' u v)) /\
+      (forall u v t, 
+        lt_wt_ord (h2 u v t) (h2' u v t)) /\
+     lt_wt_ord h3 h3'
+  | wt_ord_abs h1 h2 h3, _ => False
+  end.
+        
+
+(* Acc on each constructor, built bottom-up via the strict hierarchy
+   zero < succ < tpi < abs. *)
+
+Lemma acc_zero : Acc lt_wt_ord wt_ord_zero.
+Proof.
+  constructor. intros y Hy. destruct y; cbn in Hy; try done.
+Qed.
+
+(* Acc (succ n) from Acc n via Acc-induction. *)
+Lemma acc_succ_from_acc : forall n, Acc lt_wt_ord n -> Acc lt_wt_ord (wt_ord_succ n).
+Proof.
+  intros n Hn.
+  induction Hn as [n _ IHn].
+  constructor. intros y Hy. destruct y; cbn in Hy.
+  - apply acc_zero.
+  - apply IHn. exact Hy.
+  - contradiction.
+  - contradiction.
+Qed.
+
+(* Acc (tpi h1 h2 h3) given Acc on h1, h2 u v, h3 u v t AND Acc on
+   wt_ord_zero and on (wt_ord_succ y) for every y. *)
+(*
+Lemma acc_tpi_from_accs : forall h1 h2 h3,
+  Acc lt_wt_ord h1 ->
+  (forall u v, Acc lt_wt_ord (h2 u v)) ->
+  (forall u v t, Acc lt_wt_ord (h3 u v t)) ->
+  Acc lt_wt_ord (wt_ord_tpi h1 h2 h3).
+Proof.
+  intros h1 h2 h3 H1 H2 H3.
+  constructor. intros y Hy. destruct y; cbn in Hy.
+  - (* y = zero *) apply acc_zero.
+  - (* y = succ y' *) 
+    eapply acc_succ_from_acc.
+  - (* y = tpi h1' h2' h3' (structural) *)
+    destruct Hy as [Hh1 [Hh2 Hh3]].
+    apply tpi_acc.
+    + eapply Acc_inv. exact H1. exact Hh1.
+    + intros u v. eapply Acc_inv. apply H2. apply Hh2.
+    + intros u v t. eapply Acc_inv. apply H3. apply Hh3.
+  - contradiction.
+Qed.
+
+(* Acc (abs h1 h2 h3) given Acc on h1 u v, h2 u v t, h3 AND Acc on
+   wt_ord_zero, (wt_ord_succ y) for every y, and (wt_ord_tpi g1 g2 g3) for
+   every g1, g2, g3. *)
+Lemma acc_abs_from_accs : forall h1 h2 h3,
+  (forall u v, Acc lt_wt_ord (h1 u v)) ->
+  (forall u v t, Acc lt_wt_ord (h2 u v t)) ->
+  Acc lt_wt_ord h3 ->
+  (forall y, Acc lt_wt_ord (wt_ord_succ y)) ->
+  (forall g1 g2 g3, Acc lt_wt_ord (wt_ord_tpi g1 g2 g3)) ->
+  Acc lt_wt_ord (wt_ord_abs h1 h2 h3).
+Proof.
+  intros h1 h2 h3 H1 H2 H3 Hsucc Htpi.
+  revert h1 h2 h3 H1 H2 H3.
+  fix abs_acc 6.
+  intros h1 h2 h3 H1 H2 H3.
+  constructor. intros y Hy. destruct y; cbn in Hy.
+  - apply acc_zero.
+  - apply Hsucc.
+  - apply Htpi.
+  - (* y = abs h1' h2' h3' (structural) *)
+    destruct Hy as [Hh1 [Hh2 Hh3]].
+    apply abs_acc.
+    + intros u v. eapply Acc_inv. apply H1. apply Hh1.
+    + intros u v t. eapply Acc_inv. apply H2. apply Hh2.
+    + eapply Acc_inv. exact H3. exact Hh3.
+Qed. *)
+
+
+Lemma well_founded_lt_wt_ord : well_founded lt_wt_ord.
+Proof.
+Admitted.
+(*
+  red.
+   intros wto. induction wto.
+  - (* zero *) apply acc_zero.
+  - (* succ wto, IH : Acc wto *)
+    apply acc_succ_from_acc. exact IHwto.
+  - (* tpi h1 h2 h3, IHs : Acc h1, forall u v Acc (h2 u v), forall u v t Acc (h3 u v t) *)
+Admitted.
+*)
+
 
 (* Uniqueness of [wt] (and its mutual companions) derivations.
    Constructors that hold positive content recurse on the sub-derivations;
