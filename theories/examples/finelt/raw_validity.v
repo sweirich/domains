@@ -235,36 +235,37 @@ Definition  PiEdgeEq {n} (Γ : Ctx n)
 Definition PiAppVal {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) : Prop :=
-  forall u v t (Vu : valid u) 
-  (APP: app f u = Some v) (NB: ~ is_bot v) 
-  (APPg : app g u = Some t)
-  (P : Tm n), typing Γ P A0 -> 
-              Val  Γ P A0 (wt_abs_inv1 h Vu APP NB) -> 
-              Val  Γ (Core.app M P) B0[P..] 
-                  (wt_abs_inv2 h Vu APP NB APPg). 
+  forall ui vi (Hin : In (ui, vi) f) v t
+  (APP : app f ui = Some v)
+  (APPg : app g ui = Some t)
+  (P : Tm n), typing Γ P A0 ->
+              Val  Γ P A0 (wt_abs_inv1 h Hin) ->
+              Val  Γ (Core.app M P) B0[P..]
+                  (wt_abs_inv2 h Hin APP APPg).
 
 Definition PiAppEq {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
-  (h : wt (abs f) (tpi b g))  := 
-  forall u v t (Vu : valid u) 
-    (APP: app f u = Some v) (NB: ~ is_bot v) 
-    (APPg : app g u = Some t)
+  (h : wt (abs f) (tpi b g))  :=
+  forall ui vi (Hin : In (ui, vi) f) v t
+    (APP : app f ui = Some v)
+    (APPg : app g ui = Some t)
     (N1 N2 : Tm n),
     conv Γ N1 N2 A0 ->
-    EqVal  Γ N1 N2 A0 (wt_abs_inv1 h Vu APP NB) ->
-    EqVal  Γ (Core.app M N1) (Core.app M N2) B0[N1..] 
-          (wt_abs_inv2 h Vu APP NB APPg).
-    
+    EqVal  Γ N1 N2 A0 (wt_abs_inv1 h Hin) ->
+    EqVal  Γ (Core.app M N1) (Core.app M N2) B0[N1..]
+          (wt_abs_inv2 h Hin APP APPg).
+
 Definition PiAppEqVal {n} (Γ : Ctx n)
   (M N : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) :=
-  forall  u v t (Vu : valid u) 
-  (APP: app f u = Some v) (NB: ~ is_bot v) 
-  (APPg : app g u = Some t) (P : Tm n),
+  forall ui vi (Hin : In (ui, vi) f) v t
+  (APP : app f ui = Some v)
+  (APPg : app g ui = Some t)
+  (P : Tm n),
         typing Γ P A0 ->
-        Val  Γ P A0 (wt_abs_inv1 h Vu APP NB) ->
+        Val  Γ P A0 (wt_abs_inv1 h Hin) ->
         EqVal  Γ (Core.app M P) (Core.app N P) B0[P..]
-          (wt_abs_inv2 h Vu APP NB APPg).
+          (wt_abs_inv2 h Hin APP APPg).
 
 Definition ValPi {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) g b f (h : wt (abs g) (tpi b f)):=

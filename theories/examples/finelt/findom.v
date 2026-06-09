@@ -3232,7 +3232,87 @@ Proof.
   destruct (compatible_fun l l0) eqn:h2; try done.
  Qed.
 
-(** * inversion lemmas for le *)
+(* Inverse of valid_append: validity of f ++ g entails validity of each
+   piece plus compatibility between them. *)
+Lemma valid_fun_append_inv f g :
+  valid_fun (f ++ g) ->
+  valid_fun f /\ valid_fun g /\ compatible_fun f g.
+Proof.
+  move=> /andP [/andP [Cfg NBfg] Valfg].
+  unfold compatible_fun in Cfg. rewrite forallb_app in Cfg.
+  move: Cfg => /andP [Cf_app Cg_app].
+  unfold no_bot_result in NBfg. rewrite forallb_app in NBfg.
+  move: NBfg => /andP [NBf NBg].
+  rewrite forallb_app in Valfg.
+  move: Valfg => /andP [Valf Valg].
+  (* From Cf_app (forallb (coherent_with (f ++ g)) f) extract: f-f and f-g *)
+  have Cff : compatible_fun f f.
+  { unfold compatible_fun. apply /forallb_forall => p Hp.
+    move: Cf_app => /forallb_forall Cf_app.
+    move: (Cf_app p Hp). destruct p as [u v]. unfold coherent_with.
+    rewrite forallb_app => /andP [Cf_p _]. exact Cf_p. }
+  have Cfg' : compatible_fun f g.
+  { unfold compatible_fun. apply /forallb_forall => p Hp.
+    move: Cf_app => /forallb_forall Cf_app.
+    move: (Cf_app p Hp). destruct p as [u v]. unfold coherent_with.
+    rewrite forallb_app => /andP [_ Cg_p]. exact Cg_p. }
+  have Cgg : compatible_fun g g.
+  { unfold compatible_fun. apply /forallb_forall => p Hp.
+    move: Cg_app => /forallb_forall Cg_app.
+    move: (Cg_app p Hp). destruct p as [u v]. unfold coherent_with.
+    rewrite forallb_app => /andP [_ Cg_p]. exact Cg_p. }
+  repeat split.
+  - unfold valid_fun. apply /andP; split; [apply /andP; split|]; assumption.
+  - unfold valid_fun. apply /andP; split; [apply /andP; split|]; assumption.
+  - exact Cfg'.
+Qed.
+
+Lemma le_fun_append f g f1 g1 :
+ valid_fun (f ++ g) ->
+ valid_fun (f1 ++ g1) ->
+ le_fun f f1 -> le_fun g g1 -> le_fun (f ++ g) (f1 ++ g1).
+Proof.
+  move=> Vfg V1g1 LF LG.
+  destruct (valid_fun_append_inv V1g1) as [Vf1 [Vg1 Cf1g1]].
+  unfold le_fun. rewrite forallb_app. apply /andP; split.
+  - (* f side *)
+    apply /forallb_forall => -[ui vi] Hf.
+    have Hin_fg : In (ui, vi) (f ++ g) by apply in_or_app; left.
+    destruct (valid_fun_subterms_prop Vfg Hin_fg) as [Vui Vvi].
+    move: LF => /forallb_forall LF.
+    move: (LF (ui, vi) Hf) => /=.
+    destruct (app f1 ui) as [vf|] eqn:APPf1; last done.
+    move=> Lvi_vf.
+    destruct (valid_app_exists Vg1 Vui) as [vg [APPg1 Vvg]].
+    have Vvf : valid vf by eapply (valid_app Vf1 Vui APPf1).
+    have Cvfvg : compatible vf vg
+      by eapply compatible_app; eauto.
+    destruct (compatible_lub_exists Cvfvg) as [w LUB].
+    rewrite (app_append APPf1 APPg1) /= LUB.
+    have Vw : valid w
+      by eapply (valid_app V1g1 Vui); rewrite (app_append APPf1 APPg1) /= LUB.
+    have Le_vf_w : le vf w by eapply le_lub_left; eauto.
+    eapply le_trans; [exact Vvi | exact Vvf | exact Vw | exact Lvi_vf | exact Le_vf_w].
+  - (* g side — symmetric *)
+    apply /forallb_forall => -[ui vi] Hg.
+    have Hin_fg : In (ui, vi) (f ++ g) by apply in_or_app; right.
+    destruct (valid_fun_subterms_prop Vfg Hin_fg) as [Vui Vvi].
+    move: LG => /forallb_forall LG.
+    move: (LG (ui, vi) Hg) => /=.
+    destruct (app g1 ui) as [vg|] eqn:APPg1; last done.
+    move=> Lvi_vg.
+    destruct (valid_app_exists Vf1 Vui) as [vf [APPf1 Vvf]].
+    have Vvg : valid vg by eapply (valid_app Vg1 Vui APPg1).
+    have Cvfvg : compatible vf vg
+      by eapply compatible_app; eauto.
+    destruct (compatible_lub_exists Cvfvg) as [w LUB].
+    rewrite (app_append APPf1 APPg1) /= LUB.
+    have Vw : valid w
+      by eapply (valid_app V1g1 Vui); rewrite (app_append APPf1 APPg1) /= LUB.
+    have Le_vg_w : le vg w by eapply le_lub_right; eauto.
+    eapply le_trans; [exact Vvi | exact Vvg | exact Vw | exact Lvi_vg | exact Le_vg_w].
+Qed.
+
 
 
 

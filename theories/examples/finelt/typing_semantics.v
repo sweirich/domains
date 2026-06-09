@@ -4,8 +4,18 @@
 
    Theorem 1 (typing_EvalRel):
        Γ ⊢ M : A   and forall ρ, Fits Γ ρ  implies InvTyped Γ M A ρ
-       i.e. for every u with EvalRel M ρ u, there exist v, a such that
+
+       i.e. for every u s.t. EvalRel M ρ u, there exist v a such that
        u ≤ v, EvalRel M ρ v, wt v a, and EvalRel A ρ a.
+
+   NOTE: why is InvTyped not the simpler
+            exists a, EvalRel A ρ a and wt v a ?
+
+   because, the definition of EvalRel_fun says that for any argument u 
+   there is some well-typed x that approximates it that can be added 
+   to the body.
+
+         interpretation includes ill-typed fin elts?
 
    Conversion soundness (conv_EvalRel):
        Γ ⊢ M = N : A   and   Fits Γ ρ
@@ -16,11 +26,6 @@
        agda/domain-semantics/TypingSemantics.agda
        agda/domain-semantics/LemmaForTS.agda
 
-   Note: the Coq formulation differs from the Agda one in that we use
-   [wt u a] (well-typedness) directly instead of the Agda [FinMem u a]
-   relation against codes. This means many helper lemmas (Selection,
-   replaceKeys, mapEdges, Pi-edgewise, etc.) from the Agda development
-   are inlined into the EvalRel definitions and need not be repeated.
 *)
 
 From Stdlib Require Import Relations List Program
@@ -139,9 +144,16 @@ Qed.
    See LemmaForTS.agda Part 2.
    ===================================================================== *)
 
+
 Definition Typed {n:nat} (M : Tm n) (A : Tm n) ρ u :=
   exists v , exists a, exists (h : wt v a),
     le u v /\ EvalRel M ρ v /\ EvalRel A ρ a.
+
+
+(* This is not flexible enough. 
+Definition Typed {n:nat} (M : Tm n) (A : Tm n) ρ u :=
+  exists a, exists (h : wt u a), EvalRel A ρ a.
+*)
 
 Definition InvTyped
   {n:nat} (Γ: Ctx n) (M : Tm n) (A : Tm n) (ρ : Env n) :=
@@ -166,8 +178,9 @@ Lemma Typed_bot {n} (M A : Tm n) (ρ : Env n) :
   Typed M A ρ bot.
 Proof.
   exists bot, bot, (wt_bot (wt_bot wt_tuniv)).
-  repeat split; eauto using EvalRel_bot.
+  eauto using EvalRel_bot.
 Qed.
+
 
 (* =====================================================================
    InvConv combinators (LemmaForTS / TypingSemantics).
@@ -202,14 +215,15 @@ Qed.
 
 (* convSound' (conv-conv d dAB _): transport InvTyp through type
    conversion. We need that conversion preserves EvalRel of types. *)
-Lemma InvConv_conv {n} (Γ : Ctx n) (M N A B : Tm n) ρ :
-  InvConv Γ M N A ρ ->
-  (forall u, EvalRel A ρ u -> EvalRel B ρ u) ->
-  InvConv Γ M N B ρ.
+Lemma InvConv_conv {n} (Γ : Ctx n) (M N A B : Tm n) :
+  conv Γ M N A -> 
+  conv Γ A B Core.tuniv -> 
+  Γ ⊨ M ≡ N ∈ A -> 
+  Γ ⊨ A ≡ B ∈ Core.tuniv -> 
+  Γ ⊨ M ≡ N ∈ B.
 Proof.
-  move=> [iM [iN [fwd bwd]]] convAB.
-  unfold InvConv, InvTyped, Typed. repeat split.
-  - move=> u Eu. specialize (iM u Eu).
+Admitted.
+(*
     move: iM => [v [a [LE [EM [Wv EA]]]]].
     exists v, a. repeat split; eauto.
   - move=> u Eu. specialize (iN u Eu).
@@ -217,7 +231,7 @@ Proof.
     exists v, a. repeat split; eauto.
   - eauto.
   - eauto.
-Qed.
+Qed. *)
 
 (* =====================================================================
    Lam_L1 (LemmaForTS.agda): Lam inversion with typed keys.
@@ -238,62 +252,201 @@ Qed.
 
 Hint Resolve valid_abs : valid.
 
-Lemma Lam_L1 u {n} (A : Tm n) M ρ :
-  EvalRel (Core.abs A M) ρ u ->
+
+Lemma Typed_append {n}{A : Tm n} M B ρ f g : 
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs f) ->
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs g) -> 
+  valid_fun (f ++ g) ->
   valid_env ρ ->
-  ~~ is_bot u ->
-  exists a g (h : wt a tuniv),
-    EvalRel A ρ a
-    /\ le u (abs g)
-    /\ valid (abs g)
-    /\ (forall x y, valid x -> app g x = Some y ->
-         exists z (hz: wt z a), le z x /\ EvalRel M (z .: ρ) y).
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs (f ++ g)). 
 Proof.
-  destruct u; try done.
-  move=> h Vρ _.
-  cbn in h.
-  destruct h as [Vf [Nf [a [WT [E1 body]]]]].
-  exists a, l. exists WT.
-  repeat split; auto.
-  - eapply le_refl. eauto with valid.
-  - eauto with valid.
-Qed. 
+  intros T1 T2 Vapp Vr.
+  unfold Typed in *.
+  destruct T1 as [v1 [a1 [WT1 [LE1 [EM1 EA1]]]]].
+  destruct T2 as [v2 [a2 [WT2 [LE2 [EM2 EA2]]]]].
+  apply le_abs_inv in LE1. destruct LE1 as [f1 [-> LF1]].
+  apply le_abs_inv in LE2. destruct LE2 as [g1 [-> LF2]].
+  
+  move: (EvalRel_compatible Vr EM1 EM2) => Cfg.
+  move: (EvalRel_compatible Vr EA1 EA2) => Ca.
+  destruct (compatible_lub_exists Ca) as [a LUBa].
+  destruct (compatible_lub_exists Cfg) as [h LUBh].
+  cbn [compatible] in Cfg.
+  fold (compatible_fun f1 g1) in Cfg.
+  destruct a1; try done. inversion WT1.
+  destruct a2; try done. inversion WT2.
+  destruct EA1 as [Va1 [Vl1 [Ea1 [a1' [Ea1' h1]]]]].
+  destruct EA2 as [Va2 [Vl2 [Ea2 [a2' [Ea2' h2]]]]].
+  cbn in Ca. move: Ca => /andP. move=> [Ca Cl].
+  fold (compatible_fun l l0) in Cl.
+  cbn in LUBa. rewrite Cl in LUBa. destruct (lub a1 a2) as [|a3] eqn:EQ; inversion LUBa. subst a.
+  clear LUBa.
+Admitted.
 
-(* =====================================================================
-   Pi_L1 (LemmaForTS.agda): Pi inversion with typed keys.
-
-   If EvalRel (Pi A B) ρ (tpi b f), then there exist a, f' with
-   EvalRel A ρ a, wt a tuniv, le_fun f f',
-   EvalRel (Pi A B) ρ (tpi a f'), and for every f' x = y,
-   wt x a and EvalRel B (x .: ρ) y.
-
-   ===================================================================== *)
-
-(*
-Lemma Pi_L1 {n} (A : Tm n) (B : Tm (S n)) ρ b f :
-  EvalRel (Core.tpi A B) ρ (tpi b f) ->
-  valid_env ρ ->
-  exists a (h : wt a tuniv),
-    EvalRel A ρ a /\
-    le (tpi b f) (tpi a f) /\
-    valid (tpi a f) /\
-    (forall x y, valid x -> app f x = Some y ->
-       exists z (hz: wt z a), le z x /\ EvalRel B (z .: ρ) y).
+Lemma InvTyp_Lam {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n)) :
+  typing Γ A Core.tuniv ->
+  typing (Γ ++ A) B  Core.tuniv ->
+  typing (Γ ++ A) M B ->
+  Γ ⊨ A ∈ Core.tuniv ->
+  Γ ++ A ⊨ B ∈ Core.tuniv ->
+  Γ ++ A ⊨ M ∈ B ->
+  Γ ⊨ (Core.abs A M) ∈ Core.tpi A B.
 Proof.
-  move=> h Vρ.
-  cbn in h.
-  destruct h as [Vb [Vf [EA [a0 [EA0 Hbody]]]]].
-  exists b.
-  have Vtpi : valid (tpi b f).
-  { eapply valid_tpi_intro; eauto. }
-  split; first exact EA.
-  split; first exact Wb.
-  split; first by eapply le_refl; exact Vtpi.
-  split; first exact Vtpi.
-  move=> x y In_xy.
-  eapply Hbody; eauto.
-Qed.
-*)
+  move=> tA tB tM TA TB TM.
+  move=> ρ Fρ u EL.
+  specialize (TA _ Fρ). unfold InvTyped in TA.
+  have Vρ : valid_env ρ. eauto with valid.
+
+  destruct (~~ is_bot u) eqn:Bu.
+  2: { destruct u; try done.
+       eapply Typed_bot; eauto.
+  } 
+  destruct u ; try done.
+  cbn in EL.
+  destruct EL as [Vl [NBl [a [WTa [ERa ERl]]]]].
+  specialize (TA _ ERa).
+  have Va: valid a. eapply EvalRel_valid; eauto.
+  destruct TA as [av [ax [WTav [LEav [ERav ERax]]]]].
+  induction l as [|[ui vi]l]. done.
+  clear NBl Bu.
+  destruct (is_nil l) eqn:Nl.
+  - destruct l; try done.
+    cbn in IHl. clear IHl.
+    have Vui: valid ui. eauto with valid.
+    have Vvi: valid vi. eauto with valid.
+    specialize (ERl ui vi Vui).
+    destruct ERl as [x [WTx [LEx ERvi]]].
+    rewrite app_cons_eq. rewrite compatible_refl; auto. rewrite le_refl; auto.
+    cbn. rewrite lub_bot_r. done.
+    have FE: fits (Γ ++ A) (x .: ρ).
+    { eapply fits_cons; eauto. } 
+    specialize (TB _ FE). 
+    specialize (TM _ FE _ ERvi). 
+    destruct TM as [t [tx [WTvi [LEtx h]]]].
+    destruct (is_bot t) eqn:IBu.
+    { destruct t; try done. destruct vi; try done.
+      unfold valid_fun in Vl. cbn in Vl.
+      rewrite compatible_refl in Vl; eauto. cbn in Vl. done. } 
+    destruct (is_bot tx) eqn:IBtx.
+    { destruct tx; try done. inversion WTvi. subst. done. } 
+    have Vt: valid t. eapply EvalRel_valid; eauto.
+    have Vx: valid x. eapply wt_valid_tm; eauto.
+    have Vtx: valid tx. eapply wt_valid_ty; eauto.
+    have Vg : valid (tpi a ((x, tx):: nil)).
+    { cbn. rewrite Va. repeat rewrite compatible_refl; eauto.
+      rewrite Vx. rewrite Vtx. destruct tx; try done. } 
+    have WTpi: wt (tpi a ((x, tx) :: nil)) tuniv.
+    { 
+      eapply wt_tpi; eauto.
+      + (* everything in domain is well-typed *)
+        intros uj vj InX. inversion InX as [C|C]; inversion C.
+        subst. auto.
+      + intros uj vj InX.
+        inversion InX as [C|C]; inversion C.
+        subst.
+        eapply wt_ty_tuniv. eauto.
+    } 
+    have Vfxt : valid_fun ((x, t) :: nil).
+    { unfold valid_fun. cbn. repeat rewrite compatible_refl; eauto.
+      rewrite Vx. rewrite Vt.
+      destruct t; try done.
+    } 
+    have Vfxtx : valid_fun ((x, tx) :: nil).
+    { unfold valid_fun. cbn. repeat rewrite compatible_refl; eauto.
+      rewrite Vx. rewrite Vtx.
+      destruct tx; try done.
+    } 
+    have WTabs: wt (abs ((x,t)::nil)) (tpi a ((x,tx) :: nil)).
+    { 
+      eapply wt_abs; eauto.
+      + intros uj vj InG. inversion InG as [C|C]; inversion C.
+        subst uj. subst vj. auto.
+      + intros uj vj tj InG APPg. inversion InG as [C|C]; inversion C.
+        subst uj. subst vj. 
+        rewrite app_cons_eq in APPg. rewrite compatible_refl in APPg; eauto. 
+        rewrite le_refl in APPg; eauto.
+        cbn in APPg. rewrite lub_bot_r in APPg. inversion APPg. subst tj.
+        auto.
+      + eapply valid_abs; eauto. 
+    } 
+    clear Nl.
+    eexists. eexists. exists WTabs.
+    repeat split; auto.
+    + rewrite le_abs. 
+      rewrite le_fun_cons.
+      rewrite app_cons_eq.
+      rewrite LEx. 
+      rewrite (le_valid_compatible Vui LEx).
+      cbn. 
+      rewrite lub_bot_r. rewrite LEtx. done.
+    + cbn in ERax.
+      destruct ax eqn:Bax; try done. 
+      ++ (* x is bot *)
+        inversion WTav. subst. apply le_bot_inv in LEav. subst.
+        inversion WTx. subst.
+        exists bot. exists ltac:(eapply wt_bot; eapply wt_tuniv).
+        split. eapply EvalRel_bot.
+        intros u v Vu APP.  exists bot. exists ltac: (eapply wt_bot; eapply wt_bot; eapply wt_tuniv).
+        rewrite app_cons_eq in APP. 
+        rewrite le_bot in APP. cbn in APP.
+        have EQ: t = v. { destruct u; cbn in APP; rewrite lub_bot_r in APP; inversion APP; done. } 
+        subst t.
+        rewrite le_bot. split; eauto. 
+      ++ (* ax is tuniv *)
+        subst ax.
+        exists a. eexists. eauto.
+        split; auto.
+        intros u v Vu APP. 
+        rewrite app_cons_eq in APP.
+        cbn in APP.
+        rewrite lub_bot_r in APP.
+        destruct (compatible x u && le x u) eqn:IN; inversion APP; subst.
+        move: IN => /andP. move=> [Cxu LExu]. 
+        exists x. repeat split; eauto. 
+        exists bot. repeat split; eauto. eapply wt_bot; eauto.
+        rewrite le_bot. done. eapply EvalRel_bot.
+    + exists a. split. auto.
+      intros u v Vu APP.
+      rewrite app_cons_eq in APP.
+      cbn in APP. rewrite lub_bot_r in APP.
+      destruct (compatible x u && le x u) eqn:IN; inversion APP; subst. clear APP.
+      move: IN => /andP. move=> [Cxu LExu]. 
+      exists x. repeat split; eauto.  
+      exists bot. repeat split; eauto. eapply wt_bot; eauto. rewrite le_bot.  done.
+      eapply EvalRel_bot; eauto.
+  - (* induction case *)
+    have Vtl: valid_fun l. eauto with valid.
+    specialize (IHl Vtl ltac:(done)). 
+    destruct IHl as [v [vt [WTv [LEv [ERabs ERpi]]]]].
+    { intros u v Vu APP.
+      have Vv: valid v. eapply valid_app; eauto.
+      specialize (ERl u).
+      rewrite app_cons_eq in ERl.
+      rewrite APP in ERl.
+      have Vui: valid ui. admit.
+      have Vvi: valid vi. admit.
+      destruct (compatible ui u && le ui u) eqn:IN.
+      { move: IN => /andP. move=> [Cu LEu]. 
+        have Chw: coherent_with l (ui,vi). eauto with valid.
+        move: (Comp_value_app Cu Chw APP) => Cv.
+        destruct (compatible_lub_exists Cv) as [w EQ].
+        have Vw: valid w. eapply (@valid_lub vi v); eauto.
+        specialize (ERl w Vu EQ).
+        destruct ERl as [x [WTx LEx]].
+        exists x. split; eauto. split; eauto.
+        eapply EvalRel_down; eauto.
+        eauto with valid.
+        eapply le_lub_right; eauto.
+      } 
+      specialize (ERl v Vu ltac:(eauto)).
+      eapply ERl.
+    } 
+    cbn. done.
+    apply le_abs_inv in LEv.
+    destruct LEv as [g [EQ LEf]]. subst v.
+Admitted.    
+
+
 
 (* =====================================================================
    InvTyp_Pi (LemmaForTS.agda): Pi case at universe level.
@@ -303,81 +456,101 @@ Qed.
        InvTyp at (tuniv i).
    ===================================================================== *)
 
-Lemma InvTyp_Pi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) ρ :
-  fits Γ ρ ->
-  InvTyped Γ A Core.tuniv ρ ->
-  (forall x a, wt x a -> wt a tuniv -> EvalRel A ρ a ->
-    InvTyped (Γ ++ A) B Core.tuniv (x .: ρ)) ->
-  InvTyped Γ (Core.tpi A B) Core.tuniv ρ.
+Lemma InvTyp_Pi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  typing Γ A Core.tuniv -> 
+  typing (Γ ++ A) B Core.tuniv -> 
+  Γ ⊨ A ∈ Core.tuniv -> 
+  (Γ ++ A) ⊨ B ∈ Core.tuniv -> 
+  Γ ⊨ (Core.tpi A B) ∈ Core.tuniv.
 Proof.
-  move=> Fρ IHA IHB u Eu.
+  move=> TA TB IHA IHB ρ Fρ u Eu.
   destruct u; try solve [cbn in Eu; done].
   { (* u = bot *) apply Typed_bot. }
-  (* u = tpi b f *)
+  (* u = tpi u l *)
   cbn in Eu.
-  destruct Eu as [Vb [Vf [EAb [WTbj  Hbody]]]].
+  destruct Eu as [Vb [Vf [EAb [u' [EAu'  Hbody]]]]].
+
   (* Apply IHA to enlarge the type code b to b', well-typed at tuniv *)
   unfold InvTyped in IHA.
-  destruct (IHA _ EAb) as [b' [c [WTb'c [LEbb' [EAb'  LEcuniv]]]]].
+  destruct (IHA _ Fρ _ EAb) as [b' [c [WTb'c [LEbb' [EAb'  LEcuniv]]]]].
   cbn in LEcuniv.
   have Vb' : valid b' by eapply EvalRel_valid; exact EAb'.
   have Vti : valid tuniv by [].
   have WTb' : wt b' tuniv. { eapply wt_le; eauto. eapply wt_ty_tuniv; eauto. eapply wt_tuniv. }  
-  
-  (* For each edge (ui, vi) ∈ l, the per-edge witness xi has wt xi b,
-     hence wt xi b' by wt_le. Applying IHB at (xi, b') gives a typed
-     enlargement vi' of vi with wt vi' tuniv.
-     Building a coherent replacement graph f' = [(xi, vi') | ...] then
-     yields the witness v = tpi b' f' for the InvTyp goal. The graph
-     properties (compatibility, no_bot_result, le_fun f f') need
-     replaceKeys-style helpers from the Agda development that have not
-     yet been ported to Coq. *)
-Admitted.
 
-(* =====================================================================
-   InvTyp_Lam (LemmaForTS.agda): Lambda case.
+  induction l; unfold Typed.
+  - have WTpi : wt (tpi b' nil) tuniv.
+    { econstructor; eauto.
+      intros ? ? h. inversion h.
+      intros ? ? h. inversion h.
+      cbn. rewrite Vb'. done.
+    }       
+    exists (tpi b' nil). exists tuniv. split. eauto.
+    split. rewrite le_tpi. rewrite LEbb'. rewrite le_fun_nil. done.
+    split. cbn. 
+    repeat split; auto.
+    exists u'. split; auto. cbn. done.
+  - destruct a as [ui vi].
+    have Vvi: valid vi. admit.
+    have Vl: valid_fun l. eapply valid_fun_tail; eauto.
+    destruct (IHl Vl) as [tt T2].
+    { intros uj vj Vuj APP.
+      have Vvj: valid vj. eapply valid_app; eauto.
+      specialize (Hbody uj).
+      destruct (valid_app_exists Vf Vuj) as [w [APP2 Vw]].
+      rewrite app_cons_eq in APP2.
+      rewrite APP in APP2.
+      destruct (compatible ui uj && le ui uj) eqn:CC.
+      + specialize (Hbody w Vuj).
+        destruct Hbody as [x [WTx [LEx Ew]]].
+        rewrite app_cons_eq. rewrite CC. rewrite APP. done.
+        exists x. exists WTx. split. auto. eapply EvalRel_down; eauto.
+        eapply valid_cons; eauto. eapply wt_valid_tm; eauto.
+        eapply fits_valid_env; eauto.
+        eapply le_lub_right; eauto.
+        eapply lub_compatible; eauto.
+      + inversion APP2. subst.
+        specialize (Hbody w Vuj).
+        destruct Hbody as [x [WTx [LEx Ew]]].
+        rewrite app_cons_eq. rewrite CC. done.
+        exists x. exists WTx. split. auto. auto.
+    } 
+    destruct T2 as [a [WTtt [LEtt [ERpi ERuniv]]]].
+    apply le_tpi_inv in LEtt. destruct LEtt as [w [g [EQ [LEuw LElg]]]].
+    subst tt.
+    (* now we have the results of the induction call *)
+    clear IHl.
+    cbn in ERpi.
+    move: ERpi => [Vw [Vg [ERw [a' [ERa' h]]]]].
+    cbn in ERuniv. destruct a; try done. inversion WTtt.
 
-       If for every typed extended environment, the body M has InvTyp
-       at B, then (Lam A M) has InvTyp at (Pi A B).
-   ===================================================================== *)
+    have Vg2 : valid_fun ((ui, vi) :: g). admit.
+    have WT2 : wt (tpi w ((ui, vi) :: g)) tuniv. admit.
 
-
-
-Lemma InvTyp_Lam' {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n)) :
-  Γ ⊨ A ∈ Core.tuniv ->
-  Γ ++ A ⊨ B ∈ Core.tuniv ->
-  Γ ++ A ⊨ M ∈ B ->
-  Γ ⊨ (Core.abs A M) ∈ Core.tpi A B.
-Proof.
-  move=> TA TB TM.
-  move=> ρ Fρ u EL.
-  specialize (TA _ Fρ). unfold InvTyped in TA.
-  have Vρ : valid_env ρ. eauto with valid.
-  destruct (~~ is_bot u) eqn:Bu.
-  - destruct (Lam_L1 EL Vρ Bu) as
-      (a & g & WTa & EA & LEu & Vg & h).
-    clear EL.
-    specialize (TA _ EA). unfold Typed in TA.
-Admitted.
-
-Lemma InvTyp_Lam {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n))
-  ρ :
-  fits Γ ρ ->
-  InvTyped Γ A Core.tuniv ρ ->
-  (forall x a, wt x a -> wt a tuniv -> EvalRel A ρ a ->
-    InvTyped (Γ ++ A) B Core.tuniv (x .: ρ)) ->
-  (forall x a, wt x a -> wt a tuniv -> EvalRel A ρ a ->
-    InvTyped (Γ ++ A) M B (x .: ρ)) ->
-  InvTyped Γ (Core.abs A M) (Core.tpi A B) ρ.
-Proof.
-  (* Translates LemmaForTS.InvTyp-Lam.
-
-     Outline:
-       - Case u = bot: Typed_bot.
-       - Case u = abs g: by Lam_L1 we can replace the keys of g with
-         typed witnesses; then for each (xi,yi) we apply the body IH to
-         get a typed enlargement (yi', bi). The graph of (xi, yi') is
-         the witness, and (Pi A (a, f)) is its type code. *)
+    have Vui : valid ui. admit.
+    destruct (valid_app_exists Vl Vui) as [w1 [APP1 Vw1]].
+    destruct (valid_app_exists Vf Vui) as [w2 [APP2 Vw2]].
+    rewrite app_cons_eq in APP2.  rewrite APP1 in APP2.
+    rewrite compatible_refl in APP2; eauto.
+    rewrite le_refl in APP2; eauto.
+    cbn in APP2.
+    destruct (Hbody ui w2 Vui) as [x [WTx [LEx EB]]].
+    rewrite app_cons_eq. rewrite compatible_refl; eauto. rewrite le_refl; eauto. rewrite APP1.
+    cbn. done.
+    exists (tpi w ((ui, vi) :: g)). exists tuniv. split; auto.
+    split. admit.     
+    split. 2: eauto.
+    cbn [EvalRel].
+    repeat split; eauto.
+    exists a'. split; eauto.
+    intros uj w3 Vuj APP.
+    rewrite app_cons_eq in APP.
+    destruct (compatible ui uj && le ui uj) eqn:h1.
+    destruct (app g uj) eqn:APP3; try done.
+    specialize (h uj e Vuj APP3).
+    destruct h as [x1 [WTx1 [LEx1 ERx1]]].
+    have Cx: compatible x x1. admit.
+    eapply compatible_lub_exists in Cx. destruct Cx as [w4 LUB].
 Admitted.
 
 (* =====================================================================
@@ -527,18 +700,20 @@ Admitted.
        ⟹  M = N : Pi A B
    ===================================================================== *)
 
-Lemma InvConv_funext {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
-  (M N : Tm n) ρ :
-  fits Γ ρ ->
-  InvTyped Γ A Core.tuniv ρ ->
-  InvTyped Γ M (Core.tpi A B) ρ ->
-  InvTyped Γ N (Core.tpi A B) ρ ->
-  (forall x a, wt x a -> wt a tuniv -> EvalRel A ρ a ->
-    InvConv (Γ ++ A) (Core.app M⟨↑⟩ (var var_zero))
-                     (Core.app N⟨↑⟩ (var var_zero))
-                     B (x .: ρ)) ->
-  InvConv Γ M N (Core.tpi A B) ρ.
-Proof.
+Lemma InvConv_eta {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
+  (N N' : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing (Γ ++ A) B Core.tuniv ->
+  typing Γ N (Core.tpi A B) ->
+  typing Γ N' (Core.tpi A B) ->
+  conv (Γ ++ A) (Core.app (⟨↑⟩ N) (var var_zero)) (Core.app (⟨↑⟩ N') (var var_zero)) (⟨↑⟩ A) ->
+  Γ ⊨ A ∈ Core.tuniv ->
+  Γ ++ A ⊨ B ∈ Core.tuniv ->
+  Γ ⊨ N ∈ (Core.tpi A B) ->
+  Γ ⊨ N' ∈ (Core.tpi A B) ->
+  Γ ++ A ⊨ (Core.app (⟨↑⟩ N) (var var_zero)) ≡ (Core.app (⟨↑⟩ N') (var var_zero)) ∈ (⟨↑⟩ A) ->
+  Γ ⊨ N ≡ N' ∈ (Core.tpi A B).
+Admitted.
   (* Translates LemmaForTS.InvConv-funext.
 
      The forward direction (M → N): from u ≤ ⟦M⟧ρ, use InvM to get a
@@ -549,7 +724,38 @@ Proof.
      EvalRel_sup.
 
      Backward (N → M) is symmetric. *)
+
+Lemma InvConv_nrec_Z : forall (n : nat) (Γ : Ctx n) (M0 M1 : Tm n) (T : Tm (S n)),
+    typing (Γ ++ Core.tnat) T Core.tuniv ->
+    typing Γ M0 T[Core.zero..] ->
+    typing Γ M1 (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
+    (Γ ++ Core.tnat)  ⊨ T ∈ Core.tuniv ->
+    Γ  ⊨ M0 ∈ T[Core.zero..] ->
+    Γ  ⊨ M1 ∈ (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
+    Γ  ⊨ (Core.app (nrec T M0 M1) Core.zero) ≡ M0 ∈ T[Core.zero..].
 Admitted.
+
+Lemma InvConv_nrec_S : forall (n : nat) (Γ : Ctx n) (T : Tm (S n)) (M0 M1 n0 : Tm n),    
+    typing (Γ ++ Core.tnat) T Core.tuniv ->
+    typing Γ M0 T[Core.zero..] ->
+    typing Γ M1 (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
+    (Γ ++ Core.tnat) ⊨ T ∈ Core.tuniv ->
+    Γ ⊨ M0 ∈ T[Core.zero..] ->
+    Γ ⊨ M1 ∈ (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
+    Γ ⊨ (Core.app (nrec T M0 M1) (Core.succ n0)) ≡ 
+      (Core.app (Core.app M1 n0) (Core.app (nrec T M0 M1) n0)) ∈ T[(Core.succ n0)..].
+Admitted.
+
+
+Lemma InvConv_tpi : forall (n : nat) (Γ : Ctx n) (A0 A1 : Tm n) (B0 B1 : Tm (S n)),
+    conv Γ A0 A1 Core.tuniv ->
+    conv (Γ ++ A0) B0 B1 Core.tuniv -> 
+    Γ ⊨ A0 ≡ A1 ∈ Core.tuniv ->
+    (Γ ++ A0) ⊨ B0 ≡ B1 ∈ Core.tuniv -> 
+    Γ ⊨ (Core.tpi A0 B0) ≡ (Core.tpi A1 B1) ∈ Core.tuniv.
+Admitted.
+
+
 
 (* =====================================================================
    Theorem 1 (TypingSemantics.agda):
@@ -590,14 +796,11 @@ Proof.
       move: ihM => [v [a [LE [EM [Wv EA]]]]].
       exists v, a. repeat split; eauto.
     + (* t_abs *)
-      apply (@InvTyp_Lam _ _ _ _ _ _ Fρ).
-      * exact (typing_EvalRel _ _ _ _ h1 ρ Fρ).
-      * move=> x a Wx Wa EA.
-        apply (typing_EvalRel _ _ _ _ h2 (x .: ρ)).
-        eapply fits_cons; eauto.
-      * move=> x a Wx Wa EA.
-        apply (typing_EvalRel _ _ _ _ h3 (x .: ρ)).
-        eapply fits_cons; eauto.
+      move: ρ Fρ.
+      eapply InvTyp_Lam; try eassumption.
+      eapply typing_EvalRel; eauto.
+      eapply typing_EvalRel; eauto.
+      eapply typing_EvalRel; eauto.
     + (* t_app *)
       apply (@InvTyp_App _ Γ A B N M ρ Fρ).
       * exact (typing_EvalRel _ _ _ _ h3 ρ Fρ).
@@ -652,11 +855,8 @@ Proof.
       destruct (Raw.is_bot u) eqn:HU; first by destruct u; try done; apply Typed_bot.
       done.
     + (* t_tpi: tpi A B : tuniv *)
-      apply (@InvTyp_Pi _ Γ A B ρ Fρ).
-      * exact (typing_EvalRel _ _ _ _ h1 ρ Fρ).
-      * move=> x a Wx Wa EA.
-        apply (typing_EvalRel _ _ _ _ h2 (x .: ρ)).
-        eapply fits_cons; eauto.
+      move: ρ Fρ.
+      eapply InvTyp_Pi; eauto.
     + (* t_univ: tuniv : tuniv (type-in-type). *)
       move=> u Eu. cbn in Eu.
       exists tuniv, tuniv, wt_tuniv.
@@ -676,10 +876,8 @@ Proof.
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
     all: move=> ρ Fρ.
     + (* c_conv: M = N : A, A = B : U_i ⟹ M = N : B *)
-      apply (@InvConv_conv _ Γ M N A B ρ).
-      * exact (conv_EvalRel _ _ _ _ _ hMNA ρ Fρ).
-      * move: (conv_EvalRel _ _ _ _ _ hAB ρ Fρ) => [_ [_ [fwd _]]].
-        exact fwd.
+      move: ρ Fρ.
+      eapply InvConv_conv; eauto. 
     + (* c_refl *)
       eapply InvConv_refl'. exact (typing_EvalRel _ _ _ _ hM ρ Fρ).
     + (* c_sym: from conv Γ M N A get InvConv Γ N M A by swapping components. *)
@@ -707,25 +905,21 @@ Proof.
         apply (typing_EvalRel _ _ _ _ hM (x .: ρ)).
         eapply fits_cons; eauto.
     + (* c_eta: function extensionality at type A⟨↑⟩, see Admitted note. *)
-      admit.
+      move: ρ Fρ. eapply InvConv_eta; eauto.
     + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
          (app ... → M0): EvalRel of app (nrec ...) ρ u forces u = bot, and
          EvalRel _ ρ bot is always trivially True.  Backward direction:
          requires the converse, which only holds when the actual application
          is bot — needs more structure.  Admit. *)
-      admit.
+      move: ρ Fρ.
+      eapply InvConv_nrec_Z; eauto.      
     + (* c_nrec_S: similar — nrec is fake. *)
-      admit.
+      move: ρ Fρ.
+      eapply InvConv_nrec_S; eauto.
     + (* c_tuniv: identity rule — just recurse. *)
       exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
-      apply (@InvConv_Pi _ Γ A0 A1 B0 B1 ρ Fρ).
-      * exact (conv_EvalRel _ _ _ _ _ hA ρ Fρ).
-      * move=> x a Wx Wa EA.
-        apply (conv_EvalRel _ _ _ _ _ hB (x .: ρ)).
-        (* Need a typing of A0 to extend the context via fits_cons. The
-           rule c_tpi only provides conv Γ A0 A1 (tuniv i), not a typing.
-           Recovering the typing requires inverting conv into a typing of
-           A0, which the conv rules in the system don't directly give. *)
-        admit.
-Admitted.
+      move: ρ Fρ.
+      eapply InvConv_tpi; eauto.
+Qed.
+

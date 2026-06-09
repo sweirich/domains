@@ -37,13 +37,24 @@ Definition Env n := fin n -> elt.
 
 Notation " a ↦ b " := (singleton a b) (at level 70).
 
-Definition _EvalRel_fun (EvalRel: forall {n}, Tm n -> Env n -> elt -> Prop) 
-    {n} (M : Tm (S n)) :=
+Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop := 
+  (* NOTE: this says that we can find a well-typed approximation for
+     any argument u, even if u is not itself well-typed.
+     This well-typed approximation contains enough information to
+     evaluate the function. 
+     We need to define it this way instead of the more straightforward
+      
+       forall u v, wt u a -> app g u = Some v -> EvalRel M (u .: ρ) v
+     
+     because the naive version requires that we have a well typed finelt
+     for the argument to get the evaluation of the body of the function. 
+     This is too restrictive to show properties like EvalRel_fun_compatible
+` *)
+  let EvalRel_fun {n} (M : Tm (S n)) :=
     fun ρ a g => 
       forall u v, valid u -> app g u = Some v -> 
-        exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v.
-
-Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop := 
+        exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v
+  in
   match t return Env n -> elt -> Prop with 
   | Core.var i => 
       fun ρ b => valid b /\ le b (ρ i)
@@ -63,7 +74,7 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
             valid a /\ valid_fun g
             /\ EvalRel A ρ a
             /\ exists a', EvalRel A ρ a' 
-            /\ _EvalRel_fun (@EvalRel) B ρ a' g 
+            /\ EvalRel_fun B ρ a' g 
         | _ => False
         end
   | Core.app M N => fun ρ b => 
@@ -76,7 +87,7 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
          | abs g =>
                 valid_fun g /\ ~~ is_nil g
               /\ exists a (h: wt a tuniv), EvalRel A ρ a
-              /\ _EvalRel_fun (@EvalRel) M ρ a g
+              /\ EvalRel_fun M ρ a g
               
          | _ => False 
          end
@@ -84,13 +95,11 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
          if is_bot b then True else False                  
   end.
 
-(* Now this version doesn't even work! *)
-Arguments EvalRel : clear implicits.
 
-Notation EvalRel_fun := (@_EvalRel_fun (@EvalRel)).
-
-Arguments EvalRel {_}.
-
+Definition EvalRel_fun {n} (M : Tm (S n)) :=
+    fun ρ a g => 
+      forall u v, valid u -> app g u = Some v -> 
+        exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v.
 
 
 (** * validity *)

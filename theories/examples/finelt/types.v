@@ -46,7 +46,7 @@ Import findom.Raw.
 
 (** well typed elements (finMem)
     In this branch tuniv has no universe-level argument (type-in-type). *)
-Inductive wt : elt -> elt -> Type :=
+Inductive wt : elt -> elt -> Prop :=
   | wt_bot a :
     wt a tuniv ->
     wt bot a
@@ -66,22 +66,22 @@ Inductive wt : elt -> elt -> Type :=
 
   | wt_tpi a g :
     wt a tuniv ->
-    (forall u v, valid u -> app g u = Some v -> ~ is_bot v -> wt u a) -> 
-    (forall u v, valid u -> app g u = Some v -> ~ is_bot v -> wt v tuniv) ->
+    (* check all pairs *)
+    (forall ui vi, In (ui, vi) g -> wt ui a) ->
+    (forall ui vi, In (ui,vi) g -> wt vi tuniv) ->
     (* make sure tm is valid *)
     valid (tpi a g) ->
     wt (tpi a g) tuniv
 
   | wt_abs a f g :
     (* check definition against type *)
-    (forall u v, valid u -> app f u = Some v -> ~ is_bot v -> wt u a) -> 
-    (forall u v t, valid u -> app f u = Some v -> ~ is_bot v -> app g u = Some t -> wt v t) -> 
+    (forall ui vi, In (ui, vi) f -> wt ui a) ->
+    (forall ui vi t, In (ui,vi) f -> app g ui = Some t -> wt vi t) ->
     (* make sure tm is valid *)
     valid (abs f) ->
     (* make sure type is a type *)
     wt (tpi a g) tuniv ->
     wt (abs f) (tpi a g).
-
 
 From Stdlib Require Import Lia Inverse_Image Wellfounded.Inclusion Wf_nat.
 
@@ -220,14 +220,9 @@ Fixpoint wt_unique u a (h1 h2 : wt u a) {struct h1} : h1 = h2.
     + (* wt_succ *) f_equal. apply wt_unique.
     + (* wt_tpi *) f_equal.
          apply wt_unique.
-         ext. apply wt_unique.
-         ext. apply wt_unique.
-         apply proof_irrelevance.
+         ext. ext. ext. 
     + (* wt_abs *) f_equal.
-         ext. apply wt_unique.
-         ext. apply wt_unique.
-         apply proof_irrelevance.
-         apply wt_unique.
+         ext. ext. ext. ext. 
 Qed.
 
 
@@ -272,14 +267,15 @@ Defined.
 
 Lemma wt_abs_inv1 g a f : 
   wt (abs f) (tpi a g) ->     
-  (forall u v, valid u -> app f u = Some v -> ~ is_bot v -> wt u a).
+  (forall ui vi, In (ui, vi) f -> wt ui a).
 Proof. 
   move=> h. inversion h. eauto.
 Defined.
 
 Lemma wt_abs_inv2 g a f : 
   wt (abs f) (tpi a g) ->    
-  (forall u v t, valid u -> app f u = Some v -> ~ is_bot v -> app g u = Some t -> wt v t). 
+  (forall ui vi t, In (ui,vi) f -> 
+              app g ui = Some t -> wt vi t).
 Proof. 
   move=> h. inversion h. eauto.
 Defined.
@@ -292,20 +288,57 @@ Proof.
 Defined.
 
 
-Lemma wt_tpi_inv1 a g :
-  wt (tpi a g) tuniv -> 
-  (forall u v, valid u -> app g u = Some v -> ~ is_bot v -> wt u a).
+Lemma wt_abs_cons 
+  a f g :
+  wt (abs f) (tpi a g) -> 
+  forall ui vi t,  
+    app g ui = Some t ->
+    wt ui a -> wt vi t -> 
+    valid (abs ((ui,vi)::f)) ->
+    wt (abs ((ui,vi) :: f)) (tpi a g).
 Proof.
-  move=> h. inversion h. eauto.
-Defined.
+  move=> h.
+  inversion h. subst.
+  intros ui vi t APPg WTui WTvi Vcons.
+  have Vui: valid ui. eauto with valid.
+  eapply wt_abs.
+  - intros ui0 vi0 [EQ|INf].
+    + inversion EQ. subst. auto.
+    + eauto.
+  - intros ui0 vi0 t0 [EQ|INf].
+    + inversion EQ. subst ui0. subst vi0. clear EQ.
+      intros APPg'. rewrite APPg in APPg'. inversion APPg'. subst t0. done.
+    + intros APPgt'.
+      eapply H3; eauto.
+  - done.
+  - done.
+Qed.
 
-Lemma wt_tpi_inv2 a g :
-  wt (tpi a g) tuniv -> 
-  (forall u v, valid u -> app g u = Some v -> ~ is_bot v -> wt v tuniv).
+Lemma all_app_is_tuniv (wt_lub : forall  u a (h: wt u a) v w, wt v a -> lub u v = Some w -> wt w a)
+  g :
+  forall (WTv : forall ui vi : elt, In (ui, vi) g -> wt vi tuniv)
+    u v, app g u = Some v -> wt v tuniv.
 Proof.
-  move=> h. inversion h. eauto.
-Defined.
-
+  induction g.
+  intros WTv. 
+  - intros u v APP. cbn in APP. inversion APP.
+    eapply wt_bot. eapply wt_tuniv.
+  - intros IH. intros u v APP.
+    destruct a as [ui vi].
+    have HH:  (forall ui vi : elt, In (ui, vi) g -> wt vi tuniv).
+    { intros uj vj IN.
+      specialize (IH uj vj ltac:(right; auto)). auto.
+    } 
+    specialize (IHg HH).
+    rewrite app_cons_eq in APP.
+    destruct (compatible ui u && le ui u) eqn:EQ.
+    + destruct (app g u) eqn:APP1; try done.
+      specialize (IHg _ _ APP1).
+      move: EQ => /andP. move=> [C LE].
+      have WT1 : wt vi tuniv. eapply IH. left. eauto.
+      eapply (wt_lub _ _ WT1 _ _ IHg). auto.
+    + eapply IHg; eauto.
+Qed.
 
 (* wt is monotone *)
 
@@ -313,7 +346,9 @@ Defined.
 Lemma 2 
 If u : a and a <= b, then u : b.
 *)
-Fixpoint wt_le u a 
+Fixpoint wt_le' 
+  (wt_lub : forall  u a (h: wt u a) v w, wt v a -> lub u v = Some w -> wt w a)
+ u a 
   (h : wt u a) {struct h} : forall b, le a b -> wt a tuniv -> wt b tuniv -> wt u b.
 Proof.
     dependent destruction h.
@@ -332,23 +367,23 @@ Proof.
   + (* abs case: know wt (abs f) (tpi a g),
        WTP wt (abs f) (tpi a1 g1) where a <= a1 and g <= g1  *)
     destruct (le_tpi_inv LE) as [a1 [g1 [-> [LEa LEg]]]].
+    have Wta: wt a tuniv. inversion WTa; eauto.
+    have Wta1: wt a1 tuniv. inversion WTb; eauto.
     eapply wt_abs; eauto.
-    ++ move=> u v Vu APP Nb.
-       eapply wt_le; eauto.
-       inversion WTa. done.
-       inversion WTb. done.
-    ++ move=> u v t1 Vu APP NB APP1.
+    ++ move=> ui vi t Inf APPg.
        have Vg : valid_fun g. eauto with valid.
        have Vg1 : valid_fun g1. eauto with valid.
-       destruct (valid_app_exists Vg Vu) as [t2 [APP2 Vt2]].
-       move: (w0 _ _ _ Vu APP NB APP2) => WTvt2.
-       move: (le_fun_mono Vg Vg1 LEg Vu APP2 APP1) => LEt.
-       destruct (is_bot t1) eqn:NBt1.
-       -- destruct t1; try done. 
-          apply le_bot_inv in LEt. subst t2. done.
-       -- eapply wt_le; eauto.
-          eapply wt_ty_tuniv; eauto.
-          inversion WTb. eapply (H3 u t1); eauto. 
+       have Vui : valid ui. eauto with valid.
+       destruct (valid_app_exists Vg Vui) as [t2 [APP2 Vt2]].
+       move: (le_fun_mono Vg Vg1 LEg Vui APP2 APPg) => LEt.
+       specialize (H0 _ _ t2 Inf APP2). 
+       specialize (H _ _ Inf).
+       have WTt: (wt t tuniv).
+       { inversion WTb. (* called on g1 *)
+         eapply all_app_is_tuniv; eauto. } 
+       have WTt2: (wt t2 tuniv).
+       { inversion WTa. eapply all_app_is_tuniv; eauto. } 
+       eapply wt_le'; eauto.
 Qed.
 
 
@@ -398,25 +433,32 @@ Proof.
     inversion Wtv; subst. clear Wtv.
     eapply wt_tpi.
     ++ eapply IHh in L1; eauto. 
-    ++ move=> ui vi Vui APP NB.
+    ++ move=> ui vi InApp.
        have Vg: valid_fun g. eauto with valid.
        have Vl: valid_fun l. eauto with valid.
+Admitted.
+
+
+
+(*       
+
        move: (compatible_app_inv Vg Vl Vui C1 APP) => 
              [v1 [v2 [APP1 [APP2 h3]]]].
+       
        destruct (is_bot v1) eqn:N1. 
        destruct (is_bot v2) eqn:N2.
        { destruct v1; destruct v2; try done. cbn in h3. 
          inversion h3. subst. done. }
        { have Nb2: ~ is_bot v2. 
          rewrite N2. done.
-         specialize (H5 ui v2 Vui APP2 Nb2).
+         specialize (H8 ui v2 Vui APP2 Nb2).
          eapply wt_le; eauto. 
          eapply le_lub_right; eauto.
          eapply lub_compatible; eauto.
          eauto with valid.
          eauto with valid. } 
        { have Nb1 : ~ is_bot v1. rewrite N1. done. 
-         specialize (w0 ui v1 Vui APP1 Nb1).
+         specialize (H0 ui v1 Vui APP1 Nb1).
          eapply wt_le; eauto.
          eapply le_lub_left; eauto.
          eapply lub_compatible; eauto.
@@ -433,9 +475,9 @@ Proof.
        { destruct v2; try done. rewrite lub_bot_r in h3. inversion h3. subst. eauto. }
        have Nb1 : ~ is_bot v1. rewrite N1. done. 
        have Nb2: ~ is_bot v2. rewrite N2. done.
-       have WT1: wt v1 tuniv.  { exact (w0 ui v1 Vui APP1 Nb1). } 
-       have WT2: wt v2 tuniv.  { exact (H6 ui v2 Vui APP2 Nb2). } 
-       eapply (H0 ui v1 Vui APP1 Nb1 v2 vi WT2 h3) .
+       have WT1: wt v1 tuniv.  { eauto. } 
+       have WT2: wt v2 tuniv.  { eauto. }
+       eauto.
     ++ eapply valid_tpi_intro.
        eapply (@valid_lub a v); eauto with valid.
        eapply valid_append; eauto with valid.
@@ -447,57 +489,31 @@ Proof.
     inversion LUB; subst w1; clear LUB.
     inversion Wtv. subst. clear Wtv.
     eapply wt_abs.
-    ++ move=> u v Vu APP NB.
+    ++ move=> u v APP.
        have Vf: valid_fun f. eauto with valid.
        have Vl: valid_fun l. eauto with valid.
-       move: (compatible_app_inv Vf Vl Vu C1 APP) => 
-             [v1 [v2 [APP1 [APP2 h3]]]].
-       destruct (is_bot v1) eqn:N1. 
-       destruct (is_bot v2) eqn:N2.
-       { destruct v1; destruct v2; try done. cbn in h3. 
-         inversion h3. subst. done. }
-       { have Nb2: ~ is_bot v2. rewrite N2. done.
-         eapply H3; eauto. }
-       { have Nb1 : ~ is_bot v1. rewrite N1. done. 
-         eapply (w u v1 Vu APP1 Nb1); eauto.
-       } 
+(*       have Vu: valid u. admit. *)
+       apply in_app_or in APP. destruct APP as [INf|Inl].       
+       eauto.
+       eauto.
     ++ (* wt rng for (f ++ l) *)
-       move=> u v t Vu APP NB APPg.
+       move=> u v t InApp APP.
        have Vf: valid_fun f. eauto with valid.
        have Vl: valid_fun l. eauto with valid.
-       move: (compatible_app_inv Vf Vl Vu C1 APP) => 
-             [v1 [v2 [APP1 [APP2 h3]]]].
-       have WTt: wt t tuniv.
-       { destruct (is_bot t) eqn: NT.
-         destruct t; try done. eapply wt_bot. eapply wt_tuniv.
-         have Nb1:~ is_bot t. rewrite NT. done.
-         eapply wt_tpi_inv2; eauto. } 
-       have WT1: wt v1 t.
-       { destruct (is_bot v1) eqn:N1. 
-         - destruct v1; try done. 
-           eapply wt_bot; eauto.
-         - have Nb1 : ~ is_bot v1. rewrite N1. done. 
-           exact (w0 u v1 t Vu APP1 Nb1 APPg).
-       } 
-       have WT2: wt v2 t.
-       { destruct (is_bot v2) eqn:N2.
-         - destruct v2; try done. eapply wt_bot; eauto. 
-         - have Nb2: ~ is_bot v2. rewrite N2. done.
-           exact (H4 u v2 t Vu APP2 Nb2 APPg).
-       }
-       destruct (is_bot v1) eqn:N1.
-       - destruct v1; try done. cbn in h3. inversion h3. subst. done.
-       - have Nb1: ~ (is_bot v1). rewrite N1. done.
-         eapply (IHrng u v1 t Vu APP1 Nb1 APPg v2 v WT2 h3).
+       apply in_app_or in InApp. destruct InApp as [INf|Inl].       
+       eauto. eauto.
     ++ cbn.
        apply /andP. split.
        eapply valid_append; eauto with valid.
        destruct f; try done.
     ++ done.
-Qed.
+Qed. *)
+
+Definition wt_le := wt_le' wt_lub.
 
 
 (* Corollary 2 If w : Πaf and u : a, then w(u) : f (u). *)
+
 
 Lemma wt_abs_pred u v w b f :
   wt (abs ((u,v)::w)) (tpi b f) -> ~~is_nil w ->
@@ -548,7 +564,9 @@ Proof.
       { have WTw' : wt (abs w') (tpi a f) by eapply wt_abs_pred; eauto.
         eapply IHw'; eauto. }
       destruct w'; try done. cbn in Ar'. inversion Ar'. subst r'.
-      eapply wt_bot. admit.
+      eapply wt_bot. 
+      have WTpi: wt (tpi a f) tuniv. eapply wt_ty_tuniv. eauto.
+      eapply all_app_is_tuniv. eapply wt_lub. inversion WTpi. eauto. eauto.
     }
     destruct (compatible ui u && le ui u) eqn:EQui.
     + (* ui compatible with u and ui <= u: r = lub vi r' *)
@@ -570,8 +588,13 @@ Proof.
 (*
       have WTvi_t : wt vi t. eapply wt_le; eauto. admit. admit. *)
       eapply wt_lub with (u := vi) (v := r'); eauto.
-      admit.
+      { 
+        inversion WT.  subst.
+        specialize (H3 ui vi _ ltac:(left; eauto) Awi).
+        eapply wt_le; eauto. eapply wt_ty_tuniv; eauto.
+        eapply wt_ty_tuniv; eauto.
+      }
     + (* no contribution from (ui,vi): r = r' *)
       inversion A1. subst r. done.
-Admitted.
+Qed.
 
