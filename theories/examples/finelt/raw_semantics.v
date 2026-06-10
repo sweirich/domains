@@ -37,69 +37,86 @@ Definition Env n := fin n -> elt.
 
 Notation " a ↦ b " := (singleton a b) (at level 70).
 
-Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop := 
+Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
   (* NOTE: this says that we can find a well-typed approximation for
      any argument u, even if u is not itself well-typed.
      This well-typed approximation contains enough information to
-     evaluate the function. 
+     evaluate the function.
      We need to define it this way instead of the more straightforward
-      
+
        forall u v, wt u a -> app g u = Some v -> EvalRel M (u .: ρ) v
-     
+
      because the naive version requires that we have a well typed finelt
-     for the argument to get the evaluation of the body of the function. 
+     for the argument to get the evaluation of the body of the function.
      This is too restrictive to show properties like EvalRel_fun_compatible
 ` *)
   let EvalRel_fun {n} (M : Tm (S n)) :=
-    fun ρ a g => 
-      forall u v, valid u -> app g u = Some v -> 
+    fun ρ a g =>
+      forall u v, valid u -> app g u = Some v ->
         exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v
   in
-  match t return Env n -> elt -> Prop with 
-  | Core.var i => 
+  match t return Env n -> elt -> Prop with
+  | Core.var i =>
       fun ρ b => valid b /\ le b (ρ i)
   | Core.tuniv => fun ρ b =>
              le b tuniv
-  | Core.tnat => fun ρ b => 
+  | Core.tnat => fun ρ b =>
              le b tnat
-  | Core.zero => fun ρ b => 
+  | Core.zero => fun ρ b =>
              le b zero
-  | Core.succ M => fun ρ b => 
+  | Core.succ M => fun ρ b =>
       if is_bot b then True else
          valid b /\ exists a, le b (succ a) /\ EvalRel M ρ a
   | Core.tpi A B => fun ρ b =>
-        match b with 
+        match b with
         | bot => True
         | tpi a g =>
             valid a /\ valid_fun g
             /\ EvalRel A ρ a
-            /\ exists a', EvalRel A ρ a' 
-            /\ EvalRel_fun B ρ a' g 
+            /\ exists a', EvalRel A ρ a'
+            /\ EvalRel_fun B ρ a' g
         | _ => False
         end
-  | Core.app M N => fun ρ b => 
-         if is_bot b then True else 
-            exists a, EvalRel M ρ (a ↦ b) /\ EvalRel N ρ a 
-  | Core.abs A M => fun ρ b => 
-         match b with 
+  | Core.app M N => fun ρ b =>
+         if is_bot b then True else
+            exists a, EvalRel M ρ (a ↦ b) /\ EvalRel N ρ a
+  | Core.abs A M => fun ρ b =>
+         match b with
          | bot => True
-         
+
          | abs g =>
                 valid_fun g /\ ~~ is_nil g
               /\ exists a (h: wt a tuniv), EvalRel A ρ a
               /\ EvalRel_fun M ρ a g
-              
-         | _ => False 
+
+         | _ => False
          end
   | nrec T M0 M1 => fun ρ b =>
-         if is_bot b then True else False                  
+         if is_bot b then True else False
   end.
 
 
 Definition EvalRel_fun {n} (M : Tm (S n)) :=
-    fun ρ a g => 
-      forall u v, valid u -> app g u = Some v -> 
+    fun ρ a g =>
+      forall u v, valid u -> app g u = Some v ->
         exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v.
+
+(* ---------------------------------------------------------------------
+   Type-valued companion for the abs case (used by Lam_L1).
+
+   Choice 1 (full refactor of EvalRel to Type) cascades through every
+   downstream file (~60 Prop-only patterns to lift to iffT/* and many
+   destructure patterns to update).  As a contained alternative we keep
+   EvalRel in Prop and expose this In-indexed Type-valued companion.
+
+   The Prop→Type direction (EvalRel_fun → EvalRel_funT) is where choice
+   would otherwise be needed; closing it constructively requires Choice 1.
+   The Type→Prop direction is trivial.  *)
+Definition EvalRel_funT {n} (M : Tm (S n))
+  (ρ : Env n) (a : elt) (g : list (elt * elt)) : Type :=
+  forall p, In p g ->
+    { z : elt & ((wt z a * (le z (fst p) = true)) *
+                 EvalRel M (z .: ρ) (snd p))%type }.
 
 
 (** * validity *)
@@ -117,7 +134,7 @@ Proof.  move=> Vx Vr. unfold valid_env. auto_case. Qed.
 Hint Resolve valid_cons: valid.
 
   
-Lemma EvalRel_valid {n} (M : Tm n) (ρ : Env n) (u : elt) : 
+Lemma EvalRel_valid {n} (M : Tm n) (ρ : Env n) (u : elt) :
   EvalRel M ρ u -> valid u.
 Proof.
   move: ρ u.
@@ -129,14 +146,14 @@ Proof.
     destruct u; try done.
     move=> [Vl [Nl [a [WT [E1 _]]]]].
     cbn. apply /andP. split; eauto.
-  - destruct (is_bot u) eqn:h. 
+  - destruct (is_bot u) eqn:h.
     destruct u; try done.
     move=> [a [E1 E2]].
     apply IHM1 in E1.
     unfold singleton in E1.
     rewrite h in E1.
     cbn in E1.
-    move: E1 => /andP. 
+    move: E1 => /andP.
     move=> [h1 _]. move: h1 => /andP. move=> [h1 h2].
     move: h2 => /andP. move=> [h2 _]. move: h2 => /andP. auto.
   - destruct u; try done.
@@ -170,29 +187,29 @@ Lemma EvalRel_mono_env {n} (M : Tm n) (ρ ρ' : Env n) u :
 Proof.
   dependent induction M.
   all: cbn [EvalRel].
-  all: move=> h1 V1 V2 h2. 
+  all: move=> h1 V1 V2 h2.
   - (* M = x *)
     specialize (h2 f). specialize (V1 f). specialize (V2 f).
-    move: h1 => [Vu h1]. 
+    move: h1 => [Vu h1].
     split; auto. eapply (le_trans Vu V1 V2); eauto.
   - (* M = Abs M1 M2,  *)
     destruct u ; try done.
     move: h1 => [Vl [Nl [a [WT [ER f]]]]].
     repeat split; eauto.
     exists a. repeat split; eauto.
-    move=> u1 v1 Vu1 h3. 
+    move=> u1 v1 Vu1 h3.
     specialize (f u1 v1 Vu1 h3).
     destruct f as [x [Lex [WT2 EM2]]].
     have Vx: valid x. eauto with valid.
     exists x. repeat split; eauto.
-    eapply IHM2; eauto with valid. 
+    eapply IHM2; eauto with valid.
     eapply le_env_cons; eauto using le_refl.
   - (* M = app M1 M2 *)
     destruct (is_bot u); try done.
     destruct h1 as [a [E1 E2]].
     exists a. split; eauto.
   - (* M = zero *)
-    destruct (is_bot u); try done.    
+    destruct (is_bot u); try done.
   - (* M = succ M *)
     destruct (is_bot u); try done.
     destruct h1 as [Vu [a [LE E]]].
@@ -216,10 +233,10 @@ Proof.
     eapply le_refl; eauto with valid.
   - (* M = tuniv n *)
     destruct u; try done.
-Qed.    
+Qed.
 
 
-Lemma EvalRel_bot {n} (M : Tm n) (ρ : Env n) : 
+Lemma EvalRel_bot {n} (M : Tm n) (ρ : Env n) :
   EvalRel M ρ bot.
 Proof.
   destruct M eqn:EQ; cbn; try done.
@@ -258,7 +275,7 @@ Proof.
       move=> u v0 Vu APP0.
       destruct (valid_app_exists Vl Vu) as [v [APP Vv]].
       rewrite le_abs in LE.
-      move: (le_fun_mono Vl0 Vl LE Vu APP0 APP) => LEv. 
+      move: (le_fun_mono Vl0 Vl LE Vu APP0 APP) => LEv.
       destruct (h u v Vu APP) as [x [WTx [LEx ER2]]].
       exists x. exists WTx. split; auto.
       eapply (IHM2 _ v v0); eauto.
@@ -350,9 +367,9 @@ Proof.
       split. eauto.
       move=> u v Vu APP.
       destruct (valid_app_exists Vf Vu) as [w [APPw Vw]].
-      move: (le_fun_mono Vf' Vf LEf Vu APP APPw) => LEv. 
+      move: (le_fun_mono Vf' Vf LEf Vu APP APPw) => LEv.
       destruct (body1 u w Vu APPw) as [x [WTx [LEx ERx]]].
-      exists x. 
+      exists x.
       split. auto.
       split. auto.
       eapply IHM2; eauto.
@@ -364,7 +381,7 @@ Proof.
 Qed.
 
 
-Lemma EvalRel_fun_compatible {n} (M : Tm (S n)) ρ a l b l0 
+Lemma EvalRel_fun_compatible {n} (M : Tm (S n)) ρ a l b l0
   (Vρ : valid_env ρ)
   (IHM : forall (ρ : Env (S n)) (a b : elt),
       valid_env ρ -> EvalRel M ρ a -> EvalRel M ρ b -> compatible a b
@@ -376,7 +393,7 @@ Lemma EvalRel_fun_compatible {n} (M : Tm (S n)) ρ a l b l0
   (Vb : valid b)
   (Vl0 : valid_fun l0)
   (h2 : EvalRel_fun M ρ b l0) :
-  forall c, lub a b = Some c -> 
+  forall c, lub a b = Some c ->
   compatible_fun l l0 /\ EvalRel_fun M ρ c (l ++ l0).
 Proof.
   move=> c LUB.
@@ -514,8 +531,8 @@ Admitted.
 
 Lemma EvalRel_compatible_lub {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
-  EvalRel M ρ a -> EvalRel M ρ b -> 
-  compatible a b /\ 
+  EvalRel M ρ a -> EvalRel M ρ b ->
+  compatible a b /\
     forall c, lub a b = Some c -> EvalRel M ρ c.
 Proof.
   dependent induction M.
@@ -765,11 +782,11 @@ Proof.
   eapply (EvalRel_compatible Vext); eauto.
 Qed.  
 
-Lemma EvalRel_ideal {n} (M : Tm (S n)) ρ x1 x2 y1 y2 : 
-  valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 -> 
-  EvalRel M (x1 .: ρ) y1 -> 
-  EvalRel M (x2 .: ρ) y2 -> 
-  exists x y, lub x1 x2 = Some x /\ lub y1 y2 = Some y 
+Lemma EvalRel_ideal {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
+  valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 ->
+  EvalRel M (x1 .: ρ) y1 ->
+  EvalRel M (x2 .: ρ) y2 ->
+  exists x y, lub x1 x2 = Some x /\ lub y1 y2 = Some y
          /\ EvalRel M (x .: ρ) y.
   move=> Vρ CC Vx1 Vx2 E1 E2.
   have [x EQ] : { x & lub x1 x2 = Some x}

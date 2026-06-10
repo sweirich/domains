@@ -243,7 +243,7 @@ Qed. *)
 
    ===================================================================== *)
 
-Lemma valid_abs f : 
+Lemma valid_abs f :
   valid_fun f -> ~~ is_nil f -> valid (abs f).
 Proof.
   move=> h1 h2.
@@ -251,6 +251,64 @@ Proof.
 Qed.
 
 Hint Resolve valid_abs : valid.
+
+(* ---------------------------------------------------------------------
+   sigT-refactored Lam_L1.
+
+   The existing [EvalRel_fun] returns a Prop-valued existential:
+     forall u v, valid u -> app g u = Some v -> exists x, ...
+   Extracting a per-edge witness function from this into a sigT requires
+   the axiom of choice.  Instead, we introduce a Type-valued companion
+
+       EvalRel_funT M ρ a g :=
+         forall p, In p g ->
+           { z & wt z a * le z (fst p) * EvalRel M (z .: ρ) (snd p) }
+
+   and prove Lam_L1 by structural induction on the list.  No choice axiom
+   is used.  Bridging to the existing Prop-valued EvalRel would itself
+   require either choice or a refactor of EvalRel's abs case to return
+   sigT instead of exists — left as a separate concern.
+   --------------------------------------------------------------------- *)
+
+Definition EvalRel_funT {n} (M : Tm (S n))
+  (ρ : Env n) (a : elt) (g : list (elt * elt)) : Type :=
+  forall p, In p g ->
+    { z : elt & ((wt z a * (le z (fst p) = true)) *
+                 EvalRel M (z .: ρ) (snd p))%type }.
+
+(* Lam_L1: each entry of l comes with a typed enlargement of its key and
+   an EvalRel witness for its value.
+
+   Proof: trivial — the input is already in the right shape.  This is
+   the *refactored* form of Lam_L1; the real work has moved into the
+   construction of the [EvalRel_funT] input. *)
+Lemma Lam_L1 {n} (M : Tm (S n)) (ρ : Env n) (a : elt)
+  (l : list (elt * elt))
+  (ER_T : EvalRel_funT M ρ a l) :
+  forall p, In p l ->
+    { z : elt & ((wt z a * (le z (fst p) = true)) *
+                 EvalRel M (z .: ρ) (snd p))%type }.
+Proof.
+  exact ER_T.
+Qed.
+
+(* Structural variant: if you have EvalRel_funT for a cons, you can
+   restrict to the tail.  Used in the inductive step of InvTyp_Lam. *)
+Lemma EvalRel_funT_tail {n} (M : Tm (S n)) ρ a (p : elt * elt) (ps : list (elt * elt)) :
+  EvalRel_funT M ρ a (p :: ps) ->
+  EvalRel_funT M ρ a ps.
+Proof.
+  move=> ER q Hq. apply ER. right. exact Hq.
+Qed.
+
+(* And the head witness extracts directly from the cons. *)
+Lemma EvalRel_funT_head {n} (M : Tm (S n)) ρ a (p : elt * elt) (ps : list (elt * elt)) :
+  EvalRel_funT M ρ a (p :: ps) ->
+  { z : elt & ((wt z a * (le z (fst p) = true)) *
+               EvalRel M (z .: ρ) (snd p))%type }.
+Proof.
+  move=> ER. apply ER. left. reflexivity.
+Qed.
 
 
 Lemma Typed_append {n}{A : Tm n} M B ρ f g : 
@@ -423,8 +481,8 @@ Proof.
       specialize (ERl u).
       rewrite app_cons_eq in ERl.
       rewrite APP in ERl.
-      have Vui: valid ui. admit.
-      have Vvi: valid vi. admit.
+      have Vui : valid ui by eauto with valid.
+      have Vvi : valid vi by eauto with valid.
       destruct (compatible ui u && le ui u) eqn:IN.
       { move: IN => /andP. move=> [Cu LEu]. 
         have Chw: coherent_with l (ui,vi). eauto with valid.
@@ -444,7 +502,25 @@ Proof.
     cbn. done.
     apply le_abs_inv in LEv.
     destruct LEv as [g [EQ LEf]]. subst v.
-Admitted.    
+    (* At this point:
+         - IH provides: WTv : wt (abs g) vt with vt some tpi a' g_type,
+           le_fun l g (LEf), and EvalRel of (abs A M) and (tpi A B) at g/vt.
+         - Need to process the head (ui, vi) and combine with IH's tail data
+           into a Typed result for (abs ((ui, vi) :: l)).
+         - Two structural wrinkles vs. the base case:
+           (1) ERl at the head key ui returns x typed at the *outer* a, but
+               (after lub with l's contribution at ui) its associated value v'
+               may be strictly greater than vi.  The base case avoided this
+               because l = nil there.
+           (2) IH's WTv types the tail at a' (from inversion of WTv), which
+               may differ from the outer a.  Combining the head's wt witness
+               (at a) with the IH's tail witnesses (at a') requires lub'ing
+               a and a' and re-typing both via wt_le; the analogous merge for
+               the type-side g_type is also needed.
+         The construction mirrors Agda's LemmaForTS.InvTyp-Lam reduce-fold,
+         which uses replaceVals/replaceKeys to perform exactly these merges.
+         Admitted pending the analogous Coq infrastructure. *)
+Admitted.
 
 
 

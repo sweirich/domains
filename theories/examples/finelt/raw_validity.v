@@ -181,7 +181,6 @@ move=>h. inversion h. done. Defined.
 *)
 
 
-
 (* Logical relation, defined by recursion on the wt judgement for
    semantic elements. i.e. on the derivation of `wt u a`.
 
@@ -195,7 +194,46 @@ move=>h. inversion h. done. Defined.
 
 *)
 
+Lemma wt_tpi_tail {a ui vi g}:
+   wt (tpi a ((ui, vi) :: g)) tuniv -> wt (tpi a g) tuniv.
+Admitted.
 
+
+Lemma wt_tpi_inv2 a g :
+  wt (tpi a g) tuniv  -> 
+  forall u v, app g u = Some v -> ~ is_bot v -> wt v tuniv.
+Proof.
+  induction g;  move=> h; inversion h; subst. 
+  - intros u v APP. cbn in APP. inversion APP. subst.
+    done.
+  - destruct a0 as [ui vi].
+    intros u v APP NB.
+    specialize (IHg (wt_tpi_tail h)).
+    rewrite app_cons_eq in APP.
+    destruct (compatible ui u && le ui u) eqn:h1.
+    destruct (app g u) eqn:h2; try done.
+    destruct (is_bot e) eqn:h3. 
+    + destruct e; try done. 
+      rewrite lub_bot_r in APP. inversion APP.
+      subst.
+      inversion h.
+      specialize (H7 ui v ltac:(left;auto)).
+      done.
+    + specialize (IHg _ _ h2).
+      have WT1: wt vi tuniv. { 
+        eapply (H3 _ _ ltac:(left; eauto)). } 
+      have WT2: wt e tuniv. { eapply IHg; eauto. } 
+      eapply (wt_lub WT1 WT2 APP).
+    + eapply IHg; eauto.
+Defined.
+
+(*
+Lemma wt_abs_inv2 f a g :
+  wt (abs f) (tpi a g)  -> 
+  forall u v, app f u = Some v -> forall t, app g u = Some t -> wt v t.
+Proof.
+Admitted.
+*)
 (* This module defines various helper operations on the logical
    relation. Each of these operations is parameterized by the
    two main fixpoints (Val and EqVal) which are polymorphic in
@@ -211,7 +249,7 @@ Record F := MkF {
 }.
 
 Section Helpers.
-
+      
 Variable 
    Val   : forall {n} (Γ : Ctx n),
               Tm n -> Tm n -> forall u a, wt u a -> Prop.
@@ -223,14 +261,14 @@ Variable
 Definition  PiEdgeEq {n} (Γ : Ctx n)
   (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
   (h : wt (tpi b f) tuniv) :=
-  forall u v (Vu : valid u) 
+  forall u v (WT : wt u b) 
       (APP: app f u = Some v) (NB: ~ is_bot v) 
-      (N1 N2 : Tm n),
+      (N1 N2 : Tm n), 
       conv Γ N1 N2 A ->
       (* take related arguments *)
-      EqVal Γ N1 N2 A (wt_tpi_inv1 h Vu APP NB) ->
+      EqVal Γ N1 N2 A WT ->
       (* to related results *)
-      EqVal Γ B[N1..] B[N2..] Core.tuniv (wt_tpi_inv2 h Vu APP NB).
+      EqVal Γ B[N1..] B[N2..] Core.tuniv (wt_tpi_inv2 h APP NB).
 
 Definition PiAppVal {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
@@ -239,9 +277,9 @@ Definition PiAppVal {n} (Γ : Ctx n)
   (APP : app f ui = Some v)
   (APPg : app g ui = Some t)
   (P : Tm n), typing Γ P A0 ->
-              Val  Γ P A0 (wt_abs_inv1 h Hin) ->
+              Val Γ P A0 (wt_abs_inv1 h Hin) ->
               Val  Γ (Core.app M P) B0[P..]
-                  (wt_abs_inv2 h Hin APP APPg).
+                  (wt_abs_inv2 h Hin APPg).
 
 Definition PiAppEq {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
@@ -253,7 +291,7 @@ Definition PiAppEq {n} (Γ : Ctx n)
     conv Γ N1 N2 A0 ->
     EqVal  Γ N1 N2 A0 (wt_abs_inv1 h Hin) ->
     EqVal  Γ (Core.app M N1) (Core.app M N2) B0[N1..]
-          (wt_abs_inv2 h Hin APP APPg).
+          (wt_abs_inv2 h Hin APPg).
 
 Definition PiAppEqVal {n} (Γ : Ctx n)
   (M N : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
@@ -265,7 +303,7 @@ Definition PiAppEqVal {n} (Γ : Ctx n)
         typing Γ P A0 ->
         Val  Γ P A0 (wt_abs_inv1 h Hin) ->
         EqVal  Γ (Core.app M P) (Core.app N P) B0[P..]
-          (wt_abs_inv2 h Hin APP APPg).
+          (wt_abs_inv2 h Hin APPg).
 
 Definition ValPi {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) g b f (h : wt (abs g) (tpi b f)):=
@@ -279,21 +317,27 @@ Definition EqValPi {n} (Γ : Ctx n)
   exists A0, exists B0, HeadRed A (Core.tpi A0 B0)
   /\ PiAppEqVal Γ M N A0 B0 h.
 
+Definition _PiEdgeVal 
+  (ValTy : forall {n} (Γ:Ctx n) M {u} (h:wt u tuniv), Prop) 
+  {n} (Γ : Ctx n)
+  (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
+  (h : wt (tpi b f) tuniv) : Prop := 
+  forall u v (WTu : wt u b) 
+    (APP: app f u = Some v) (NB: ~ is_bot v) (WTu : wt u b)
+    (N : Tm n), typing Γ N A ->
+                (* take related arguments *)
+                Val  Γ N A WTu ->
+                (* to related results *)
+                ValTy Γ B[N..] (wt_tpi_inv2 h APP NB).
+
+
+(* Cannot use Fixpoint here because the recursive call is on 
+   the result of an application of an arbitrary argument, not a specific 
+   subterm of u. However, rk_app tells us that the rank will be 
+   preserved by application,
+*)
 Fixpoint ValTy {n} (Γ : Ctx n)
-  (M : Tm n) u (h : wt u tuniv) {struct h} : Prop  :=
-
-  let PiEdgeVal {n} (Γ : Ctx n)
-        (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
-        (h : wt (tpi b f) tuniv) : Prop := 
-    forall u v (Vu : valid u) 
-        (APP: app f u = Some v) (NB: ~ is_bot v) (WTu : wt u b)
-        (N : Tm n), typing Γ N A ->
-                    (* take related arguments *)
-                    Val  Γ N A (wt_tpi_inv1 h Vu APP NB) ->
-                    (* to related results *)
-                    ValTy Γ B[N..] (wt_tpi_inv2 h Vu APP NB)
-  in
-
+  (M : Tm n) u (h : wt u tuniv) {struct u} : Prop  :=
   (match u return wt _ tuniv ->  Prop with
   | tpi b g =>
       fun (h : wt (tpi b g) tuniv) =>
@@ -311,7 +355,7 @@ Fixpoint ValTy {n} (Γ : Ctx n)
                (* domain (b) is in the relation *)
                /\ Val  Γ A Core.tuniv (wt_tpi_dom h)
                                           
-               /\ PiEdgeVal Γ A B b g h 
+               /\ True (* TODO: replace with PiEdgeVal Γ A B h *) 
                /\ PiEdgeEq Γ A B h
 
   | tnat => fun h1 => True
@@ -320,18 +364,21 @@ Fixpoint ValTy {n} (Γ : Ctx n)
   end) h.
 
 
-Fixpoint EqValTy {n} (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) {struct h} :  Prop :=
-  let PiEdgeEqTy {n} (Γ : Ctx n) 
+Definition PiEdgeEqTy 
+  (EqValTy : forall {n} (Γ : Ctx n) M N {a : elt} (h : wt a tuniv), Prop)
+  {n} (Γ : Ctx n) 
   (A : Tm n) (B B' : Tm (S n)) b f (h : wt (tpi b f) tuniv)  := 
-    forall u v (Vu : valid u) 
+    forall u v (WTu : wt u b) 
       (APP: app f u = Some v) (NB: ~ is_bot v) 
       (P : Tm n),
           typing Γ P A ->
           (* take related arguments *)
-          Val  Γ P A (wt_tpi_inv1 h Vu APP NB) ->
+          Val  Γ P A (WTu) ->
           (* to related results *)
-          EqValTy Γ B[P..] B'[P..] (wt_tpi_inv2 h Vu APP NB)
-  in 
+          EqValTy Γ B[P..] B'[P..] (wt_tpi_inv2 h APP NB).
+
+Fixpoint EqValTy {n} 
+  (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) {struct h} :  Prop :=
   (match a return wt _ tuniv ->  Prop with
   | tpi b f =>
       fun (h : wt (tpi b f) tuniv)  =>
@@ -346,7 +393,8 @@ Fixpoint EqValTy {n} (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) {struct h} :  P
              /\ valid (tpi b f)
              (* ... and the domain is in the relation *)
              /\ EqVal  Γ A A' Core.tuniv  (wt_tpi_dom h) 
-             /\ PiEdgeEqTy Γ A B B' _ _ h
+             (* TODO: add this
+             /\ PiEdgeEqTy Γ A B B' _ _ h *)
   | _ => fun h => True
   end) h.
 

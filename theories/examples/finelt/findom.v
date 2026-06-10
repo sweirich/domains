@@ -3314,7 +3314,196 @@ Proof.
 Qed.
 
 
+(* ============================================================
+   replaceKeys / replaceVals
 
+   Dependent traversals of a finite function that replace either the
+   first or the second component of each entry, with the replacement
+   choice supplied per-edge via a membership-indexed function.
+
+   Mirrors Agda LemmaForTS.replaceKeys / replaceVals.  Used by
+   typing_semantics.InvTyp_Lam to build typed-keys / typed-values
+   graphs from per-edge witnesses.
+   ============================================================ *)
+
+Definition replaceKeys :
+  forall (g : list (elt * elt)) (f : forall p, In p g -> elt),
+  list (elt * elt).
+Proof.
+  fix replaceKeys 1.
+  intros [|p ps].
+  - intros _. exact nil.
+  - intros f.
+    refine ((f p _, snd p) :: replaceKeys ps (fun q ein => f q _)).
+    + left. reflexivity.
+    + right. exact ein.
+Defined.
+
+Definition replaceVals :
+  forall (g : list (elt * elt)) (f : forall p, In p g -> elt),
+  list (elt * elt).
+Proof.
+  fix replaceVals 1.
+  intros [|p ps].
+  - intros _. exact nil.
+  - intros f.
+    refine ((fst p, f p _) :: replaceVals ps (fun q ein => f q _)).
+    + left. reflexivity.
+    + right. exact ein.
+Defined.
+
+Arguments replaceKeys : clear implicits.
+Arguments replaceVals : clear implicits.
+
+(* ------------------------------------------------------------
+   Length / shape preservation
+   ------------------------------------------------------------ *)
+
+Lemma replaceKeys_length g f :
+  length (replaceKeys g f) = length g.
+Proof.
+  induction g as [|p ps IH]; cbn; auto.
+Qed.
+
+Lemma replaceVals_length g f :
+  length (replaceVals g f) = length g.
+Proof.
+  induction g as [|p ps IH]; cbn; auto.
+Qed.
+
+(* replaceVals preserves the keys (first components) of g pointwise. *)
+Lemma replaceVals_map_fst g f :
+  map fst (replaceVals g f) = map fst g.
+Proof.
+  induction g as [|p ps IH]; cbn; auto.
+  f_equal. apply IH.
+Qed.
+
+(* replaceKeys preserves the values (second components) of g pointwise. *)
+Lemma replaceKeys_map_snd g f :
+  map snd (replaceKeys g f) = map snd g.
+Proof.
+  induction g as [|p ps IH]; cbn; auto.
+  f_equal. apply IH.
+Qed.
+
+(* ------------------------------------------------------------
+   Membership characterizations
+
+   Each entry of replaceKeys g f is (f p Hin, snd p) for some p ∈ g.
+   Each entry of replaceVals g f is (fst p, f p Hin) for some p ∈ g.
+
+   The forward witness Hin is the proof of membership in g; by
+   proof-irrelevance on Prop, f's output is determined by p alone.
+   ------------------------------------------------------------ *)
+
+Lemma replaceKeys_In_fwd g f q :
+  In q (replaceKeys g f) ->
+  exists p (Hin : In p g), q = (f p Hin, snd p).
+Proof.
+  induction g as [|p ps IH]; cbn; intros Hq.
+  - inversion Hq.
+  - destruct Hq as [Heq | Hrec].
+    + exists p, (or_introl eq_refl). by rewrite Heq.
+    + destruct (IH _ Hrec) as [p' [Hin' ->]].
+      exists p', (or_intror Hin'). reflexivity.
+Qed.
+
+Lemma replaceKeys_In_bwd g f p (Hin : In p g) :
+  In (f p Hin, snd p) (replaceKeys g f).
+Proof.
+  induction g as [|q qs IH]; cbn in Hin |- *.
+  - contradiction.
+  - destruct Hin as [Heq | Hrec].
+    + left. subst q. f_equal.
+    + right. exact (IH (fun r ein => f r (or_intror ein)) Hrec).
+Qed.
+
+Lemma replaceVals_In_fwd g f q :
+  In q (replaceVals g f) ->
+  exists p (Hin : In p g), q = (fst p, f p Hin).
+Proof.
+  induction g as [|p ps IH]; cbn; intros Hq.
+  - inversion Hq.
+  - destruct Hq as [Heq | Hrec].
+    + exists p, (or_introl eq_refl). by rewrite Heq.
+    + destruct (IH _ Hrec) as [p' [Hin' ->]].
+      exists p', (or_intror Hin'). reflexivity.
+Qed.
+
+Lemma replaceVals_In_bwd g f p (Hin : In p g) :
+  In (fst p, f p Hin) (replaceVals g f).
+Proof.
+  induction g as [|q qs IH]; cbn in Hin |- *.
+  - contradiction.
+  - destruct Hin as [Heq | Hrec].
+    + left. subst q. f_equal.
+    + right. exact (IH (fun r ein => f r (or_intror ein)) Hrec).
+Qed.
+
+(* ------------------------------------------------------------
+   Validity preservation for replaceKeys.
+
+   Given that:
+     - g is valid,
+     - the replacement function produces valid keys,
+     - replaced-key compatibility implies original-key compatibility
+       (this is the compatibility-preservation we get in InvTyp_Lam:
+        the typed key z ≤ x, so if z1, z2 are compatible then x1, x2 are),
+   then replaceKeys g f is also valid.
+
+   Notation: the hypothesis is contravariant in compatibility because
+   compatible_fun only checks one direction (key compat → value compat).
+   ------------------------------------------------------------ *)
+
+Lemma replaceKeys_valid_fun g f :
+  valid_fun g ->
+  (forall p Hin, valid (f p Hin)) ->
+  (forall p1 Hin1 p2 Hin2,
+     compatible (f p1 Hin1) (f p2 Hin2) ->
+     compatible (fst p1) (fst p2)) ->
+  valid_fun (replaceKeys g f).
+Proof.
+  move=> Vg Vf Hcompat.
+  have NB_g : no_bot_result g by eapply valid_fun_no_bot; exact Vg.
+  have Cfg : compatible_fun g g by eapply valid_fun_compatible; exact Vg.
+  have All_g : forallb (fun '(ui,vi) => valid ui && valid vi) g
+    by eapply valid_fun_subterms; exact Vg.
+  unfold valid_fun. apply /andP; split; [apply /andP; split|].
+  - (* compatible_fun (replaceKeys g f) (replaceKeys g f) *)
+    unfold compatible_fun. apply /forallb_forall.
+    move=> qi Hin_i. destruct qi as [zi vi].
+    apply /forallb_forall.
+    move=> qj Hin_j. destruct qj as [zj vj].
+    apply /implyP. move=> Cij.
+    apply replaceKeys_In_fwd in Hin_i.
+    destruct Hin_i as [pi [Hin_pi Eq_i]]. injection Eq_i as -> ->.
+    apply replaceKeys_In_fwd in Hin_j.
+    destruct Hin_j as [pj [Hin_pj Eq_j]]. injection Eq_j as -> ->.
+    have Cpij : compatible (fst pi) (fst pj) by eapply Hcompat; exact Cij.
+    move: Cfg => /forallb_forall Cfg.
+    destruct pi as [pi1 pi2]; destruct pj as [pj1 pj2]; cbn in *.
+    move: (Cfg _ Hin_pi) => /= /forallb_forall Hfg.
+    move: (Hfg _ Hin_pj) => /= /implyP H. by apply H.
+  - (* no_bot_result (replaceKeys g f) *)
+    unfold no_bot_result. apply /forallb_forall.
+    move=> qi Hin_i. destruct qi as [zi vi].
+    apply replaceKeys_In_fwd in Hin_i.
+    destruct Hin_i as [pi [Hin_pi Eq_i]]. injection Eq_i as -> ->.
+    move: NB_g => /forallb_forall NB_g.
+    destruct pi as [pi1 pi2]; cbn in *.
+    exact (NB_g _ Hin_pi).
+  - (* forallb (valid . valid) *)
+    apply /forallb_forall.
+    move=> qi Hin_i. destruct qi as [zi vi].
+    apply replaceKeys_In_fwd in Hin_i.
+    destruct Hin_i as [pi [Hin_pi Eq_i]]. injection Eq_i as -> ->.
+    apply /andP. split.
+    + exact (Vf pi Hin_pi).
+    + move: All_g => /forallb_forall All_g.
+      move: (All_g _ Hin_pi). destruct pi as [pi1 pi2]; cbn.
+      by move=> /andP [_ ?].
+Qed.
 
 
 End Raw.
