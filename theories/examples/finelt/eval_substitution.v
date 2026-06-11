@@ -341,40 +341,34 @@ Qed.
     under compat_env it equals the actual lub. *)
 
 Definition sup_env {n} (ρ1 ρ2 : Env n) : Env n :=
-  fun x => match lub (ρ1 x) (ρ2 x) with
-           | Some v => v
-           | None   => bot
-           end.
+  fun x => lub (ρ1 x) (ρ2 x).
 
 Lemma sup_env_at {n} (ρ1 ρ2 : Env n) x v :
-  lub (ρ1 x) (ρ2 x) = Some v -> sup_env ρ1 ρ2 x = v.
-Proof. move=> H. unfold sup_env. by rewrite H. Qed.
+  lub (ρ1 x) (ρ2 x) = v -> sup_env ρ1 ρ2 x = v.
+Proof. by move=> <-. Qed.
 
 Lemma sup_env_valid {n} (ρ1 ρ2 : Env n) :
   valid_env ρ1 -> valid_env ρ2 -> compat_env ρ1 ρ2 ->
   valid_env (sup_env ρ1 ρ2).
 Proof.
-  move=> V1 V2 C x.
-  destruct (compatible_lub_exists (C x)) as [w EQ].
-  rewrite (sup_env_at EQ). eapply valid_lub. apply V1. apply V2. exact EQ.
+  move=> V1 V2 C x. rewrite /sup_env.
+  eapply (valid_lub (C x)); [apply V1 | apply V2].
 Qed.
 
 Lemma le_env_sup_env_left {n} (ρ1 ρ2 : Env n) :
   valid_env ρ1 -> valid_env ρ2 -> compat_env ρ1 ρ2 ->
   le_env ρ1 (sup_env ρ1 ρ2).
 Proof.
-  move=> V1 V2 C x.
-  destruct (compatible_lub_exists (C x)) as [w EQ].
-  rewrite (sup_env_at EQ). eapply le_lub_left; eauto.
+  move=> V1 V2 C x. rewrite /sup_env.
+  eapply (le_lub_left (C x)); [apply V1 | apply V2].
 Qed.
 
 Lemma le_env_sup_env_right {n} (ρ1 ρ2 : Env n) :
   valid_env ρ1 -> valid_env ρ2 -> compat_env ρ1 ρ2 ->
   le_env ρ2 (sup_env ρ1 ρ2).
 Proof.
-  move=> V1 V2 C x.
-  destruct (compatible_lub_exists (C x)) as [w EQ].
-  rewrite (sup_env_at EQ). eapply le_lub_right; eauto.
+  move=> V1 V2 C x. rewrite /sup_env.
+  eapply (le_lub_right (C x)); [apply V1 | apply V2].
 Qed.
 
 Lemma SubRel_sup_env {h g} (σ : Sub h g) (ρ : Env g) ρ1 ρ2 :
@@ -385,8 +379,7 @@ Proof.
   move=> Vρ V1 V2 S1 S2 i.
   have CC: compatible (ρ1 i) (ρ2 i)
     := EvalRel_compatible Vρ (S1 i) (S2 i).
-  destruct (compatible_lub_exists CC) as [w EQ].
-  rewrite (sup_env_at EQ).
+  rewrite (sup_env_at (v := lub (ρ1 i) (ρ2 i)) erefl).
   eapply EvalRel_sup with (u := ρ1 i) (u' := ρ2 i); eauto.
 Qed.
 
@@ -448,14 +441,14 @@ Lemma fold_edge_fwd {h g} (σ : Sub h g) (ρ : Env g)
   (M : Tm (S h)) (a : elt) :
   forall (gs : list (elt * elt)) (acc : Env h),
     valid_env ρ -> valid_env acc -> SubRel σ acc ρ ->
-    (forall u v, valid u -> app gs u = Some v ->
+    (forall u v, valid u -> app gs u = v ->
        exists x (h: wt x a) ρ_uv,
          le x u /\ valid_env ρ_uv /\
          SubRel σ ρ_uv ρ /\
          EvalRel M (x .: ρ_uv) v) ->
     exists ρ',
       valid_env ρ' /\ SubRel σ ρ' ρ /\ le_env acc ρ' /\
-      forall u v, valid u -> app gs u = Some v ->
+      forall u v, valid u -> app gs u = v ->
         exists x (h: wt x a), le x u /\ EvalRel M (x .: ρ') v.
 Proof.
 Admitted.
@@ -522,7 +515,7 @@ Proof.
     (* u = abs l *)
     move: E => [Vf [Nl [a [WT [EA body]]]]].
     move: (IHM1 _ _ _ _ Vρ EA) => [ρA [VρA [SRρA EA']]].
-    have body' : forall u v, valid u -> app l u = Some v ->
+    have body' : forall u v, valid u -> app l u = v ->
        exists x (h:wt x a) ρ_uv,
          le x u /\ valid_env ρ_uv /\
          SubRel σ ρ_uv ρ /\
@@ -604,7 +597,7 @@ Proof.
     move: (IHM1 _ _ _ _ Vρ EA) => [ρA [VρA [SRρA EA']]].
     move: (IHM1 _ σ ρ _ Vρ Ea0) => [ρA0 [VρA0 [SRρA0 EA0']]]. 
     move: (combine_fwd Vρ VρA VρA0 SRρA SRρA0) => [ρA1 [VρA1 [SRρA1 [LEρA LEρA0]]]].
-    have body' : forall u' v', valid u' -> app l u' = Some v' ->
+    have body' : forall u' v', valid u' -> app l u' = v' ->
       exists x (h: wt x a0) ρ_uv,
         le x u' /\ valid_env ρ_uv /\
         SubRel σ ρ_uv ρ /\

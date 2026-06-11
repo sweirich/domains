@@ -44,7 +44,7 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
      evaluate the function.
      We need to define it this way instead of the more straightforward
 
-       forall u v, wt u a -> app g u = Some v -> EvalRel M (u .: ρ) v
+       forall u v, wt u a -> app g u = v -> EvalRel M (u .: ρ) v
 
      because the naive version requires that we have a well typed finelt
      for the argument to get the evaluation of the body of the function.
@@ -52,7 +52,7 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
 ` *)
   let EvalRel_fun {n} (M : Tm (S n)) :=
     fun ρ a g =>
-      forall u v, valid u -> app g u = Some v ->
+      forall u v, valid u -> app g u = v ->
         exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v
   in
   match t return Env n -> elt -> Prop with
@@ -98,7 +98,7 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
 
 Definition EvalRel_fun {n} (M : Tm (S n)) :=
     fun ρ a g =>
-      forall u v, valid u -> app g u = Some v ->
+      forall u v, valid u -> app g u = v ->
         exists x (h:wt x a), le x u /\ EvalRel M (x .: ρ) v.
 
 (* ---------------------------------------------------------------------
@@ -240,7 +240,7 @@ Lemma EvalRel_bot {n} (M : Tm n) (ρ : Env n) :
   EvalRel M ρ bot.
 Proof.
   destruct M eqn:EQ; cbn; try done.
-  (* var *) split; eauto. eapply le_bot; eauto.
+  (* var *) all: split; [done | apply le_bot'].
 Qed.
 
 Lemma EvalRel_down n (M : Tm n) (ρ : Env n) u u' :
@@ -275,13 +275,13 @@ Proof.
       move=> u v0 Vu APP0.
       destruct (valid_app_exists Vl Vu) as [v [APP Vv]].
       rewrite le_abs in LE.
-      move: (le_fun_mono Vl0 Vl LE Vu APP0 APP) => LEv.
+      move: (le_fun_mono Vl0 Vl LE Vu) => LEv. rewrite APP0 APP in LEv.
       destruct (h u v Vu APP) as [x [WTx [LEx ER2]]].
       exists x. exists WTx. split; auto.
       eapply (IHM2 _ v v0); eauto.
       eapply valid_cons; eauto.
       eapply wt_valid_tm; eauto.
-      eapply (@valid_app l0 u); eauto.
+      rewrite -APP0. eapply (@valid_app l0 u); eauto.
   - (* app M1 M2 *)
     destruct (is_bot u') eqn:Hu'.
     + (* u' = bot, trivial *)
@@ -309,11 +309,10 @@ Proof.
            - cbn. by rewrite Va Vu'. }
          have LEau: le (a ↦ u') (a ↦ u).
          { unfold singleton. rewrite Hu' Hu. rewrite le_abs.
-           rewrite le_fun_cons. cbn.
-           have Ca: compatible a a by apply compatible_refl.
+           rewrite le_fun_cons.
            have La: le a a by apply le_refl.
-           rewrite Ca La. cbn.
-           rewrite lub_bot_r. cbn. by rewrite LE. }
+           rewrite app_cons_eq La /= lub_bot_r.
+           by rewrite LE. }
          eapply IHM1; eauto.
 
   - (* zero *)
@@ -367,14 +366,14 @@ Proof.
       split. eauto.
       move=> u v Vu APP.
       destruct (valid_app_exists Vf Vu) as [w [APPw Vw]].
-      move: (le_fun_mono Vf' Vf LEf Vu APP APPw) => LEv.
+      move: (le_fun_mono Vf' Vf LEf Vu) => LEv. rewrite APP APPw in LEv.
       destruct (body1 u w Vu APPw) as [x [WTx [LEx ERx]]].
       exists x.
       split. auto.
       split. auto.
       eapply IHM2; eauto.
       eapply valid_cons. eapply wt_valid_tm. eauto. eauto.
-      eapply (@valid_app f' u); eauto.
+      rewrite -APP. eapply (@valid_app f' u); eauto.
   - (* tuniv *)
     have Vt: valid tuniv by done.
     eapply (le_trans (v := u)); eauto.
@@ -385,20 +384,21 @@ Lemma EvalRel_fun_compatible {n} (M : Tm (S n)) ρ a l b l0
   (Vρ : valid_env ρ)
   (IHM : forall (ρ : Env (S n)) (a b : elt),
       valid_env ρ -> EvalRel M ρ a -> EvalRel M ρ b -> compatible a b
- /\ forall c, lub a b = Some c -> EvalRel M ρ c
+ /\ forall c, lub a b = c -> EvalRel M ρ c
 )
+  (Cab : compatible a b)
   (Va : valid a)
   (Vl : valid_fun l)
   (h1 : EvalRel_fun M ρ a l)
   (Vb : valid b)
   (Vl0 : valid_fun l0)
   (h2 : EvalRel_fun M ρ b l0) :
-  forall c, lub a b = Some c ->
+  forall c, lub a b = c ->
   compatible_fun l l0 /\ EvalRel_fun M ρ c (l ++ l0).
 Proof.
   move=> c LUB.
   have COMP: compatible_fun l l0.
-  - unfold compatible_fun.
+  { unfold compatible_fun.
   apply /forallb_forall.
   move=> [u1 v1] Inl.
   apply /forallb_forall.
@@ -409,16 +409,16 @@ Proof.
   unfold EvalRel_fun in h1, h2.
   move: (valid_elt Vl Inl) => [Vu1 _].
   move: (valid_elt Vl0 Inl0) => [Vu2 _].
-  destruct (valid_app_compatible Vl Vu1) as 
+  destruct (valid_app_compatible Vl Vu1) as
     [w [APPl [Vw Cui]]].
 
 
   have Cv1w: compatible v1 w.
   { eapply (Cui _ _ Inl). rewrite compatible_refl; eauto.
-    rewrite le_refl; eauto. } clear Cui.  
+    rewrite le_refl; eauto. } clear Cui.
 
-  destruct (h1 _ _ Vu1 APPl) as [x1 [WTx1 [LEx1 ERx1]]].  
-  destruct (valid_app_compatible Vl0 Vu2) as 
+  destruct (h1 _ _ Vu1 APPl) as [x1 [WTx1 [LEx1 ERx1]]].
+  destruct (valid_app_compatible Vl0 Vu2) as
     [w0 [APPl0 [Vw0 Cui0]]].
   have Cv2w0: compatible v2 w0.
   { eapply (Cui0 _ _ Inl0). rewrite compatible_refl; eauto.
@@ -426,29 +426,27 @@ Proof.
 
 
   destruct (h2 _ _ Vu2 APPl0) as [x0 [WTx0 [LEx0 ERx0]]].
-  have Cab: compatible a b. 
-  { eapply lub_compatible; eauto. } 
-  have Vx1 : valid x1. eapply wt_valid_tm; eauto.
-  have Vx0 : valid x0. eapply wt_valid_tm; eauto.
+  have Vx1 : valid x1 by eapply wt_valid_tm; eauto.
+  have Vx0 : valid x0 by eapply wt_valid_tm; eauto.
 
   have Cx: compatible x1 x0.
   { move: (comp_down LEx1 Cu) => C1.
       move: (compatible_sym C1) => C2.
       move: (comp_down LEx0 C2) => C3.
-      eapply compatible_sym. auto. } 
+      eapply compatible_sym. auto. }
 
-  have [x LUBx] : { x & lub x1 x0 = Some x}.
-  { eapply compatible_lub_exists; eauto. } 
+  have [x LUBx] : { x & lub x1 x0 = x}
+    by exists (lub x1 x0).
   have LEE1: le_env (x1 .: ρ) (x .: ρ).
   { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
-    eapply le_lub_left; eauto. 
-  } 
+    rewrite -LUBx. eapply le_lub_left; eauto.
+  }
   have LEE0: le_env (x0 .: ρ) (x .: ρ).
   { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
-    eapply le_lub_right; eauto. 
-  } 
+    rewrite -LUBx. eapply le_lub_right; eauto.
+  }
 
-  have Vx : valid x. eapply (@valid_lub x1 x0); eauto.
+  have Vx : valid x. rewrite -LUBx. eapply (@valid_lub x1 x0); eauto.
   have Vx1ρ : valid_env (x1 .: ρ). eapply valid_cons; eauto.
   have Vx0ρ : valid_env (x0 .: ρ). eapply valid_cons; eauto.
   have Vxρ : valid_env (x .: ρ). eapply valid_cons; eauto.
@@ -456,76 +454,75 @@ Proof.
   move: (EvalRel_mono_env ERx1 Vx1ρ Vxρ LEE1) => hR1.
   move: (EvalRel_mono_env ERx0 Vx0ρ Vxρ LEE0) => hR0.
   have Cww0: compatible w w0.
-  { eapply IHM; eauto. } 
+  { eapply IHM; eauto. }
 
-  move: (le_app Vl Vu1 APPl Inl (le_refl Vu1)) => LEv1.
-  move: (le_app Vl0 Vu2 APPl0 Inl0 (le_refl Vu2)) => LEv2.
+  move: (le_app Vl Vu1 Inl (le_refl Vu1)) => LEv1. rewrite APPl in LEv1.
+  move: (le_app Vl0 Vu2 Inl0 (le_refl Vu2)) => LEv2. rewrite APPl0 in LEv2.
 
   move: (comp_down LEv1 Cww0) => C1.
   move: (comp_down LEv2 (compatible_sym C1)) => C2.
-  eapply compatible_sym; eauto.
+  eapply compatible_sym; eauto. }
   (* EvalRel_fun_app *)
-  - split. auto. 
-    unfold EvalRel_fun.
-    move=> u v Vu APP.
-    destruct (compatible_app_inv Vl Vl0 Vu COMP APP) as
-      [v1 [v0 [APPl [APPl0 LUBv]]]].
+  split. auto.
+  unfold EvalRel_fun.
+  move=> u v Vu APP.
+  destruct (compatible_app_inv Vl Vl0 Vu COMP) as
+    [v1 [v0 [APPl [APPl0 LUBv]]]].
 
-    destruct (h1 u v1 Vu APPl) as [x1 [WTx [LEx Ex]]].
-    destruct (h2 u v0 Vu APPl0) as [x0 [WTx0 [LEx0 Ex0]]].
+  destruct (h1 u v1 Vu APPl) as [x1 [WTx [LEx Ex]]].
+  destruct (h2 u v0 Vu APPl0) as [x0 [WTx0 [LEx0 Ex0]]].
 
-    have Cxx0 : compatible x1 x0. 
-    { eapply le_valid_compatible_pair; eauto. } 
+  have Cxx0 : compatible x1 x0 by eapply le_valid_compatible_pair; eauto.
 
-    have Vx1 : valid x1. eapply wt_valid_tm; eauto.
-    have Vx0 : valid x0. eapply wt_valid_tm; eauto.
+  have Vx1 : valid x1 by eapply wt_valid_tm; eauto.
+  have Vx0 : valid x0 by eapply wt_valid_tm; eauto.
 
-    have [x LUBx] : { x & lub x1 x0 = Some x}.
-    { eapply compatible_lub_exists; eauto. } 
+  have [x LUBx] : { x & lub x1 x0 = x}
+    by exists (lub x1 x0).
 
-    have LEE1: le_env (x1 .: ρ) (x .: ρ).
-    { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
-      eapply le_lub_left; eauto. 
-    } 
-    have LEE0: le_env (x0 .: ρ) (x .: ρ).
-    { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
-      eapply le_lub_right; eauto. 
-    } 
+  have LEE1: le_env (x1 .: ρ) (x .: ρ).
+  { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
+    rewrite -LUBx. eapply le_lub_left; eauto.
+  }
+  have LEE0: le_env (x0 .: ρ) (x .: ρ).
+  { unfold le_env. auto_case. eapply le_refl. eapply Vρ.
+    rewrite -LUBx. eapply le_lub_right; eauto.
+  }
 
-    have Vx : valid x. eapply (@valid_lub x1 x0); eauto.
-    have Vx1ρ : valid_env (x1 .: ρ). eapply valid_cons; eauto.
-    have Vx0ρ : valid_env (x0 .: ρ). eapply valid_cons; eauto.
-    have Vxρ : valid_env (x .: ρ). eapply valid_cons; eauto.
-    
-    move: (EvalRel_mono_env Ex Vx1ρ Vxρ LEE1) => hR1.
-    move: (EvalRel_mono_env Ex0 Vx0ρ Vxρ LEE0) => hR0.
+  have Vx : valid x. rewrite -LUBx. eapply (@valid_lub x1 x0); eauto.
+  have Vx1ρ : valid_env (x1 .: ρ). eapply valid_cons; eauto.
+  have Vx0ρ : valid_env (x0 .: ρ). eapply valid_cons; eauto.
+  have Vxρ : valid_env (x .: ρ). eapply valid_cons; eauto.
 
-    move: (IHM _ _ _ Vxρ hR1 hR0) => [CC ih].
-    specialize (ih _ LUBv).
+  move: (EvalRel_mono_env Ex Vx1ρ Vxρ LEE1) => hR1.
+  move: (EvalRel_mono_env Ex0 Vx0ρ Vxρ LEE0) => hR0.
 
-    have WTc: wt c tuniv.
-    { eapply wt_lub. eapply (wt_ty_tuniv WTx). eapply (wt_ty_tuniv WTx0). auto. } 
-    have WTx1c: wt x1 c.
-    { eapply wt_le. eapply WTx. eapply le_lub_left; eauto.
-      eapply lub_compatible. eauto. eapply wt_ty_tuniv; eauto. auto.
-    } 
-    have WTx0c: wt x0 c.
-    { eapply wt_le. eapply WTx0. eapply le_lub_right; eauto.
-      eapply lub_compatible. eauto. eapply wt_ty_tuniv; eauto. auto.
-    } 
-    have WTxc: wt x c.
-    { eapply wt_lub. eapply WTx1c. eapply WTx0c. auto. } 
-    exists x.
-    exists WTxc.
-    split.
-    eapply le_sup_lub in LUBx; eauto.
-    auto.
+  move: (IHM _ _ _ Vxρ hR1 hR0) => [CC ih].
+  specialize (ih _ LUBv).
+
+  have WTc: wt c tuniv.
+  { rewrite -LUB. eapply wt_lub. eapply (wt_ty_tuniv WTx). eapply (wt_ty_tuniv WTx0). }
+  have WTx1c: wt x1 c.
+  { eapply wt_le. exact WTx. rewrite -LUB. eapply le_lub_left; eauto.
+    eapply wt_ty_tuniv; exact WTx. exact WTc.
+  }
+  have WTx0c: wt x0 c.
+  { eapply wt_le. exact WTx0. rewrite -LUB. eapply le_lub_right; eauto.
+    eapply wt_ty_tuniv; exact WTx0. exact WTc.
+  }
+  have WTxc: wt x c.
+  { rewrite -LUBx. eapply wt_lub. exact WTx1c. exact WTx0c. }
+  exists x.
+  exists WTxc.
+  split.
+  - rewrite -LUBx. apply le_sup_lub; eauto.
+  - rewrite -APP. exact ih.
 Qed.
 
 
 Lemma lub_up : 
   forall a b c a0 b0 c0, 
-    le a a0 -> le b b0 -> lub a b = Some c -> lub a0 b0 = Some c0 -> le c c0.
+    le a a0 -> le b b0 -> lub a b = c -> lub a0 b0 = c0 -> le c c0.
 Proof.
 Admitted.
 
@@ -533,7 +530,7 @@ Lemma EvalRel_compatible_lub {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
   EvalRel M ρ a -> EvalRel M ρ b ->
   compatible a b /\
-    forall c, lub a b = Some c -> EvalRel M ρ c.
+    forall c, lub a b = c -> EvalRel M ρ c.
 Proof.
   dependent induction M.
   all: cbn [EvalRel].
@@ -546,8 +543,10 @@ Proof.
       eapply (Raw.le_valid_compatible_pair Vρ); eauto. 
     + move: H => [C1 L1].
       move: H0 => [C2 L2].
-      move=> c LUB.
-      split. eapply (@valid_lub a b); eauto.
+      move=> c LUB. subst c.
+      have Cab : compatible a b by eapply (le_compatible_pair (Vρ f)); eauto.
+      split.
+      eapply (@valid_lub a b); eauto.
       eapply (@le_sup_lub a b); eauto.
   - (* abs M1 M2 *)
     destruct a; try done; destruct b; try done.
@@ -562,10 +561,10 @@ Proof.
       have Va: valid a. eapply EvalRel_valid; eauto.
       have Vb: valid b. eapply EvalRel_valid; eauto.
       move: (IHM1 _ _ _ Vρ E1 E2) => [Cab h3].
-      destruct (compatible_lub_exists Cab) as [c LUB].
-      have Vc: valid c. eapply (@valid_lub a b); eauto.
-      have WTc: wt c tuniv. eapply (@wt_lub a _ WT1 b _ WT2); eauto.
-      destruct (EvalRel_fun_compatible Vρ IHM2 Va Vl h1 Vb Vl0 h2 LUB) 
+      have [c LUB] : { c & lub a b = c } by exists (lub a b).
+      have Vc: valid c. rewrite -LUB. eapply (@valid_lub a b); eauto.
+      have WTc: wt c tuniv. rewrite -LUB. eapply (@wt_lub a tuniv WT1 b WT2); eauto.
+      destruct (EvalRel_fun_compatible Vρ IHM2 Cab Va Vl h1 Vb Vl0 h2 LUB)
         as [Cll0 EAPP].
       split. 
       eapply Cll0.
@@ -621,7 +620,7 @@ Proof.
     move=> c LUBab.
     destruct (is_bot c) eqn:IBc; try done.
     destruct C2 as [C2 LUB2].
-    destruct (compatible_lub_exists C2) as [vc LUBres].
+    have [vc LUBres] : { vc & lub v1 v2 = vc } by exists (lub v1 v2).
     specialize (LUB2 _ LUBres).
     have Va: valid a. { eapply EvalRel_valid in evM1.
                         unfold singleton in evM1. rewrite IBa in evM1.
@@ -632,42 +631,32 @@ Proof.
                         apply valid_abs in evM2.
                         eauto with valid. } 
 
-    have Vc: valid c. eapply valid_lub in LUBab; eauto.
+    have Vc: valid c. rewrite -LUBab. eapply (@valid_lub a b); eauto.
     have Vvc: valid vc. eapply EvalRel_valid; eauto.
     have EQ: lub (abs ((v1, a) :: nil)) (abs ((v2, b) :: nil)) 
-          = Some (abs ((v1, a) :: (v2, b) :: nil)).
+          = (abs ((v1, a) :: (v2, b) :: nil)).
     { cbn. rewrite C1. cbn. done. } 
     specialize (LUB1 _ EQ). clear EQ.
     
+    have LE1: le v1 vc by (rewrite -LUBres; eapply le_lub_left; eauto).
+    have LE2: le v2 vc by (rewrite -LUBres; eapply le_lub_right; eauto).
     have LES: le (vc ↦ c) (abs ((v1, a) :: (v2, b) :: nil)).
-    { 
-      unfold singleton.
-      rewrite IBc.
-      rewrite le_abs.
-      rewrite le_fun_cons.
-      rewrite app_cons_eq.
-      have LE1: (le v1 vc). eapply le_lub_left in LUBres; eauto.
-      have Cv1: (compatible v1 vc). eapply le_valid_compatible; eauto. 
-      rewrite Cv1. rewrite LE1. cbn.
-      have LE2: (le v2 vc). eapply le_lub_right in LUBres; eauto.
-      have Cv2: (compatible v2 vc). eapply le_valid_compatible; eauto. 
-      rewrite Cv2. rewrite LE2. cbn.
-      rewrite lub_bot_r.
-      rewrite LUBab.
-      rewrite le_refl; auto.
-    } 
+    { unfold singleton. rewrite IBc le_abs le_fun_cons.
+      have APPeq : app ((v1,a)::(v2,b)::nil) vc = c.
+      { rewrite !app_cons_eq.
+        case: ifP => [_|H1]; last by rewrite LE1 in H1.
+        case: ifP => [_|H2]; last by rewrite LE2 in H2.
+        by rewrite app_nil_eq lub_bot_r LUBab. }
+      rewrite APPeq. apply /andP; split; [ by apply le_refl | by [] ]. }
+    have NBc : ~~ le c bot.
+    { apply /negP => H. move/le_bot_inv: H => H. rewrite H /= in IBc. discriminate IBc. }
     have VS:  valid (vc ↦ c).
-    unfold singleton. rewrite IBc. 
-    cbn. 
-    apply /andP; split; auto.
-    apply /andP; split; auto. 
-    apply /andP; split; auto. 
-    apply /andP; split; auto. 
-    apply /andP; split; auto. 
-    rewrite compatible_refl; eauto.
-    rewrite compatible_refl; eauto.
-    destruct c; try done.
-    rewrite Vvc. rewrite Vc. done.
+    { rewrite /singleton IBc /= /_valid_fun /= !Bool.andb_true_r.
+      apply /andP; split.
+      2: by rewrite Vvc Vc.
+      apply /andP; split.
+      2: exact NBc.
+      apply /implyP => _. by apply compatible_refl. }
 
     exists vc. split.
     eapply EvalRel_down; eauto. 
@@ -702,18 +691,16 @@ Proof.
     rewrite le_succ in LEb.
     split.
     + cbn. eapply comp_down_pair; eauto.
-    + move=> c LUB. cbn in LUB. clear IBa IBb.
-      move: (compatible_lub_exists C0) => [w EQ].
-      destruct (is_bot c); try done.
-      destruct (lub a b) eqn:EqLUB; inversion LUB; subst. clear LUB.
-      have Ve: valid e.
-      { cbn in Va, Vb |- *.
-         eapply (valid_lub Va Vb); eauto. } 
-      split. auto.
-      specialize (IH0 _ EQ). 
-      move: (lub_up LEa LEb EqLUB EQ) => LEw.
-      exists w.
-      split; eauto.
+    + move=> c LUB. cbn in LUB. clear IBa IBb. subst c.
+      have Cab : compatible a b by eapply comp_down_pair; eauto.
+      cbn in Va, Vb.
+      have Ve : valid (lub a b) by eapply (valid_lub Cab); eauto.
+      have [w EQ] : { w & lub a0 b0 = w } by exists (lub a0 b0).
+      specialize (IH0 _ EQ).
+      move: (lub_up LEa LEb (erefl : lub a b = lub a b) EQ) => LEw.
+      cbn. split.
+      by rewrite Ve.
+      exists w. rewrite le_succ. split; eauto.
   - (* nrec *)
     move=> H1 H2.
     destruct a; cbn in H1; try done.
@@ -750,7 +737,7 @@ Qed.
 
 Lemma EvalRel_sup n (M : Tm n) (ρ : Env n) u u' v :
   valid_env ρ -> valid u -> valid u' -> compatible u u' -> 
-  lub u u' = Some v ->
+  lub u u' = v ->
   EvalRel M ρ u -> EvalRel M ρ u' -> EvalRel M ρ v.
 Proof.
   intros Vr Vu Vu' C L E1 E2.
@@ -766,18 +753,18 @@ Lemma EvalRel_compatible_ext {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
   compatible y1 y2.
 Proof.
   move=> Vρ CC Vx1 Vx2 E1 E2.
-  have [x EQ] : { x & lub x1 x2 = Some x}
-    by  eapply compatible_lub_exists; eauto. 
-  have Vx : valid x. eapply (valid_lub Vx1 Vx2); eauto.
+  have [x EQ] : { x & lub x1 x2 = x}
+    by exists (lub x1 x2).
+  have Vx : valid x. rewrite -EQ. eapply (valid_lub CC); eauto.
   have Vext : valid_env (x .: ρ). eauto with valid.
   have E1': EvalRel M (x .: ρ) y1.
   eapply EvalRel_mono_env; eauto with valid.
   { unfold le_env. auto_case. eapply le_refl.
-    eapply Vρ. eapply le_lub_left; eauto. } 
+    eapply Vρ. rewrite -EQ. eapply le_lub_left; eauto. }
   have E2': EvalRel M (x .: ρ) y2.
   eapply EvalRel_mono_env; eauto with valid.
   { unfold le_env. auto_case. eapply le_refl.
-    eapply Vρ. eapply le_lub_right; eauto. } 
+    eapply Vρ. rewrite -EQ. eapply le_lub_right; eauto. }
 
   eapply (EvalRel_compatible Vext); eauto.
 Qed.  
@@ -786,24 +773,23 @@ Lemma EvalRel_ideal {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
   valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 ->
   EvalRel M (x1 .: ρ) y1 ->
   EvalRel M (x2 .: ρ) y2 ->
-  exists x y, lub x1 x2 = Some x /\ lub y1 y2 = Some y
+  exists x y, lub x1 x2 = x /\ lub y1 y2 = y
          /\ EvalRel M (x .: ρ) y.
   move=> Vρ CC Vx1 Vx2 E1 E2.
-  have [x EQ] : { x & lub x1 x2 = Some x}
-    by  eapply compatible_lub_exists; eauto. 
-  have Vx : valid x. eapply (valid_lub Vx1 Vx2); eauto.
+  have [x EQ] : { x & lub x1 x2 = x}
+    by exists (lub x1 x2).
+  have Vx : valid x. rewrite -EQ. eapply (valid_lub CC); eauto.
   have Vext : valid_env (x .: ρ). eauto with valid.
   have E1': EvalRel M (x .: ρ) y1.
   eapply EvalRel_mono_env; eauto with valid.
   { unfold le_env. auto_case. eapply le_refl.
-    eapply Vρ. eapply le_lub_left; eauto. } 
+    eapply Vρ. rewrite -EQ. eapply le_lub_left; eauto. }
   have E2': EvalRel M (x .: ρ) y2.
   eapply EvalRel_mono_env; eauto with valid.
   { unfold le_env. auto_case. eapply le_refl.
-    eapply Vρ. eapply le_lub_right; eauto. } 
-  have [y EQy] : { y & lub y1 y2 = Some y }.
-  { eapply compatible_lub_exists.
-    eapply (EvalRel_compatible Vext); eauto. }
+    eapply Vρ. rewrite -EQ. eapply le_lub_right; eauto. }
+  have [y EQy] : { y & lub y1 y2 = y }
+    by exists (lub y1 y2).
   exists x. exists y.
   repeat split; auto.
   eapply EvalRel_sup with (u := y1)(u':=y2); eauto.

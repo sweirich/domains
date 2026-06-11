@@ -58,6 +58,7 @@ theories/directed.v
 # theories/examples/st_lam.v
 # theories/examples/st_lam_fix.v
 
+theories/examples/finelt/utils.v
 theories/examples/finelt/findom.v
 theories/examples/finelt/types.v
 theories/examples/finelt/raw_semantics.v
