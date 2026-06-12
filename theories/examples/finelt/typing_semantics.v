@@ -311,12 +311,34 @@ Proof.
 Qed.
 
 
-Lemma Typed_append {n}{A : Tm n} M B ρ f g : 
+(* [valid_fun] of an append splits componentwise. *)
+Lemma valid_fun_app_inv f g :
+  valid_fun (f ++ g) -> valid_fun f /\ valid_fun g.
+Proof.
+  move=> H.
+  have Cfg := @valid_fun_compatible (f ++ g) H.
+  have Nfg := @valid_fun_no_bot (f ++ g) H.
+  have Vfg := @valid_fun_subterms (f ++ g) H.
+  rewrite compatible_fun_spec forallb_app in Cfg. apply andb_prop in Cfg. destruct Cfg as [Cf Cg].
+  rewrite /no_bot_result forallb_app in Nfg. apply andb_prop in Nfg. destruct Nfg as [Nf Ng].
+  rewrite forallb_app in Vfg. apply andb_prop in Vfg. destruct Vfg as [Vf Vg].
+  split; apply /andP; (split; [apply /andP; split|]); auto.
+  - rewrite compatible_fun_spec. apply /forallb_forall => -[u v] Hp.
+    move: Cf => /forallb_forall Cf. move: (Cf _ Hp).
+    rewrite /coherent_with forallb_app.
+    move=> Hc; apply andb_prop in Hc; destruct Hc; assumption.
+  - rewrite compatible_fun_spec. apply /forallb_forall => -[u v] Hp.
+    move: Cg => /forallb_forall Cg. move: (Cg _ Hp).
+    rewrite /coherent_with forallb_app.
+    move=> Hc; apply andb_prop in Hc; destruct Hc; assumption.
+Qed.
+
+Lemma Typed_append {n}{A : Tm n} M B ρ f g :
   Typed (Core.abs A M) (Core.tpi A B) ρ (abs f) ->
-  Typed (Core.abs A M) (Core.tpi A B) ρ (abs g) -> 
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs g) ->
   valid_fun (f ++ g) ->
   valid_env ρ ->
-  Typed (Core.abs A M) (Core.tpi A B) ρ (abs (f ++ g)). 
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs (f ++ g)).
 Proof.
   intros T1 T2 Vapp Vr.
   unfold Typed in *.
@@ -324,12 +346,132 @@ Proof.
   destruct T2 as [v2 [a2 [WT2 [LE2 [EM2 EA2]]]]].
   apply le_abs_inv in LE1. destruct LE1 as [f1 [-> LF1]].
   apply le_abs_inv in LE2. destruct LE2 as [g1 [-> LF2]].
-  
   move: (EvalRel_compatible Vr EM1 EM2) => Cfg.
   move: (EvalRel_compatible Vr EA1 EA2) => Ca.
-  (* Remaining argument used the option-valued [lub]; with the total
-     [lub] this needs reworking. *)
-Admitted.
+  have Cf1g1 : compatible_fun f1 g1 by (move: Cfg; rewrite /= //).
+  (* validity / nonemptiness of the two function bodies *)
+  move: (EM1) => /= [Vf1 [NEf1 _]].
+  move: (EM2) => /= [Vg1 [NEg1 _]].
+  have Vabsf1 : valid (abs f1) by (apply valid_abs; auto).
+  have Vabsg1 : valid (abs g1) by (apply valid_abs; auto).
+  have Va1 : valid a1 by (eapply EvalRel_valid; exact EA1).
+  have Va2 : valid a2 by (eapply EvalRel_valid; exact EA2).
+  have WTa1 : wt a1 tuniv by (eapply wt_ty_tuniv; exact WT1).
+  have WTa2 : wt a2 tuniv by (eapply wt_ty_tuniv; exact WT2).
+  (* merged type a := lub a1 a2 *)
+  set a := lub a1 a2.
+  have WTa : wt a tuniv by (eapply wt_lub; [exact WTa1 | exact Ca | exact WTa2]).
+  have Va : valid a by (apply (valid_lub Ca); auto).
+  have le_a1_a : le a1 a by (apply le_lub_left; auto).
+  have le_a2_a : le a2 a by (apply le_lub_right; auto).
+  (* widen both function bodies to the merged type *)
+  have WT1a : wt (abs f1) a by (eapply wt_le; [exact WT1 | exact le_a1_a | exact WTa1 | exact WTa]).
+  have WT2a : wt (abs g1) a by (eapply wt_le; [exact WT2 | exact le_a2_a | exact WTa2 | exact WTa]).
+  have WTmerge : wt (abs (f1 ++ g1)) a.
+  { move: (wt_lub WT1a Cfg WT2a). rewrite /= Cf1g1 //. }
+  have absfg : abs (f1 ++ g1) = lub (abs f1) (abs g1) by (rewrite /= Cf1g1 //).
+  have [Vff Vfg] := valid_fun_app_inv Vapp.
+  have V11 : valid_fun (f1 ++ g1) by (apply valid_append; auto).
+  exists (abs (f1 ++ g1)), a, WTmerge.
+  split; [|split].
+  - (* le (abs (f++g)) (abs (f1++g1)) *)
+    have Cfg0 : compatible_fun f g.
+    { have HC := @valid_fun_compatible (f ++ g) Vapp.
+      rewrite compatible_fun_spec in HC.
+      rewrite compatible_fun_spec. apply /forallb_forall => -[u v] Hp.
+      move: HC => /forallb_forall HC.
+      have Hp' : In (u, v) (f ++ g) by (apply in_or_app; left).
+      move: (HC _ Hp'). rewrite /coherent_with forallb_app.
+      move=> Hc; apply andb_prop in Hc; destruct Hc; assumption. }
+    have -> : abs (f ++ g) = lub (abs f) (abs g) by (rewrite /= Cfg0 //).
+    apply le_sup_lub.
+    + have lef : le_fun f (f1 ++ g1).
+      { eapply le_fun_trans; [ exact Vff | exact Vf1 | exact V11 | exact LF1 |].
+        rewrite -le_abs absfg. apply le_lub_left; auto. }
+      by rewrite le_abs.
+    + have leg : le_fun g (f1 ++ g1).
+      { eapply le_fun_trans; [ exact Vfg | exact Vg1 | exact V11 | exact LF2 |].
+        rewrite -le_abs absfg. apply le_lub_right; auto. }
+      by rewrite le_abs.
+  - (* EvalRel (abs A M) ρ (abs (f1++g1)) *)
+    move: (EvalRel_compatible_lub Vr EM1 EM2) => [_ hm].
+    exact (hm _ (esym absfg)).
+  - (* EvalRel (tpi A B) ρ a *)
+    move: (EvalRel_compatible_lub Vr EA1 EA2) => [_ hc].
+    by apply (hc a).
+Qed.
+
+(* Single-edge construction: given a typed key [x] (an enlargement of
+   [ui]) with [EvalRel M (x .: ρ) t] and the codomain typing [t : tx],
+   the original edge [(ui, vi)] is Typed (i.e. [abs [(x,t)]] is a typed
+   enlargement of [abs [(ui,vi)]]). *)
+Lemma Typed_edge {n} (Γ : Ctx n) (A : Tm n) (B M : Tm (S n)) ρ a ui vi x t tx :
+  typing Γ A Core.tuniv ->
+  fits Γ ρ ->
+  wt a tuniv -> EvalRel A ρ a ->
+  wt x a -> le x ui ->
+  wt t tx -> le vi t -> ~~ le vi bot ->
+  EvalRel M (x .: ρ) t ->
+  EvalRel B (x .: ρ) tx ->
+  Typed (Core.abs A M) (Core.tpi A B) ρ (abs ((ui, vi) :: nil)).
+Proof.
+  move=> tA Fρ WTa ERa WTx LExui WTt LEvit NBvi ERMt ERBtx.
+  have Vρ : valid_env ρ by eauto with valid.
+  have Va : valid a by (eapply EvalRel_valid; exact ERa).
+  have Vx : valid x by (eapply wt_valid_tm; exact WTx).
+  have Vt : valid t by (eapply wt_valid_tm; exact WTt).
+  have Vtx : valid tx by (eapply wt_valid_ty; exact WTt).
+  have WTtx : wt tx tuniv by (eapply wt_ty_tuniv; exact WTt).
+  have NBt : ~~ le t bot.
+  { apply /negP => Hb. move: Hb => /le_bot_inv Et. subst t.
+    move: NBvi => /negP NB. apply NB. exact LEvit. }
+  have NBtx : ~~ le tx bot.
+  { apply /negP => Hb. move: Hb => /le_bot_inv Etx. subst tx.
+    move: WTt => /wt_bot_inv Et. subst t. move: NBt. by rewrite le_bot'. }
+  have Vff : valid_fun ((x, t) :: nil).
+  { apply /andP; split; [apply /andP; split|]; cbn;
+      rewrite ?(compatible_refl Vx) ?(compatible_refl Vt) ?Vx ?Vt //.
+    move: NBt; by case: (le t bot). }
+  have Vfg : valid_fun ((x, tx) :: nil).
+  { apply /andP; split; [apply /andP; split|]; cbn;
+      rewrite ?(compatible_refl Vx) ?(compatible_refl Vtx) ?Vx ?Vtx //.
+    move: NBtx; by case: (le tx bot). }
+  have Vgpi : valid (tpi a ((x, tx) :: nil)) by (apply /andP; split; [exact Va | exact Vfg]).
+  have WTpi : wt (tpi a ((x, tx) :: nil)) tuniv.
+  { eapply wt_tpi; [exact WTa | | | exact Vgpi].
+    - move=> u0 v0 [E|F]; [inversion E; subst; exact WTx | inversion F].
+    - move=> u0 v0 [E|F]; [inversion E; subst; exact WTtx | inversion F]. }
+  have WTabs : wt (abs ((x, t) :: nil)) (tpi a ((x, tx) :: nil)).
+  { eapply wt_abs.
+    - move=> u0 v0 Hin. destruct Hin as [E|F]; [|inversion F].
+      inversion E; subst; exact WTx.
+    - move=> u0 v0 Hin. destruct Hin as [E|F]; [|inversion F].
+      inversion E; subst u0 v0.
+      rewrite app_cons_eq app_nil_eq lub_bot_r (le_refl Vx). exact WTt.
+    - apply valid_abs; [exact Vff | done].
+    - exact WTpi. }
+  exists (abs ((x, t) :: nil)), (tpi a ((x, tx) :: nil)), WTabs.
+  split; [|split].
+  - (* le (abs [(ui,vi)]) (abs [(x,t)]) *)
+    rewrite le_abs le_fun_cons le_fun_nil andbT.
+    rewrite app_cons_eq app_nil_eq lub_bot_r LExui. exact LEvit.
+  - (* EvalRel (abs A M) ρ (abs [(x,t)]) *)
+    split; [exact Vff|]. split; [done|].
+    exists a, WTa. split; [exact ERa|].
+    move=> u v Vu APP.
+    rewrite app_cons_eq app_nil_eq lub_bot_r in APP.
+    destruct (le x u) eqn:Lxu; subst v.
+    + exists x, WTx. by split; [|exact ERMt].
+    + exists bot, (wt_bot WTa). split; [by rewrite le_bot' | apply EvalRel_bot].
+  - (* EvalRel (tpi A B) ρ (tpi a [(x,tx)]) *)
+    split; [exact Va|]. split; [exact Vfg|]. split; [exact ERa|].
+    exists a. split; [exact ERa|].
+    move=> u v Vu APP.
+    rewrite app_cons_eq app_nil_eq lub_bot_r in APP.
+    destruct (le x u) eqn:Lxu; subst v.
+    + exists x, WTx. by split; [|exact ERBtx].
+    + exists bot, (wt_bot WTa). split; [by rewrite le_bot' | apply EvalRel_bot].
+Qed.
 
 Lemma InvTyp_Lam {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n)) :
   typing Γ A Core.tuniv ->
@@ -340,11 +482,129 @@ Lemma InvTyp_Lam {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n)) :
   Γ ++ A ⊨ M ∈ B ->
   Γ ⊨ (Core.abs A M) ∈ Core.tpi A B.
 Proof.
-  (* Proof relied on the option-valued lub/app and the old app guard;
-     needs reworking for the total versions. *)
-Admitted.
+  move=> tA tB tM TA TB TM ρ Fρ u EL.
+  have Vρ : valid_env ρ by eauto with valid.
+  destruct (~~ is_bot u) eqn:Bu.
+  2: { destruct u; try done. by apply Typed_bot. }
+  destruct u; try done.
+  destruct EL as [Vl [NBl [a [WTa [ERa ERl]]]]].
+  have Va : valid a by (eapply EvalRel_valid; exact ERa).
+  clear Bu.
+  (* Build [Typed (abs l)] by induction on the (non-empty) function body [l]. *)
+  move: Vl ERl NBl. elim: l => [|[ui vi] l IHl] Vl ERl NBl.
+  - (* empty: excluded by [NBl] *)
+    done.
+  - (* cons: head edge + tail (Typed_append) *)
+    have Hui : In (ui, vi) ((ui, vi) :: l) by (left; reflexivity).
+    have [Vui Vvi] := @valid_fun_subterms_prop ((ui, vi) :: l) Vl ui vi Hui.
+    have NBvi : ~~ le vi bot.
+    { move: (valid_fun_no_bot Vl) => /forallb_forall H.
+      move: (H (ui, vi) Hui) => /=. done. }
+    set w := app ((ui, vi) :: l) ui.
+    have APPw : app ((ui, vi) :: l) ui = w by rewrite /w.
+    have LEviw : le vi w by (rewrite /w; apply le_in_app; [exact Vl|exact Hui]).
+    have Vw : valid w by (rewrite /w; apply valid_app; [exact Vl|exact Vui]).
+    destruct (ERl ui w Vui APPw) as [x [WTx [LExui ERMw]]].
+    have Vx : valid x by (eapply wt_valid_tm; exact WTx).
+    have FE : fits (Γ ++ A) (x .: ρ) by (eapply fits_cons; eauto).
+    move: (TM _ FE _ ERMw) => [t [tx [WTt [LEwt [ERMt ERBtx]]]]].
+    have LEvit : le vi t by (eapply le_trans; [exact Vvi|exact Vw|eapply wt_valid_tm; exact WTt|exact LEviw|exact LEwt]).
+    have Hd : Typed (Core.abs A M) (Core.tpi A B) ρ (abs ((ui, vi) :: nil)).
+    { eapply Typed_edge with (x := x) (t := t) (tx := tx); eauto. }
+    destruct l as [|p l'].
+    + (* singleton: head is the whole function *)
+      exact Hd.
+    + (* nonempty tail: combine via Typed_append *)
+      have Vtl : valid_fun (p :: l') by (eapply valid_fun_tail; exact Vl).
+      (* restrict ERl to the tail *)
+      have ERl' : EvalRel_fun M ρ a (p :: l').
+      { move=> u v Vu APP.
+        have Vapl : valid v by (rewrite -APP; apply valid_app; [exact Vtl | exact Vu]).
+        destruct (le ui u) eqn:Luiu.
+        - have C : compatible vi v.
+          { rewrite -APP. eapply compatible_coherent_app.
+            - eapply le_compatible; [exact Vu|exact Luiu].
+            - eapply compat. eapply valid_fun_head; exact Vl. }
+          have APP2 : app ((ui, vi) :: (p :: l')) u = lub vi v
+            by (rewrite app_cons_eq Luiu APP).
+          destruct (ERl u (lub vi v) Vu APP2) as [z [WTz [LEz ERz]]].
+          have Vz : valid z by (eapply wt_valid_tm; exact WTz).
+          exists z, WTz. split; [exact LEz|].
+          eapply EvalRel_down;
+            [ by apply valid_cons | exact Vapl | exact ERz
+            | apply le_lub_right; [exact C | exact Vvi | exact Vapl] ].
+        - have APP2 : app ((ui, vi) :: (p :: l')) u = v
+            by (rewrite app_cons_eq Luiu APP).
+          exact (ERl u v Vu APP2). }
+      have Ht : Typed (Core.abs A M) (Core.tpi A B) ρ (abs (p :: l'))
+        by (apply IHl; [exact Vtl | exact ERl' | done]).
+      have := Typed_append (f := (ui, vi) :: nil) (g := p :: l') Hd Ht.
+      rewrite /=. apply; [exact Vl | exact Vρ].
+Qed.
 
 
+
+(* [le_fun] is preserved by appending compatible extensions. *)
+Lemma le_fun_append_merge f g f1 g1 :
+  valid_fun (f ++ g) -> valid_fun f1 -> valid_fun g1 -> compatible_fun f1 g1 ->
+  le_fun f f1 -> le_fun g g1 ->
+  le_fun (f ++ g) (f1 ++ g1).
+Proof.
+  move=> Vapp Vf1 Vg1 Cf1g1 LF1 LF2.
+  have [Vff Vfg] := valid_fun_app_inv Vapp.
+  have V11 : valid_fun (f1 ++ g1) by (apply valid_append; auto).
+  apply le_fun_extend.
+  - eapply le_fun_trans; [exact Vff | exact Vf1 | exact V11 | exact LF1 |].
+    apply /forallb_forall => -[ui vi] Hin.
+    apply le_in_app; [exact V11 | apply in_or_app; left; exact Hin].
+  - eapply le_fun_trans; [exact Vfg | exact Vg1 | exact V11 | exact LF2 |].
+    apply /forallb_forall => -[ui vi] Hin.
+    apply le_in_app; [exact V11 | apply in_or_app; right; exact Hin].
+Qed.
+
+(* Merge two typed enlargements of a Pi-type value (same domain code [b]).
+   The two enlargements may use different domain enlargements [b1],[b2];
+   we merge them through their [lub]. *)
+Lemma Typed_pi_append {n} (A : Tm n) (B : Tm (S n)) ρ b f g :
+  Typed (Core.tpi A B) Core.tuniv ρ (tpi b f) ->
+  Typed (Core.tpi A B) Core.tuniv ρ (tpi b g) ->
+  valid b ->
+  valid_fun (f ++ g) ->
+  valid_env ρ ->
+  Typed (Core.tpi A B) Core.tuniv ρ (tpi b (f ++ g)).
+Proof.
+  intros T1 T2 Vb Vapp Vr.
+  destruct T1 as [v1 [c1 [WT1 [LE1 [EM1 EA1]]]]].
+  destruct T2 as [v2 [c2 [WT2 [LE2 [EM2 EA2]]]]].
+  apply le_tpi_inv in LE1. destruct LE1 as [b1 [f1 [E1 [LEb1 LFf1]]]]. subst v1.
+  apply le_tpi_inv in LE2. destruct LE2 as [b2 [g1 [E2 [LEb2 LFg1]]]]. subst v2.
+  have WT1u : wt (tpi b1 f1) tuniv by (dependent destruction WT1; eapply wt_tpi; eauto).
+  have WT2u : wt (tpi b2 g1) tuniv by (dependent destruction WT2; eapply wt_tpi; eauto).
+  move: (EvalRel_compatible Vr EM1 EM2) => Cv.
+  have Cdom : compatible b1 b2.
+  { have C := Cv. cbn [compatible] in C. apply andb_prop in C. tauto. }
+  have Cfun : compatible_fun f1 g1.
+  { have C := Cv. cbn [compatible] in C. apply andb_prop in C. tauto. }
+  move: (EM1) => /= [Vb1 [Vfun_f1 [ERAb1 _]]].
+  move: (EM2) => /= [Vb2 [Vfun_g1 [ERAb2 _]]].
+  have V11 : valid_fun (f1 ++ g1) by (apply valid_append; auto).
+  set v := lub (tpi b1 f1) (tpi b2 g1).
+  have WTv : wt v tuniv by (rewrite /v; eapply wt_lub; [exact WT1u | exact Cv | exact WT2u]).
+  have Veq : v = tpi (lub b1 b2) (f1 ++ g1) by (rewrite /v /= Cfun).
+  exists v, tuniv, WTv.
+  split; [|split].
+  - (* le (tpi b (f++g)) v *)
+    rewrite Veq le_tpi. apply /andP; split.
+    + have Vlub : valid (lub b1 b2) by (apply valid_lub; auto).
+      apply (@le_trans b b1 (lub b1 b2));
+        [ exact Vb | exact Vb1 | exact Vlub | exact LEb1 | apply le_lub_left; auto ].
+    + apply le_fun_append_merge; auto.
+  - (* EvalRel (tpi A B) ρ v *)
+    move: (EvalRel_compatible_lub Vr EM1 EM2) => [_ hm].
+    by apply (hm v).
+  - (* EvalRel tuniv ρ tuniv *)
+    by [].
+Qed.
 
 (* =====================================================================
    InvTyp_Pi (LemmaForTS.agda): Pi case at universe level.
@@ -354,6 +614,53 @@ Admitted.
        InvTyp at (tuniv i).
    ===================================================================== *)
 
+(* Single codomain-edge construction for a Pi type.  [b''] is a typed
+   domain enlargement that dominates both the Pi-domain code [b] and the
+   codomain-function domain code [u'] (where the edge key [x] is typed). *)
+Lemma Typed_pi_edge {n} (A : Tm n) (B : Tm (S n)) ρ b u' b'' ui vi x t :
+  EvalRel A ρ b -> EvalRel A ρ u' -> EvalRel A ρ b'' ->
+  wt b'' tuniv -> le b b'' -> le u' b'' ->
+  wt x u' -> le x ui ->
+  wt t tuniv -> le vi t -> ~~ le vi bot ->
+  EvalRel B (x .: ρ) t ->
+  valid_env ρ ->
+  Typed (Core.tpi A B) Core.tuniv ρ (tpi b ((ui, vi) :: nil)).
+Proof.
+  move=> ERb ERu' ERb'' WTb'' LEbb'' LEu'b'' WTx LExui WTt LEvit NBvi ERBt Vr.
+  have Vb'' : valid b'' by (eapply EvalRel_valid; exact ERb'').
+  have Vx : valid x by (eapply wt_valid_tm; exact WTx).
+  have Vt : valid t by (eapply wt_valid_tm; exact WTt).
+  have WTu' : wt u' tuniv by (eapply wt_ty_tuniv; exact WTx).
+  have WTxb'' : wt x b'' by (eapply wt_le; [exact WTx | exact LEu'b'' | exact WTu' | exact WTb'']).
+  have NBt : ~~ le t bot.
+  { apply /negP => Hb. move: Hb => /le_bot_inv Et. subst t.
+    move: NBvi => /negP NB. apply NB. exact LEvit. }
+  have Vff : valid_fun ((x, t) :: nil).
+  { apply /andP; split; [apply /andP; split|]; cbn;
+      rewrite ?(compatible_refl Vx) ?(compatible_refl Vt) ?Vx ?Vt //.
+    move: NBt; by case: (le t bot). }
+  have Vgpi : valid (tpi b'' ((x, t) :: nil)) by (apply /andP; split; [exact Vb'' | exact Vff]).
+  have WTpi : wt (tpi b'' ((x, t) :: nil)) tuniv.
+  { eapply wt_tpi; [exact WTb'' | | | exact Vgpi].
+    - move=> u0 v0 Hin. destruct Hin as [E|F]; [|inversion F]. inversion E; subst; exact WTxb''.
+    - move=> u0 v0 Hin. destruct Hin as [E|F]; [|inversion F]. inversion E; subst; exact WTt. }
+  exists (tpi b'' ((x, t) :: nil)), tuniv, WTpi.
+  split; [|split].
+  - (* le (tpi b [(ui,vi)]) (tpi b'' [(x,t)]) *)
+    rewrite le_tpi. apply /andP; split; [exact LEbb''|].
+    rewrite le_fun_cons le_fun_nil andbT.
+    rewrite app_cons_eq app_nil_eq lub_bot_r LExui. exact LEvit.
+  - (* EvalRel (tpi A B) ρ (tpi b'' [(x,t)]) *)
+    split; [exact Vb''|]. split; [exact Vff|]. split; [exact ERb''|].
+    exists u'. split; [exact ERu'|].
+    move=> u v Vu APP.
+    rewrite app_cons_eq app_nil_eq lub_bot_r in APP.
+    destruct (le x u) eqn:Lxu; subst v.
+    + exists x, WTx. by split; [|exact ERBt].
+    + exists bot, (wt_bot WTu'). split; [by rewrite le_bot' | apply EvalRel_bot].
+  - by [].
+Qed.
+
 Lemma InvTyp_Pi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
   typing Γ A Core.tuniv -> 
   typing (Γ ++ A) B Core.tuniv -> 
@@ -362,34 +669,97 @@ Lemma InvTyp_Pi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
   Γ ⊨ (Core.tpi A B) ∈ Core.tuniv.
 Proof.
   move=> TA TB IHA IHB ρ Fρ u Eu.
-  destruct u; try solve [cbn in Eu; done].
+  have Vρ : valid_env ρ by eauto with valid.
+  destruct u as [ | | | | u0 | b l | f0 ]; try solve [cbn in Eu; done].
   { (* u = bot *) apply Typed_bot. }
-  (* u = tpi u l *)
+  (* u = tpi b l *)
   cbn in Eu.
-  destruct Eu as [Vb [Vf [EAb [u' [EAu'  Hbody]]]]].
-
-  (* Apply IHA to enlarge the type code b to b', well-typed at tuniv *)
-  unfold InvTyped in IHA.
-  destruct (IHA _ Fρ _ EAb) as [b' [c [WTb'c [LEbb' [EAb'  LEcuniv]]]]].
-  cbn in LEcuniv.
-  have Vb' : valid b' by eapply EvalRel_valid; exact EAb'.
-  have Vti : valid tuniv by [].
-  have WTb' : wt b' tuniv. { eapply wt_le; eauto. eapply wt_ty_tuniv; eauto. eapply wt_tuniv. }  
-
-  induction l; unfold Typed.
-  - have WTpi : wt (tpi b' nil) tuniv.
-    { econstructor; eauto.
-      intros ? ? h. inversion h.
-      intros ? ? h. inversion h.
-      cbn. rewrite Vb'. done.
-    }       
-    exists (tpi b' nil). exists tuniv. split. eauto.
-    split. rewrite le_tpi. rewrite LEbb'. rewrite le_fun_nil. done.
-    split. cbn. 
-    repeat split; auto.
-    exists u'. split; auto. cbn. done.
-  - admit.
-Admitted.
+  destruct Eu as [Vb [Vf [EAb [u' [EAu' Hbody]]]]].
+  have Vu' : valid u' by (eapply EvalRel_valid; exact EAu').
+  (* enlarge b -> b1, u' -> u1 (both typed); the typed domain is b'' = lub b1 u1 *)
+  destruct (IHA _ Fρ _ EAb) as [b1 [c1 [WTb1c1 [LEbb1 [EAb1 LEc1]]]]].
+  destruct (IHA _ Fρ _ EAu') as [u1 [c2 [WTu1c2 [LEu'u1 [EAu1 LEc2]]]]].
+  cbn in LEc1, LEc2.
+  have Vb1 : valid b1 by (eapply EvalRel_valid; exact EAb1).
+  have Vu1 : valid u1 by (eapply EvalRel_valid; exact EAu1).
+  have WTb1 : wt b1 tuniv
+    by (eapply wt_le; [exact WTb1c1 | exact LEc1 | eapply wt_ty_tuniv; exact WTb1c1 | apply wt_tuniv]).
+  have WTu1 : wt u1 tuniv
+    by (eapply wt_le; [exact WTu1c2 | exact LEc2 | eapply wt_ty_tuniv; exact WTu1c2 | apply wt_tuniv]).
+  have Cb1u1 : compatible b1 u1 by (eapply EvalRel_compatible; [exact Vρ | exact EAb1 | exact EAu1]).
+  set b'' := lub b1 u1.
+  have Vb'' : valid b'' by (rewrite /b''; apply valid_lub; auto).
+  have WTb'' : wt b'' tuniv by (rewrite /b''; eapply wt_lub; [exact WTb1 | exact Cb1u1 | exact WTu1]).
+  have EAb'' : EvalRel A ρ b''.
+  { move: (EvalRel_compatible_lub Vρ EAb1 EAu1) => [_ h]. by apply (h b''). }
+  have LEbb'' : le b b''
+    by (eapply le_trans;
+        [exact Vb | exact Vb1 | exact Vb'' | exact LEbb1 | rewrite /b''; apply le_lub_left; auto]).
+  have LEu'b'' : le u' b''
+    by (eapply le_trans;
+        [exact Vu' | exact Vu1 | exact Vb'' | exact LEu'u1 | rewrite /b''; apply le_lub_right; auto]).
+  (* induction on the codomain function l *)
+  move: Vf Hbody. elim: l => [|[ui vi] l IHl] Vf Hbody.
+  - (* nil: tpi b nil, enlarged to tpi b'' nil *)
+    exists (tpi b'' nil), tuniv.
+    have WTpi : wt (tpi b'' nil) tuniv.
+    { eapply wt_tpi; [exact WTb'' | move=> ?? [] | move=> ?? [] |].
+      by apply /andP; split; [exact Vb''|]. }
+    exists WTpi. split; [|split].
+    + by rewrite le_tpi LEbb'' le_fun_nil.
+    + split; [exact Vb''|]. split; [done|]. split; [exact EAb''|].
+      exists b''. split; [exact EAb''|].
+      move=> uu vv _ APP. rewrite app_nil_eq in APP. subst vv.
+      exists bot, (wt_bot WTb''). split; [by rewrite le_bot' | apply EvalRel_bot].
+    + by [].
+  - (* cons: head edge (Typed_pi_edge) + tail (Typed_pi_append) *)
+    have Hui : In (ui, vi) ((ui, vi) :: l) by (left; reflexivity).
+    have [Vui Vvi] := @valid_fun_subterms_prop ((ui, vi) :: l) Vf ui vi Hui.
+    have NBvi : ~~ le vi bot.
+    { move: (valid_fun_no_bot Vf) => /forallb_forall H.
+      move: (H (ui, vi) Hui) => /=. done. }
+    set w := app ((ui, vi) :: l) ui.
+    have APPw : app ((ui, vi) :: l) ui = w by rewrite /w.
+    have LEviw : le vi w by (rewrite /w; apply le_in_app; [exact Vf|exact Hui]).
+    have Vw : valid w by (rewrite /w; apply valid_app; [exact Vf|exact Vui]).
+    destruct (Hbody ui w Vui APPw) as [x [WTx [LExui ERBw]]].
+    have Vx : valid x by (eapply wt_valid_tm; exact WTx).
+    have FE : fits (Γ ++ A) (x .: ρ)
+      by (eapply fits_cons; [exact TA | exact EAu' | eapply wt_ty_tuniv; exact WTx | exact WTx | exact Fρ]).
+    move: (IHB _ FE _ ERBw) => [t [tt [WTt [LEwt [ERBt ERuniv]]]]].
+    have WTt' : wt t tuniv
+      by (eapply wt_le; [exact WTt | exact ERuniv | eapply wt_ty_tuniv; exact WTt | apply wt_tuniv]).
+    have LEvit : le vi t
+      by (eapply le_trans; [exact Vvi|exact Vw|eapply wt_valid_tm; exact WTt|exact LEviw|exact LEwt]).
+    have Hd : Typed (Core.tpi A B) Core.tuniv ρ (tpi b ((ui, vi) :: nil)).
+    { eapply Typed_pi_edge with (u' := u') (b'' := b'') (x := x) (t := t); eauto. }
+    destruct l as [|p l'].
+    + exact Hd.
+    + have Vtl : valid_fun (p :: l') by (eapply valid_fun_tail; exact Vf).
+      have Hbody' : EvalRel_fun B ρ u' (p :: l').
+      { move=> uu vv Vuu APP.
+        have Vvv : valid vv by (rewrite -APP; apply valid_app; [exact Vtl | exact Vuu]).
+        destruct (le ui uu) eqn:Luiuu.
+        - have C : compatible vi vv.
+          { rewrite -APP. eapply compatible_coherent_app.
+            - eapply le_compatible; [exact Vuu|exact Luiuu].
+            - eapply compat. eapply valid_fun_head; exact Vf. }
+          have APP2 : app ((ui, vi) :: (p :: l')) uu = lub vi vv
+            by (rewrite app_cons_eq Luiuu APP).
+          destruct (Hbody uu (lub vi vv) Vuu APP2) as [z [WTz [LEz ERz]]].
+          have Vz : valid z by (eapply wt_valid_tm; exact WTz).
+          exists z, WTz. split; [exact LEz|].
+          eapply EvalRel_down;
+            [ by apply valid_cons | exact Vvv | exact ERz
+            | apply le_lub_right; [exact C | exact Vvi | exact Vvv] ].
+        - have APP2 : app ((ui, vi) :: (p :: l')) uu = vv
+            by (rewrite app_cons_eq Luiuu APP).
+          exact (Hbody uu vv Vuu APP2). }
+      have Ht : Typed (Core.tpi A B) Core.tuniv ρ (tpi b (p :: l'))
+        by (apply IHl; [exact Vtl | exact Hbody']).
+      have := Typed_pi_append (b := b) (f := (ui, vi) :: nil) (g := p :: l') Hd Ht.
+      rewrite /=. apply; [exact Vb | exact Vf | exact Vρ].
+Qed.
 
 (* =====================================================================
    InvTyp_App (LemmaForTS.agda): Application case.
@@ -405,17 +775,60 @@ Lemma InvTyp_App {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   InvTyped Γ N A ρ ->
   InvTyped Γ (Core.app M N) B[N..] ρ.
 Proof.
-  (* Translates LemmaForTS.InvTyp-App.
-
-     Outline:
-       Given EvalRel (app M N) ρ u with u not bot, there is some w
-       with EvalRel N ρ w and EvalRel M ρ (w ↦ u). Apply InvM to get
-       a typed enlargement (h, piaf) of (w ↦ u). Case-split on h and
-       piaf: must be h = abs g' and piaf = tpi a f. Then apply Lemma 4
-       (lemma4_2 / wt_app) to the typed graph to get
-       wt v0 (EvalFun f w0) where w0 ≤ w. Conclude with
-       EvalRel_subst1_backwards. *)
-Admitted.
+  move=> Fρ InvM InvN.
+  have Vρ : valid_env ρ by eauto with valid.
+  move=> u Eu.
+  destruct (is_bot u) eqn:Bu.
+  { destruct u; cbn in Bu; try discriminate. apply Typed_bot. }
+  (* u is not bot *)
+  cbn [EvalRel] in Eu. rewrite Bu in Eu.
+  destruct Eu as [w [EMw ENw]].
+  have Vw : valid w by (eapply EvalRel_valid; exact ENw).
+  (* w ↦ u = abs [(w,u)] *)
+  have Esing : (w ↦ u) = abs ((w, u) :: nil) by (rewrite /singleton Bu).
+  rewrite Esing in EMw.
+  (* InvM gives a typed enlargement abs g : tpi a f *)
+  destruct (InvM _ EMw) as [vM [avM [WTvM [LEvM [EMvM EAvM]]]]].
+  apply le_abs_inv in LEvM. destruct LEvM as [g [E LFg]]. subst vM.
+  move: LFg. rewrite le_fun_cons le_fun_nil andbT => LEug.   (* LEug : le u (app g w) *)
+  (* the semantic type [avM] must be a [tpi] *)
+  destruct avM as [ | | | | | a f | ];
+    try solve [ cbn in EAvM; done
+              | (move: (wt_bot_inv WTvM); discriminate) ].
+  destruct EAvM as [Va [Vfun_f [EAa [a' [EAa' EBfun]]]]].
+  (* the result value/type: app g w  /  app f w *)
+  have WTres : wt (app g w) (app f w) by (eapply wt_app_valid; [exact WTvM | exact Vw]).
+  have NBv : ~~ is_bot (app g w).
+  { apply /negP => Hb.
+    have Eb : app g w = bot by (move: Hb; by case: (app g w)).
+    move: LEug. rewrite Eb. move=> /le_bot_inv Eu. subst u. by rewrite /= in Bu. }
+  have Vgw : valid (app g w) by (eapply wt_valid_tm; exact WTres).
+  have NBlev : ~~ le (app g w) bot.
+  { apply /negP => H. move: H => /le_bot_inv E. rewrite E in NBv. cbn in NBv. done. }
+  exists (app g w), (app f w), WTres.
+  split; [|split].
+  - (* le u (app g w) *) exact LEug.
+  - (* EvalRel (app M N) ρ (app g w) *)
+    cbn [EvalRel]. rewrite (negbTE NBv).
+    exists w. split; [|exact ENw].
+    have Esing2 : (w ↦ app g w) = abs ((w, app g w) :: nil) by (rewrite /singleton (negbTE NBv)).
+    rewrite Esing2.
+    have Vsing : valid (abs ((w, app g w) :: nil)).
+    { apply valid_abs; [|done].
+      apply /andP; split; [apply /andP; split|]; cbn;
+        rewrite ?(compatible_refl Vw) ?(compatible_refl Vgw) ?Vw ?Vgw //.
+      move: NBlev; by case: (le (app g w) bot). }
+    eapply EvalRel_down; [exact Vρ | exact Vsing | exact EMvM |].
+    rewrite le_abs le_fun_cons le_fun_nil andbT.
+    exact (le_refl Vgw).
+  - (* EvalRel B[N..] ρ (app f w) *)
+    have [x [WTx [LExw EBx]]] :
+      exists x (_ : wt x a'), le x w /\ EvalRel B (x .: ρ) (app f w).
+    { apply (EBfun w (app f w) Vw); reflexivity. }
+    have Vx : valid x by (eapply wt_valid_tm; exact WTx).
+    eapply EvalRel_subst1_backwards; [exact Vρ | | exact EBx].
+    eapply EvalRel_down; [exact Vρ | exact Vx | exact ENw | exact LExw].
+Qed.
 
 (* =====================================================================
    InvConv_App_fun (LemmaForTS.agda): App congruence on the function.

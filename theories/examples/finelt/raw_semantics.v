@@ -501,7 +501,7 @@ Proof.
   specialize (ih _ LUBv).
 
   have WTc: wt c tuniv.
-  { rewrite -LUB. eapply wt_lub. eapply (wt_ty_tuniv WTx). eapply (wt_ty_tuniv WTx0). }
+  { rewrite -LUB. eapply wt_lub. eapply (wt_ty_tuniv WTx). exact Cab. eapply (wt_ty_tuniv WTx0). }
   have WTx1c: wt x1 c.
   { eapply wt_le. exact WTx. rewrite -LUB. eapply le_lub_left; eauto.
     eapply wt_ty_tuniv; exact WTx. exact WTc.
@@ -511,7 +511,7 @@ Proof.
     eapply wt_ty_tuniv; exact WTx0. exact WTc.
   }
   have WTxc: wt x c.
-  { rewrite -LUBx. eapply wt_lub. exact WTx1c. exact WTx0c. }
+  { rewrite -LUBx. eapply wt_lub. exact WTx1c. exact Cxx0. exact WTx0c. }
   exists x.
   exists WTxc.
   split.
@@ -563,7 +563,7 @@ Proof.
       move: (IHM1 _ _ _ Vρ E1 E2) => [Cab h3].
       have [c LUB] : { c & lub a b = c } by exists (lub a b).
       have Vc: valid c. rewrite -LUB. eapply (@valid_lub a b); eauto.
-      have WTc: wt c tuniv. rewrite -LUB. eapply (@wt_lub a tuniv WT1 b WT2); eauto.
+      have WTc: wt c tuniv. rewrite -LUB. eapply (@wt_lub a tuniv WT1 b Cab WT2); eauto.
       destruct (EvalRel_fun_compatible Vρ IHM2 Cab Va Vl h1 Vb Vl0 h2 LUB)
         as [Cll0 EAPP].
       split. 

@@ -147,6 +147,8 @@ Proof.
 Defined.
 
 
+
+
 Lemma wt_abs_cons 
   a f g :
   wt (abs f) (tpi a g) -> 
@@ -352,6 +354,14 @@ Proof.
   eapply WTLE.all_app_is_tuniv; eauto. eapply WTLE.WTLE.
 Qed.
 
+Lemma wt_tpi_inv2 a g :
+  wt (tpi a g) tuniv  ->
+  forall u v, valid u -> app g u = v -> wt v tuniv.
+Proof.
+  move=> h u v Vu <-. eapply all_app_is_tuniv; eauto.
+Defined.
+
+
 (* Corollary 2 If w : Πaf and u : a, then w(u) : f (u). *)
 
 Lemma wt_app w a f :
@@ -400,6 +410,52 @@ Proof.
       eauto with valid.
     + (* ui not below u: result is app w' u *)
       exact WTr'.
+Qed.
+
+(* Same as [wt_app] but only requires the argument to be valid (not
+   necessarily typed at the domain): a typed function maps any valid
+   argument to a value well-typed at the corresponding codomain image.
+   The argument's typing is only used in [wt_app] to thread the
+   recursion, so [valid u] suffices throughout. *)
+Lemma wt_app_valid w a f :
+  wt (abs w) (tpi a f) ->
+  forall u, valid u -> wt (app w u) (app f u).
+Proof.
+  induction w as [|[ui vi] w'].
+  - move=> WT u Vu.
+    move: (wt_valid_tm WT). by cbn.
+  - move=> WT u Vu.
+    have Vtpi : valid (tpi a f) by eauto with valid.
+    have Vf : valid_fun f by (move: Vtpi => /andP [_ ?]; done).
+    have Vabs : valid (abs ((ui,vi) :: w')) by eauto with valid.
+    have Vw : valid_fun ((ui,vi) :: w') by (move: Vabs => /andP [Vff _]; done).
+    have Vt : valid (app f u) by eapply (app_tpi_valid Vtpi Vu).
+    have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
+    have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX]; subst.
+    have WTfu : wt (app f u) tuniv.
+    { eapply (all_app_is_tuniv); eauto. }
+    have WTr' : wt (app w' u) (app f u).
+    { destruct (~~ is_nil w') eqn:Nw.
+      - have WTw' : wt (abs w') (tpi a f) by eapply wt_abs_tail; eauto.
+        eapply IHw'; eauto.
+      - destruct w'; try done. rewrite app_nil_eq.
+        by eapply wt_bot. }
+    rewrite app_cons_eq.
+    destruct (le ui u) eqn:LEui.
+    + have WTviwi : wt vi (app f ui)
+        by (eapply (HuiAll ui vi); left).
+      have LEwit : le (app f ui) (app f u)
+        by (eapply le_fun_mono_arg; eauto with valid).
+      have WTvit : wt vi (app f u).
+      { eapply wt_le; [exact WTviwi | exact LEwit | ..].
+        - eapply wt_ty_tuniv; exact WTviwi.
+        - exact WTfu. }
+      eapply wt_lub; eauto.
+      eapply compatible_coherent_app; eauto.
+      eapply le_compatible; eauto.
+      eauto with valid.
+    + exact WTr'.
 Qed.
 
 
