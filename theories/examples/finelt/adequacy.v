@@ -377,8 +377,8 @@ Proof.
                 a1 tuniv WTa1_univ Ea1_A evU) => [eqAB _].
   asimpl in eqAB.
   (* Step 4: extract EqValTy from EqVal at tuniv via EqVal_EqValTy. *)
-  have eqAB_ty : EqValTy Δ A[σ] B[σ] WTa1_univ
-    by eapply EqVal_EqValTy; exact eqAB.
+  have eqAB_ty : EqValTy (S (Init.Nat.max (rk a1) (rk tuniv))) Δ A[σ] B[σ] WTa1_univ
+    by eapply EqVal_EqValTy; [ apply Nat.lt_succ_diag_r | exact eqAB ].
   (* Step 5: transport Val Δ M[σ] A[σ] WT1 → Val Δ M[σ] B[σ] WT1
      via Val_EqVal_fwd, and EqVal M[σ] M[σ'] A[σ] → EqVal M[σ] M[σ'] B[σ]
      via EqVal_EqVal_fwd. *)

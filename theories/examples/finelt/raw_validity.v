@@ -128,14 +128,15 @@ Proof.
     eapply c_beta; eauto.
 Abort.    
 
+From Stdlib Require Import ProofIrrelevance.
+Require Import finelt.utils.
 Require Import findom.
 Require Import types.
 
 Import Raw.
 
 
-(* Logical relation, defined by recursion on the wt judgement for
-   semantic elements. i.e. on the derivation of `wt u a`.
+(* Logical relation, defined by recursion on rank.
 
    The relation is parameterized by a typing context Γ : Ctx n.
    Terms M, N, A live at scope n; substitutions B[N..] close one
@@ -165,6 +166,9 @@ Record F := MkF {
 Section Helpers.
       
 Variable 
+   RB    : nat.
+
+Variable 
    Val   : forall {n} (Γ : Ctx n),
               Tm n -> Tm n -> forall u a, wt u a -> Prop.
 Variable
@@ -180,7 +184,7 @@ Definition  PiEdgeEq {n} (Γ : Ctx n)
          keeps the (otherwise unbounded) domain occurrence of [EqVal]
          below within the well-founded [max]-rank measure.  See the
          note on [ValF]/[EqValF]. *)
-      (RKu : rk u < rk (tpi b f))
+      (RKu : rk u < RB)
       (APP: app f u = v) (NB: ~ is_bot v)
       (N1 N2 : Tm n),
       conv Γ N1 N2 A ->
@@ -192,7 +196,12 @@ Definition  PiEdgeEq {n} (Γ : Ctx n)
 Definition PiAppVal {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) : Prop :=
-  forall ui vi (Hin : In (ui, vi) f) v t
+  forall ui vi (Hin : In (ui, vi) f)
+  (* the argument's rank is bounded by [RB] (the subject's rank), so the
+     domain occurrence of [Val] below stays within the well-founded
+     [max]-rank measure.  Mirrors [PiEdgeVal]/[PiEdgeEq]. *)
+  (RKu : rk ui < RB)
+  v t
   (APP : app f ui = v)
   (APPg : app g ui = t)
   (P : Tm n), typing Γ P A0 ->
@@ -203,7 +212,9 @@ Definition PiAppVal {n} (Γ : Ctx n)
 Definition PiAppEq {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g))  :=
-  forall ui vi (Hin : In (ui, vi) f) v t
+  forall ui vi (Hin : In (ui, vi) f)
+    (RKu : rk ui < RB)
+    v t
     (APP : app f ui = v)
     (APPg : app g ui = t)
     (N1 N2 : Tm n),
@@ -215,7 +226,9 @@ Definition PiAppEq {n} (Γ : Ctx n)
 Definition PiAppEqVal {n} (Γ : Ctx n)
   (M N : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) :=
-  forall ui vi (Hin : In (ui, vi) f) v t
+  forall ui vi (Hin : In (ui, vi) f)
+  (RKu : rk ui < RB)
+  v t
   (APP : app f ui = v)
   (APPg : app g ui = t)
   (P : Tm n),
@@ -258,7 +271,7 @@ Definition PiEdgeVal {n} (Γ : Ctx n)
   (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
   (h : wt (tpi b f) tuniv) :=
   forall u v (WT : wt u b)
-      (RKu : rk u < rk (tpi b f))
+      (RKu : rk u < RB)
       (APP: app f u = v) (NB: ~ is_bot v)
       (N : Tm n),
       typing Γ N A ->
@@ -305,7 +318,7 @@ Fixpoint ValTy {n} (Γ : Ctx n)
 Definition PiEdgeEqTy {n} (Γ : Ctx n)
   (A : Tm n) (B B' : Tm (S n)) b f (h : wt (tpi b f) tuniv) :=
     forall u v (WTu : wt u b)
-      (RKu : rk u < rk (tpi b f))
+      (RKu : rk u < RB)
       (APP: app f u = v) (NB: ~ is_bot v)
       (P : Tm n),
           typing Γ P A ->
@@ -378,14 +391,14 @@ Fixpoint ValF (k : nat) {n} (Γ : Ctx n)
       | bot => fun h => True
 
       | tuniv => fun (h : wt u tuniv) =>
-          Rec.ValTy (@ValF k) (@EqValF k) Γ M h
+          Rec.ValTy k (@ValF k) (@EqValF k) Γ M h
 
       | tpi b f => fun h  =>
            (match u return wt _ (tpi b f) ->  Prop with
 
             | abs g => fun (h : wt (abs g) (tpi b f)) =>
-                        Rec.ValTy (@ValF k) (@EqValF k) Γ A (wt_abs_ty h)
-                      /\ Rec.ValPi (@ValF k) (@EqValF k) Γ M A h
+                        Rec.ValTy k (@ValF k) (@EqValF k) Γ A (wt_abs_ty h)
+                      /\ Rec.ValPi k (@ValF k) (@EqValF k) Γ M A h
 
             | _ => fun h  => True
             end) h
@@ -415,18 +428,18 @@ with EqValF (k : nat) {n} (Γ : Ctx n)
 
       | tuniv => fun (h : wt u tuniv) =>
 
-            Rec.ValTy (@ValF k) (@EqValF k) Γ M h
-          /\ Rec.ValTy (@ValF k) (@EqValF k) Γ N h
-          /\ Rec.EqValTy (@ValF k) (@EqValF k) Γ M N h
+            Rec.ValTy k (@ValF k) (@EqValF k) Γ M h
+          /\ Rec.ValTy k (@ValF k) (@EqValF k) Γ N h
+          /\ Rec.EqValTy k (@ValF k) (@EqValF k) Γ M N h
 
       | tpi b f => fun h =>
            (match u return wt _ (tpi b f) -> Prop with
            | bot => fun h => True
            | abs g => fun (h : wt (abs g) (tpi b f)) =>
-               Rec.ValTy (@ValF k) (@EqValF k) Γ A (wt_abs_ty h)
-             /\ Rec.ValPi (@ValF k) (@EqValF k) Γ M A h
-             /\ Rec.ValPi (@ValF k) (@EqValF k) Γ N A h
-             /\ Rec.EqValPi (@ValF k) (@EqValF k) Γ M N A h
+               Rec.ValTy k (@ValF k) (@EqValF k) Γ A (wt_abs_ty h)
+             /\ Rec.ValPi k (@ValF k) (@EqValF k) Γ M A h
+             /\ Rec.ValPi k (@ValF k) (@EqValF k) Γ N A h
+             /\ Rec.EqValPi k (@ValF k) (@EqValF k) Γ M N A h
 
            | _ => fun h => True
             end) h
@@ -459,14 +472,20 @@ Definition EqVal {n} (Γ : Ctx n)
 Arguments Val : clear implicits.
 Arguments EqVal : clear implicits.
 
-Notation PiAppVal := (@Rec.PiAppVal Val).
-Notation PiAppEq  := (@Rec.PiAppEq Val EqVal).
-Notation ValTy    := (@Rec.ValTy Val EqVal).
-Notation EqValTy  := (@Rec.EqValTy Val EqVal).
-Notation ValPi    := (@Rec.ValPi Val EqVal).
-Notation EqValPi  := (@Rec.EqValPi Val EqVal).
-Notation PiEdgeEq := (@Rec.PiEdgeEq EqVal).
-Notation PiAppEqVal := (@Rec.PiAppEqVal Val EqVal).
+(* The helper notions keep the rank bound [RB] as an *explicit*
+   parameter rather than baking in a particular value: every lemma below
+   quantifies (or instantiates) [RB] for itself.  These are parameterised
+   abbreviations for the [Rec.*] helpers with the two canonical relations
+   [Val]/[EqVal] plugged in. *)
+Notation ValTy RB      := (Rec.ValTy RB Val EqVal).
+Notation EqValTy RB    := (Rec.EqValTy RB Val EqVal).
+Notation ValPi RB      := (Rec.ValPi RB Val EqVal).
+Notation EqValPi RB    := (Rec.EqValPi RB Val EqVal).
+Notation PiEdgeEq RB   := (Rec.PiEdgeEq RB EqVal).
+Notation PiEdgeVal RB  := (Rec.PiEdgeVal RB Val).
+Notation PiAppVal RB   := (Rec.PiAppVal RB Val).
+Notation PiAppEq RB    := (Rec.PiAppEq RB EqVal).
+Notation PiAppEqVal RB := (Rec.PiAppEqVal RB Val EqVal).
 
 Arguments Val {_} _ _ _ {_}{_}.
 Arguments EqVal {_} _ _ _ _ {_}{_}.
@@ -489,15 +508,16 @@ Arguments EqVal : simpl never.
    that we admit here.
    ============================================================ *)
 
-Lemma Val_eq {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) :
+Lemma Val_eq {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) RB :
+  Init.Nat.max (rk u) (rk a) < RB ->
   Val Γ M A h =
   (match a as a0 return wt u a0 -> Prop with
    | bot => fun _ => True
-   | tuniv => fun h => ValTy Γ M h
+   | tuniv => fun h => ValTy RB Γ M h
    | tpi b f => fun h =>
        (match u as u0 return wt u0 (tpi b f) -> Prop with
-        | abs g => fun h => ValTy Γ A (wt_abs_ty h)
-                          /\ ValPi Γ M A h
+        | abs g => fun h => ValTy RB Γ A (wt_abs_ty h)
+                          /\ ValPi RB Γ M A h
         | _ => fun _ => True
         end) h
    | tnat => fun h =>
@@ -511,19 +531,20 @@ Lemma Val_eq {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) :
    end) h.
 Admitted.
 
-Lemma EqVal_eq {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) :
+Lemma EqVal_eq {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB :
+  Init.Nat.max (rk u) (rk a) < RB ->
   EqVal Γ M N A h =
   (match a as a0 return wt u a0 -> Prop with
    | bot => fun _ => True
-   | tuniv => fun h => ValTy Γ M h
-                    /\ ValTy Γ N h
-                    /\ EqValTy Γ M N h
+   | tuniv => fun h => ValTy RB Γ M h
+                    /\ ValTy RB Γ N h
+                    /\ EqValTy RB Γ M N h
    | tpi b f => fun h =>
        (match u as u0 return wt u0 (tpi b f) -> Prop with
-        | abs g => fun h => ValTy Γ A (wt_abs_ty h)
-                          /\ ValPi Γ M A h
-                          /\ ValPi Γ N A h
-                          /\ EqValPi Γ M N A h
+        | abs g => fun h => ValTy RB Γ A (wt_abs_ty h)
+                          /\ ValPi RB Γ M A h
+                          /\ ValPi RB Γ N A h
+                          /\ EqValPi RB Γ M N A h
         | _ => fun _ => True
         end) h
    | tnat => fun h =>
@@ -540,40 +561,44 @@ Admitted.
 
 (* Per-constructor unfolding lemmas (the form actually used downstream). *)
 
-Lemma Val_tuniv {n} (Γ : Ctx n) M A u (h : wt u tuniv) :
-  Val Γ M A h = ValTy Γ M h.
-Proof. rewrite Val_eq //. Qed.
+Lemma Val_tuniv {n} (Γ : Ctx n) M A u (h : wt u tuniv) RB :
+  Init.Nat.max (rk u) (rk tuniv) < RB ->
+  Val Γ M A h = ValTy RB Γ M h.
+Proof. move=> E. erewrite Val_eq; [ reflexivity | exact E ]. Qed.
 
-Lemma Val_abs {n} (Γ : Ctx n) M A g b f (h : wt (abs g) (tpi b f)) :
-  Val Γ M A h = (ValTy Γ A (wt_abs_ty h) /\ ValPi Γ M A h).
-Proof. rewrite Val_eq //. Qed.
+Lemma Val_abs {n} (Γ : Ctx n) M A g b f (h : wt (abs g) (tpi b f)) RB :
+  Init.Nat.max (rk (abs g)) (rk (tpi b f)) < RB ->
+  Val Γ M A h = (ValTy RB Γ A (wt_abs_ty h) /\ ValPi RB Γ M A h).
+Proof. move=> E. erewrite Val_eq; [ reflexivity | exact E ]. Qed.
 
 Lemma Val_zero {n} (Γ : Ctx n) M A (h : wt zero tnat) :
   Val Γ M A h = HeadRed M Core.zero.
-Proof. rewrite Val_eq //. Qed.
+Proof. erewrite Val_eq; [ reflexivity | apply Nat.lt_succ_diag_r ]. Qed.
 
 Lemma Val_succ {n} (Γ : Ctx n) M A v (h : wt (succ v) tnat) :
   Val Γ M A h = (exists M1, HeadRed M (Core.succ M1) /\ Val Γ M1 Core.tnat (wt_succ_inv h)).
-Proof. rewrite Val_eq //. Qed.
+Proof. erewrite Val_eq; [ reflexivity | apply Nat.lt_succ_diag_r ]. Qed.
 
-Lemma EqVal_tuniv {n} (Γ : Ctx n) M N A u (h : wt u tuniv) :
-  EqVal Γ M N A h = (ValTy Γ M h /\ ValTy Γ N h /\ EqValTy Γ M N h).
-Proof. rewrite EqVal_eq //. Qed.
+Lemma EqVal_tuniv {n} (Γ : Ctx n) M N A u (h : wt u tuniv) RB :
+  Init.Nat.max (rk u) (rk tuniv) < RB ->
+  EqVal Γ M N A h = (ValTy RB Γ M h /\ ValTy RB Γ N h /\ EqValTy RB Γ M N h).
+Proof. move=> E. erewrite EqVal_eq; [ reflexivity | exact E ]. Qed.
 
-Lemma EqVal_abs {n} (Γ : Ctx n) M N A g b f (h : wt (abs g) (tpi b f)) :
+Lemma EqVal_abs {n} (Γ : Ctx n) M N A g b f (h : wt (abs g) (tpi b f)) RB :
+  Init.Nat.max (rk (abs g)) (rk (tpi b f)) < RB ->
   EqVal Γ M N A h =
-  (ValTy Γ A (wt_abs_ty h) /\ ValPi Γ M A h /\ ValPi Γ N A h /\ EqValPi Γ M N A h).
-Proof. rewrite EqVal_eq //. Qed.
+  (ValTy RB Γ A (wt_abs_ty h) /\ ValPi RB Γ M A h /\ ValPi RB Γ N A h /\ EqValPi RB Γ M N A h).
+Proof. move=> E. erewrite EqVal_eq; [ reflexivity | exact E ]. Qed.
 
 Lemma EqVal_zero {n} (Γ : Ctx n) M N A (h : wt zero tnat) :
   EqVal Γ M N A h = (HeadRed M Core.zero /\ HeadRed N Core.zero).
-Proof. rewrite EqVal_eq //. Qed.
+Proof. erewrite EqVal_eq; [ reflexivity | apply Nat.lt_succ_diag_r ]. Qed.
 
 Lemma EqVal_succ {n} (Γ : Ctx n) M N A v (h : wt (succ v) tnat) :
   EqVal Γ M N A h =
   (exists M1, HeadRed M (Core.succ M1) /\ exists N1, HeadRed N (Core.succ N1)
             /\ EqVal Γ M1 N1 Core.tnat (wt_succ_inv h)).
-Proof. rewrite EqVal_eq //. Qed.
+Proof. erewrite EqVal_eq; [ reflexivity | apply Nat.lt_succ_diag_r ]. Qed.
 
 (* ============================================================
    Val2-Bot, EqVal2-Bot: at u = bot, both relations are True.
@@ -591,40 +616,78 @@ dependent destruction h.
        destruct a eqn:EQa; try done.
 Qed.
 
+(* [Val]/[EqVal] depend on the typing derivation only up to proof
+   irrelevance, so any two derivations of the same [wt u a] give the
+   same relation.  Used to discharge the cases of [up_down_restrict]
+   where the two element/type pairs coincide. *)
+Lemma Val_irr {n} (Γ : Ctx n) (M T : Tm n) u a (h h' : wt u a) :
+  Val Γ M T h -> Val Γ M T h'.
+Proof. now rewrite (proof_irrelevance _ h h'). Qed.
+
+Lemma EqVal_irr {n} (Γ : Ctx n) (M N T : Tm n) u a (h h' : wt u a) :
+  EqVal Γ M N T h -> EqVal Γ M N T h'.
+Proof. now rewrite (proof_irrelevance _ h h'). Qed.
+
+Lemma is_bot_eq (a : elt) : is_bot a -> a = bot.
+Proof. by destruct a. Qed.
+
+(* At a [bot] (semantic) type the relations are trivially total. *)
+Lemma Val_isbot {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) :
+  is_bot a -> Val Γ M A h.
+Proof.
+  move=> /is_bot_eq E. subst a.
+  erewrite Val_eq; [ exact I | apply Nat.lt_succ_diag_r ].
+Qed.
+
+Lemma EqVal_isbot {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) :
+  is_bot a -> EqVal Γ M N A h.
+Proof.
+  move=> /is_bot_eq E. subst a.
+  erewrite EqVal_eq; [ exact I | apply Nat.lt_succ_diag_r ].
+Qed.
+
+Lemma ValTy_irr {n} (Γ : Ctx n) (M : Tm n) u (h h' : wt u tuniv) RB :
+  ValTy RB Γ M h -> ValTy RB Γ M h'.
+Proof. now rewrite (proof_irrelevance _ h h'). Qed.
+
 
 (* ============================================================
    Val <-> ValTy  and  EqVal <-> EqValTy
    ============================================================ *)
 
-Lemma EqValTy_EqVal {n} (Γ : Ctx n) (A B : Tm n) a (h : wt a tuniv):
-  EqValTy Γ A B h ->
+Lemma EqValTy_EqVal {n} (Γ : Ctx n) (A B : Tm n) a (h : wt a tuniv) RB :
+  Init.Nat.max (rk a) (rk tuniv) < RB ->
+  EqValTy RB Γ A B h ->
   EqVal Γ A B Core.tuniv h.
 Proof.
-  dependent destruction h; try done.
-  rewrite EqVal_tuniv; cbn [Rec.EqValTy].
-  move=> [hA [hB h1]].
-  eauto.
+  move=> LT.
+  rewrite (EqVal_tuniv Γ A B Core.tuniv h LT).
+  dependent destruction h; cbn [Rec.EqValTy] in * |- *; try done.
+  move=> [hA [hB h1]]. eauto.
 Qed.
 
-Lemma EqVal_EqValTy {n} (Γ : Ctx n) (A B C : Tm n) a (h : wt a tuniv):
+Lemma EqVal_EqValTy {n} (Γ : Ctx n) (A B C : Tm n) a (h : wt a tuniv) RB :
+  Init.Nat.max (rk a) (rk tuniv) < RB ->
   EqVal Γ A B C h ->
-  EqValTy Γ A B h.
+  EqValTy RB Γ A B h.
 Proof.
-  rewrite EqVal_tuniv. by move=> [_ [_ ?]].
+  move=> LT. rewrite (EqVal_tuniv Γ A B C h LT). by move=> [_ [_ ?]].
 Qed.
 
-Lemma ValTy_Val {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv):
-  ValTy Γ A h ->
+Lemma ValTy_Val {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) RB :
+  Init.Nat.max (rk a) (rk tuniv) < RB ->
+  ValTy RB Γ A h ->
   Val Γ A Core.tuniv h.
 Proof.
-  rewrite Val_tuniv. auto.
+  move=> LT. rewrite (Val_tuniv Γ A Core.tuniv h LT). auto.
 Qed.
 
-Lemma Val_ValTy {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv):
+Lemma Val_ValTy {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) RB :
+  Init.Nat.max (rk a) (rk tuniv) < RB ->
   Val Γ A Core.tuniv h ->
-  ValTy Γ A h.
+  ValTy RB Γ A h.
 Proof.
-  rewrite Val_tuniv. auto.
+  move=> LT. rewrite (Val_tuniv Γ A Core.tuniv h LT). auto.
 Qed.
 
                                   
@@ -652,14 +715,14 @@ Admitted.
 
 
 (* ValTy2-to-EqValTy2 *)
-Lemma ValTy_EqValTy {n} (Γ : Ctx n) (M : Tm n) u (h : wt u tuniv) :
-  ValTy Γ M h -> EqValTy Γ M M h.
+Lemma ValTy_EqValTy {n} (Γ : Ctx n) (M : Tm n) u (h : wt u tuniv) RB :
+  Init.Nat.max (rk u) (rk tuniv) < RB ->
+  ValTy RB Γ M h -> EqValTy RB Γ M M h.
 Proof.
-  intros VT.
-  eapply EqVal_EqValTy.
+  intros LT VT.
+  eapply EqVal_EqValTy; [ exact LT | ].
   eapply Val_EqVal.
-  eapply ValTy_Val.
-  auto.
+  eapply ValTy_Val; [ exact LT | exact VT ].
 Qed.
 
 
@@ -669,35 +732,37 @@ Qed.
    ============================================================ *)
 
 
-Fixpoint EqVal_Val1 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) {struct h} :
+Fixpoint EqVal_Val1 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB
+  (LT : Init.Nat.max (rk u) (rk a) < RB) {struct h} :
   EqVal Γ M N A h -> Val Γ M A h.
 Proof.
   dependent destruction h.
   - move=> _. apply Val_Bot.
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [? _].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [? _].
   - rewrite EqVal_zero Val_zero. by move=> [? _].
   - rewrite EqVal_succ Val_succ.
     move=> [M1 [h1 [N1 [h2 V1]]]]. exists M1. split; auto.
-    eapply EqVal_Val1; eauto.
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
-  - rewrite EqVal_abs Val_abs. move=> [hA [hM _]]. by split.
+    eapply EqVal_Val1 with (RB := RB); [ cbn in LT |- *; lia | exact V1 ].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [? _].
+  - erewrite EqVal_abs, Val_abs. all: try exact LT. move=> [hA [hM _]]. by split.
 Qed.
 
 
-Fixpoint EqVal_Val2 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) {struct h} :
+Fixpoint EqVal_Val2 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB
+  (LT : Init.Nat.max (rk u) (rk a) < RB) {struct h} :
   EqVal Γ M N A h -> Val Γ N A h.
 Proof.
   dependent destruction h.
   - move=> _. apply Val_Bot.
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [_ [? _]].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [_ [? _]].
   - rewrite EqVal_zero Val_zero. by move=> [_ ?].
   - rewrite EqVal_succ Val_succ.
     move=> [M1 [h1 [N1 [h2 V1]]]]. exists N1. split; auto.
-    eapply EqVal_Val2; eauto.
-  - rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
-  - rewrite EqVal_abs Val_abs. move=> [hA [_ [hN _]]]. by split.
+    eapply EqVal_Val2 with (RB := RB); [ cbn in LT |- *; lia | exact V1 ].
+  - erewrite EqVal_tuniv, Val_tuniv. all: try exact LT. by move=> [_ [? _]].
+  - erewrite EqVal_abs, Val_abs. all: try exact LT. move=> [hA [_ [hN _]]]. by split.
 Qed.
 
 (* ============================================================
@@ -721,8 +786,8 @@ Lemma HeadRed_contract {n} (M M' : Tm n) A B :
 Proof.
 Admitted.
 
-Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) :
-  HeadRed1 M' M -> ValTy Γ M h -> ValTy Γ M' h.
+Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
+  HeadRed1 M' M -> ValTy RB Γ M h -> ValTy RB Γ M' h.
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
@@ -739,19 +804,19 @@ Proof.
 Qed.
 
 (* ValTy2-headred-expand *)
-Lemma ValTy_HeadRed_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) :
-  HeadRed M' M -> ValTy Γ M h -> ValTy Γ M' h.
-Proof. 
+Lemma ValTy_HeadRed_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
+  HeadRed M' M -> ValTy RB Γ M h -> ValTy RB Γ M' h.
+Proof.
   move=> R. induction R.
   - done.
-  - move=> h1. specialize (IHR h1). 
+  - move=> h1. specialize (IHR h1).
     eapply ValTy_HeadRed1_expand in H; eauto.
 Qed.
 
   
 
-Lemma ValTy_HeadRed1_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) :
-  HeadRed1 M M' -> ValTy Γ M h -> ValTy Γ M' h.
+Lemma ValTy_HeadRed1_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
+  HeadRed1 M M' -> ValTy RB Γ M h -> ValTy RB Γ M' h.
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
@@ -769,8 +834,8 @@ Qed.
 
 
 (* ValTy2-headred-contract *)
-Lemma ValTy_headred_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) :
-  HeadRed M M' -> ValTy Γ M h -> ValTy Γ M' h.
+Lemma ValTy_headred_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
+  HeadRed M M' -> ValTy RB Γ M h -> ValTy RB Γ M' h.
 Proof. 
   move=> R. induction R.
   - done.
@@ -794,11 +859,14 @@ Lemma downValTy_pre
            (h0 : wt u' a) (h1 : wt u a),
            le u' u -> Val Γ M T h1 -> Val Γ M T h0)
   {n} (Γ : Ctx n) (M : Tm n) u0 u1
-  (h0 : wt u0 tuniv) (h1 : wt u1 tuniv) :
-  le u0 u1 -> ValTy Γ M h1 -> ValTy Γ M h0.
+  (h0 : wt u0 tuniv) (h1 : wt u1 tuniv) RB
+  (LT0 : Init.Nat.max (rk u0) (rk tuniv) < RB)
+  (LT1 : Init.Nat.max (rk u1) (rk tuniv) < RB) :
+  le u0 u1 -> ValTy RB Γ M h1 -> ValTy RB Γ M h0.
 Proof.
   move=> LE VT1.
-  apply Val_ValTy. apply ValTy_Val in VT1.
+  apply (@Val_ValTy n Γ M u0 h0 RB LT0).
+  apply (@ValTy_Val n Γ M u1 h1 RB LT1) in VT1.
   eapply restrictVal; eauto.
 Qed.
 
@@ -808,116 +876,284 @@ Qed.
    ============================================================ *)
 
 
-Lemma upValPi : forall 
-        (upVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-                   (h0 : wt u a0) (h1 : wt u a1)  
-                   (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv), 
-            le a0 a1 -> Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1)
-        (downVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-                     (h0 : wt u a0) (h1: wt u a1),
-            le a0 a1 -> Val Γ M T h1 -> Val Γ M T h0)
-        f a g a0 g0 
-        (LEa : le a a0) 
-        (LEg : le_fun g g0)           
-        (h  : wt (abs f) (tpi a g))
-        (h0 : wt (abs f) (tpi a0 g0))
-        (hUa1 : wt (tpi a0 g0) tuniv)
-        {n} (Γ : Ctx n) (M T : Tm n),
-        ValPi Γ M T h -> 
-        ValTy Γ T hUa1 ->
-        ValPi Γ M T h0.
+(* Proof-irrelevance for [wt]: needed to identify [Val]/[EqVal] proof
+   indices when the type/element are forced to coincide. *)
+Lemma wt_unique {u a} (h1 h2 : wt u a) : h1 = h2.
+Proof. apply proof_irrelevance. Qed.
+
+(* ------------------------------------------------------------------
+   Monotonicity of [Val]/[EqVal] in the type and the element
+   (up/down/restrict).  These mutually recurse through the Pi codomain
+   ([app g u], whose rank is smaller), so we prove them together by
+   well-founded recursion on the rank measure, bundled into one
+   strong-induction statement [up_down_restrict].  The named lemmas
+   [upVal] … [restrictEqVal] are derived as corollaries (so their
+   signatures, used by adequacy.v, are preserved).
+   ------------------------------------------------------------------ *)
+
+(* The [wt_abs] case of [upVal]: lift the function value [M] from the
+   smaller Pi-type [tpi a' g'] to the bigger [tpi a g] ([a' <= a],
+   [g' [= g]).  Proved by the per-edge transport described above, using
+   the strong-induction hypothesis [IH] for the (strictly smaller-rank)
+   domain ([downVal]/[downEqVal]) and codomain ([upVal]/[upEqVal])
+   steps, and the type [T]'s own codomain edge ([PiEdgeVal]/[PiEdgeEq])
+   for the [ValTy] witnesses.  A single rank bound [RB] is shared by the
+   subject edge [PiAppVal] and the type edge [PiEdgeVal], so the assumed
+   [rk ui < RB] discharges both. *)
+Lemma upValPi (k : nat)
+  (IH : forall m, (m < k)%nat ->
+     (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1)
+     /\ (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        Val Γ M T h1 -> Val Γ M T h0)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        EqVal Γ M N T h1 -> EqVal Γ M N T h0)
+     /\ (forall n (Γ : Ctx n) (M T : Tm n) u u' a
+        (h0 : wt u' a) (h1 : wt u a),
+        Init.Nat.max (rk u) (rk a) <= m -> le u' u ->
+        Val Γ M T h1 -> Val Γ M T h0)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u u' a
+        (h0 : wt u' a) (h1 : wt u a),
+        Init.Nat.max (rk u) (rk a) <= m -> le u' u ->
+        EqVal Γ M N T h1 -> EqVal Γ M N T h0))
+  {n} (Γ : Ctx n) (M T : Tm n) f a g a' g'
+  (h0 : wt (abs f) (tpi a' g')) (h1 : wt (abs f) (tpi a g))
+  (hUa1 : wt (tpi a g) tuniv)
+  (RK : Init.Nat.max (rk (abs f)) (rk (tpi a g)) <= k)
+  (LEa : le a' a) (LEg : le_fun g' g) :
+  Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1.
 Proof.
-  (* TODO: reprove for the WF-recursive Val/EqVal (old {struct h}/API-specific tactics no longer apply). *)
+  move=> V VT.
+  have h0ty : wt (tpi a' g') tuniv := wt_abs_ty h0.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g))
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by lia.
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g'))
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by lia.
+  have GBu : Init.Nat.max (rk (tpi a g)) (rk tuniv)
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by (cbn [rk]; lia).
+  rewrite (Val_abs Γ M T h1 GB).
+  rewrite (Val_abs Γ M T h0 GB') in V.
+  rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT.
+  destruct V as [_ VPi0].
+  split.
+  { eapply ValTy_irr; exact VT. }
+  cbn [Rec.ValPi] in VPi0.
+  destruct VPi0 as [A0 [B0 [HR0 [PAV0 PAE0]]]].
+  cbn [Rec.ValTy] in VT.
+  destruct VT as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomT [PEV PEE]]]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UP    := proj1 (IH _ mlt).
+  have UPe   := proj1 (proj2 (IH _ mlt)).
+  have DOWN  := proj1 (proj2 (proj2 (IH _ mlt))).
+  have DOWNe := proj1 (proj2 (proj2 (proj2 (IH _ mlt)))).
+  cbn [Rec.ValPi]. exists A0, B0. split; [ exact HR0 | split ].
+  - (* PiAppVal *)
+    cbn [Rec.PiAppVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+    destruct (is_bot (app g ui)) eqn:Hb.
+    { apply Val_isbot; exact Hb. }
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+    have hU1 := wt_tpi_inv2 hUa1 Vui (erefl : app g ui = app g ui).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have NBp : ~ is_bot (app g ui) by rewrite Hb.
+    have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) boundD LEa VP.
+    have Vcod0 := PAV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
+    have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
+    have Vfin := UP n Γ (Core.app M P) B0[P..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                   boundC leC Vcod0 ltac:(eapply Val_irr; exact Vty).
+    eapply Val_irr; exact Vfin.
+  - (* PiAppEq *)
+    cbn [Rec.PiAppEq]. move=> ui vi Hin RKu v t APP APPg N1 N2 Cv EV. subst.
+    destruct (is_bot (app g ui)) eqn:Hb.
+    { apply EqVal_isbot; exact Hb. }
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+    have hU1 := wt_tpi_inv2 hUa1 Vui (erefl : app g ui = app g ui).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have NBp : ~ is_bot (app g ui) by rewrite Hb.
+    have EV0 := DOWNe n Γ N1 N2 A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) boundD LEa EV.
+    have Ecod0 := PAE0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl N1 N2 Cv EV0.
+    have Ety := PEE ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp N1 N2 Cv EV.
+    have Vty : Val Γ B0[N1..] Core.tuniv
+                 (wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui)).
+    { eapply EqVal_Val1; [ apply Nat.lt_succ_diag_r | exact Ety ]. }
+    have Efin := UPe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                   boundC leC Ecod0 ltac:(eapply Val_irr; exact Vty).
+    eapply EqVal_irr; exact Efin.
+Qed.
+
+Lemma up_down_restrict : forall k,
+  (* upVal *)
+  (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+      (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+      Init.Nat.max (rk u) (rk a1) <= k -> le a0 a1 ->
+      Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1)
+  /\ (* upEqVal *)
+  (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+      (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+      Init.Nat.max (rk u) (rk a1) <= k -> le a0 a1 ->
+      EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1)
+  /\ (* downVal *)
+  (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+      (h0 : wt u a0) (h1 : wt u a1),
+      Init.Nat.max (rk u) (rk a1) <= k -> le a0 a1 ->
+      Val Γ M T h1 -> Val Γ M T h0)
+  /\ (* downEqVal *)
+  (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+      (h0 : wt u a0) (h1 : wt u a1),
+      Init.Nat.max (rk u) (rk a1) <= k -> le a0 a1 ->
+      EqVal Γ M N T h1 -> EqVal Γ M N T h0)
+  /\ (* restrictVal *)
+  (forall n (Γ : Ctx n) (M T : Tm n) u u' a
+      (h0 : wt u' a) (h1 : wt u a),
+      Init.Nat.max (rk u) (rk a) <= k -> le u' u ->
+      Val Γ M T h1 -> Val Γ M T h0)
+  /\ (* restrictEqVal *)
+  (forall n (Γ : Ctx n) (M N T : Tm n) u u' a
+      (h0 : wt u' a) (h1 : wt u a),
+      Init.Nat.max (rk u) (rk a) <= k -> le u' u ->
+      EqVal Γ M N T h1 -> EqVal Γ M N T h0).
+Proof.
+  intro k. induction k as [k IH] using strong_ind.
+  repeat split.
+  - (* upVal *)
+    intros n Γ M T u a0 a1 h0 h1 hUa0 hUa1 RK LE V VT.
+    dependent destruction h1.
+    + (* wt_bot *) apply Val_Bot.
+    + (* wt_tuniv *) dependent destruction h0; eapply Val_irr; eassumption.
+    + (* wt_tnat  *) dependent destruction h0; eapply Val_irr; eassumption.
+    + (* wt_zero  *) dependent destruction h0; eapply Val_irr; eassumption.
+    + (* wt_succ  *) dependent destruction h0; eapply Val_irr; eassumption.
+    + (* wt_tpi   *) dependent destruction h0; eapply Val_irr; eassumption.
+    + (* wt_abs: the per-edge codomain transport, via [upValPi]. *)
+      dependent destruction h0.
+      rewrite le_pi in LE. case/andP: LE => LEa LEg.
+      eapply (upValPi IH); [ exact RK | exact LEa | exact LEg | exact V | exact VT ].
+  - (* upEqVal *) admit.
+  - (* downVal *) admit.
+  - (* downEqVal *) admit.
+  - (* restrictVal *) admit.
+  - (* restrictEqVal *) admit.
 Admitted.
 
-Lemma downValPi : forall 
-        (upVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-                   (h0 : wt u a0) (h1 : wt u a1)  
-                   (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv), 
-            le a0 a1 -> Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1)
-        (downVal : forall {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-                     (h0 : wt u a0) (h1: wt u a1),
-            le a0 a1 -> Val Γ M T h1 -> Val Γ M T h0)
-        f a g a0 g0 
-        (LEa : le a a0) 
-        (LEg : le_fun g g0)           
-        (h  : wt (abs f) (tpi a g))
-        (h0 : wt (abs f) (tpi a0 g0))
-        (hUa : wt (tpi a g) tuniv)
-        {n} (Γ : Ctx n) (M T : Tm n),
-        ValPi Γ M T h0 -> 
-        ValTy Γ T hUa ->
-        ValPi Γ M T h.
+Lemma upVal {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
+  le a0 a1 -> Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1.
 Proof.
-  (* TODO: reprove for the WF-recursive Val/EqVal (old {struct h}/API-specific tactics no longer apply). *)
-Admitted.
+  intros LE V VT;
+  apply (proj1 (up_down_restrict (Init.Nat.max (rk u) (rk a1)))
+           n Γ M T u a0 a1 h0 h1 hUa0 hUa1);
+    [ apply Nat.le_refl | exact LE | exact V | exact VT ].
+Qed.
 
+Lemma upEqVal {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
+  le a0 a1 -> EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1.
+Proof.
+  intros LE V VT;
+  apply (proj1 (proj2 (up_down_restrict (Init.Nat.max (rk u) (rk a1))))
+           n Γ M N T u a0 a1 h0 h1 hUa0 hUa1);
+    [ apply Nat.le_refl | exact LE | exact V | exact VT ].
+Qed.
 
-(* Annoyingly, struct on first derivation is not enough. Need
-   to do struct on *both* wt derivations simultaneously to
-   show the termination of this proof.
+Lemma downVal {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) :
+  le a0 a1 -> Val Γ M T h1 -> Val Γ M T h0.
+Proof.
+  intros LE V;
+  apply (proj1 (proj2 (proj2 (up_down_restrict (Init.Nat.max (rk u) (rk a1)))))
+           n Γ M T u a0 a1 h0 h1);
+    [ apply Nat.le_refl | exact LE | exact V ].
+Qed.
 
-   For now, admitting the termination check.
-*)
+Lemma downEqVal {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) :
+  le a0 a1 -> EqVal Γ M N T h1 -> EqVal Γ M N T h0.
+Proof.
+  intros LE V;
+  apply (proj1 (proj2 (proj2 (proj2 (up_down_restrict (Init.Nat.max (rk u) (rk a1))))))
+           n Γ M N T u a0 a1 h0 h1);
+    [ apply Nat.le_refl | exact LE | exact V ].
+Qed.
 
-(* upVal/upEqVal mirror the Agda upVal2/upEqVal2 signatures: they take
-   the ValTy of the syntactic type T at the bigger universe-element a1
-   as an extra argument (a "Val Γ T Core.tuniv hUa1", which by
-   definitional unfolding is ValTy Γ T hUa1).                          *)
-Fixpoint upVal {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1)  
-  (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) {struct h1}:
-  le a0 a1 -> Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1
-with upEqVal {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1)  
-  (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) {struct h1}:
-  le a0 a1 -> EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1
-with downVal {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1: wt u a1) {struct h1} :
-  le a0 a1 -> Val Γ M T h1 -> Val Γ M T h0
-with downEqVal {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1: wt u a1) {struct h1} :
-  le a0 a1 -> EqVal Γ M N T h1 -> EqVal Γ M N T h0
-with restrictVal {n} (Γ : Ctx n) (M T : Tm n) u u' a
-  (h0 : wt u' a) (h1 : wt u a) {struct h1} :
-  le u' u -> Val Γ M T h1 -> Val Γ M T h0
-with restrictEqVal {n} (Γ : Ctx n) (M N T : Tm n) u u' a
-  (h0 : wt u' a) (h1 : wt u a) {struct h1} :
+Lemma restrictVal {n} (Γ : Ctx n) (M T : Tm n) u u' a
+  (h0 : wt u' a) (h1 : wt u a) :
+  le u' u -> Val Γ M T h1 -> Val Γ M T h0.
+Proof.
+  intros LE V;
+  apply (proj1 (proj2 (proj2 (proj2 (proj2 (up_down_restrict (Init.Nat.max (rk u) (rk a)))))))
+           n Γ M T u u' a h0 h1);
+    [ apply Nat.le_refl | exact LE | exact V ].
+Qed.
+
+Lemma restrictEqVal {n} (Γ : Ctx n) (M N T : Tm n) u u' a
+  (h0 : wt u' a) (h1 : wt u a) :
   le u' u -> EqVal Γ M N T h1 -> EqVal Γ M N T h0.
-Proof.  
-  (* TODO: reprove for the WF-recursive Val/EqVal (old {struct h}/API-specific tactics no longer apply). *)
-Admitted.
+Proof.
+  intros LE V;
+  apply (proj2 (proj2 (proj2 (proj2 (proj2 (up_down_restrict (Init.Nat.max (rk u) (rk a)))))))
+           n Γ M N T u u' a h0 h1);
+    [ apply Nat.le_refl | exact LE | exact V ].
+Qed.
 
 
 
 (* ValTy2-Sup: if a1 and a2 are universe-members and lub a1 a2 = Some a,
    ValTy at a1 and a2 lifts to ValTy at the lub. *)
-Fixpoint ValTy_Sup {n} (Γ : Ctx n) (T : Tm n) a1 a2 a 
-  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv) {struct h}:
+Fixpoint ValTy_Sup {n} (Γ : Ctx n) (T : Tm n) a1 a2 a
+  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv) RB {struct h}:
   lub a1 a2 = a ->
-  ValTy Γ T h1 -> ValTy Γ T h2 -> ValTy Γ T h.
+  ValTy RB Γ T h1 -> ValTy RB Γ T h2 -> ValTy RB Γ T h.
 Proof.
 Abort.
 
 (* EqValTy2-Sup *)
-Lemma EqValTy_Sup {n} (Γ : Ctx n) (M N : Tm n) a1 a2 a 
-  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv) :
+Lemma EqValTy_Sup {n} (Γ : Ctx n) (M N : Tm n) a1 a2 a
+  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv) RB :
   lub a1 a2 = a ->
-  EqValTy Γ M N h1 -> EqValTy Γ M N h2 -> EqValTy Γ M N h.
-Proof. 
+  EqValTy RB Γ M N h1 -> EqValTy RB Γ M N h2 -> EqValTy RB Γ M N h.
+Proof.
 Abort.
 
 
 (* ----------------------------------------------------- *)
 
 Fixpoint Val_EqVal_fwd {n} (Γ : Ctx n) (M A : Tm n) u a
-  (h : wt u a) (B : Tm n)  (h' : wt a tuniv)
+  (h : wt u a) (B : Tm n)  (h' : wt a tuniv) RB
   {struct h} :
-  Val Γ M A h -> EqValTy Γ A B h' -> Val Γ M B h
+  Val Γ M A h -> EqValTy RB Γ A B h' -> Val Γ M B h
 with EqVal_EqVal_fwd {n} (Γ : Ctx n) (M N A : Tm n) u a
-  (h : wt u a) (B : Tm n)  (h' : wt a tuniv)
+  (h : wt u a) (B : Tm n)  (h' : wt a tuniv) RB
   {struct h} :
-  EqVal Γ M N A h -> EqValTy Γ A B h' -> EqVal Γ M N B h
+  EqVal Γ M N A h -> EqValTy RB Γ A B h' -> EqVal Γ M N B h
 with EqVal_sym {n} (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a) { struct h } :
   EqVal Γ M1 M2 A h -> EqVal Γ M2 M1 A h
 with EqVal_trans {n} (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a) {struct h} :
@@ -929,21 +1165,23 @@ Admitted.
 
 
 (* EqValTy2-sym *)
-Lemma EqValTy_sym {n} (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv) :
-  EqValTy Γ M N h -> EqValTy Γ N M h.
+Lemma EqValTy_sym {n} (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv) RB :
+  Init.Nat.max (rk u) (rk tuniv) < RB ->
+  EqValTy RB Γ M N h -> EqValTy RB Γ N M h.
 Proof.
-  move=>h1. eapply EqVal_EqValTy. eapply EqVal_sym.
-  eapply EqValTy_EqVal. done.
+  move=> LT h1. eapply EqVal_EqValTy; [ exact LT | ]. eapply EqVal_sym.
+  eapply EqValTy_EqVal; [ exact LT | exact h1 ].
 Qed.
 
 (* EqValTy2-trans *)
-Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) :
-  EqValTy Γ A B h -> EqValTy Γ B C h -> EqValTy Γ A C h.
+Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) RB :
+  Init.Nat.max (rk u) (rk tuniv) < RB ->
+  EqValTy RB Γ A B h -> EqValTy RB Γ B C h -> EqValTy RB Γ A C h.
 Proof.
-  move=> h1 h2.
-  eapply EqVal_EqValTy. eapply EqVal_trans.
-  eapply EqValTy_EqVal. eauto.
-  eapply EqValTy_EqVal. eauto.
+  move=> LT h1 h2.
+  eapply EqVal_EqValTy; [ exact LT | ]. eapply EqVal_trans.
+  eapply EqValTy_EqVal; [ exact LT | eauto ].
+  eapply EqValTy_EqVal; [ exact LT | eauto ].
 Qed.
 
 (* ============================================================
@@ -976,16 +1214,16 @@ Qed.
 
 (* EqValTy2-headred-expand *)
 Lemma EqValTy_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u 
-  (h : wt u tuniv) :
+  (h : wt u tuniv) RB :
   HeadRed M1' M1 -> HeadRed M2' M2 ->
-  EqValTy Γ M1 M2 h -> EqValTy Γ M1' M2' h.
+  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
 Proof. Admitted.
 
 (* EqValTy2-headred-contract *)
 Lemma EqValTy_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u 
-  (h : wt u tuniv) :
+  (h : wt u tuniv) RB :
   HeadRed M1 M1' -> HeadRed M2 M2' ->
-  EqValTy Γ M1 M2 h -> EqValTy Γ M1' M2' h.
+  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
 Proof. Admitted.
 
 
@@ -1006,15 +1244,15 @@ Proof. Admitted.
 
 (* ValPi2-headred-expand *)
 Lemma ValPi_headred_expand {n} (Γ : Ctx n) (M M' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) :
-  HeadRed M' M -> ValPi Γ M T h -> ValPi Γ M' T h.
+  (h : wt (abs g) (tpi b f)) RB :
+  HeadRed M' M -> ValPi RB Γ M T h -> ValPi RB Γ M' T h.
 Proof. Admitted.
 
 (* EqValPi2-headred-expand *)
 Lemma EqValPi_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) :
+  (h : wt (abs g) (tpi b f)) RB :
   HeadRed M1' M1 -> HeadRed M2' M2 ->
-  EqValPi Γ M1 M2 T h -> EqValPi Γ M1' M2' T h.
+  EqValPi RB Γ M1 M2 T h -> EqValPi RB Γ M1' M2' T h.
 Proof. Admitted.
 
 
@@ -1035,15 +1273,15 @@ Proof. Admitted.
 
 (* ValPi2-headred-contract *)
 Lemma ValPi_headred_contract {n} (Γ : Ctx n) (M M' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) :
-  HeadRed M M' -> ValPi Γ M T h -> ValPi Γ M' T h.
+  (h : wt (abs g) (tpi b f)) RB :
+  HeadRed M M' -> ValPi RB Γ M T h -> ValPi RB Γ M' T h.
 Proof. Admitted.
 
 (* EqValPi2-headred-contract *)
 Lemma EqValPi_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) :
+  (h : wt (abs g) (tpi b f)) RB :
   HeadRed M1 M1' -> HeadRed M2 M2' ->
-  EqValPi Γ M1 M2 T h -> EqValPi Γ M1' M2' T h.
+  EqValPi RB Γ M1 M2 T h -> EqValPi RB Γ M1' M2' T h.
 Proof. Admitted.
 
 
