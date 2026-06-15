@@ -1010,6 +1010,99 @@ Proof.
     eapply EqVal_irr; exact Efin.
 Qed.
 
+(* The [wt_abs] case of [upEqVal].  The two unary [ValPi] components are
+   discharged by [upValPi] (applied to the [EqVal_Val1]/[EqVal_Val2]
+   projections of the hypothesis); only the binary edge [EqValPi]
+   ([PiAppEqVal]) needs a fresh per-edge transport, structurally
+   identical to the [PiAppVal] case of [upValPi]. *)
+Lemma upEqValPi (k : nat)
+  (IH : forall m, (m < k)%nat ->
+     (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        Val Γ M T h0 -> Val Γ T Core.tuniv hUa1 -> Val Γ M T h1)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1)
+     /\ (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        Val Γ M T h1 -> Val Γ M T h0)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u a0 a1
+        (h0 : wt u a0) (h1 : wt u a1),
+        Init.Nat.max (rk u) (rk a1) <= m -> le a0 a1 ->
+        EqVal Γ M N T h1 -> EqVal Γ M N T h0)
+     /\ (forall n (Γ : Ctx n) (M T : Tm n) u u' a
+        (h0 : wt u' a) (h1 : wt u a),
+        Init.Nat.max (rk u) (rk a) <= m -> le u' u ->
+        Val Γ M T h1 -> Val Γ M T h0)
+     /\ (forall n (Γ : Ctx n) (M N T : Tm n) u u' a
+        (h0 : wt u' a) (h1 : wt u a),
+        Init.Nat.max (rk u) (rk a) <= m -> le u' u ->
+        EqVal Γ M N T h1 -> EqVal Γ M N T h0))
+  {n} (Γ : Ctx n) (M N T : Tm n) f a g a' g'
+  (h0 : wt (abs f) (tpi a' g')) (h1 : wt (abs f) (tpi a g))
+  (hUa1 : wt (tpi a g) tuniv)
+  (RK : Init.Nat.max (rk (abs f)) (rk (tpi a g)) <= k)
+  (LEa : le a' a) (LEg : le_fun g' g) :
+  EqVal Γ M N T h0 -> Val Γ T Core.tuniv hUa1 -> EqVal Γ M N T h1.
+Proof.
+  move=> EV VT.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g))
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by lia.
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g'))
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by lia.
+  have GBu : Init.Nat.max (rk (tpi a g)) (rk tuniv)
+            < S (Init.Nat.max (Init.Nat.max (rk (abs f)) (rk (tpi a g))) (rk (tpi a' g'))) by (cbn [rk]; lia).
+  (* unary projections, lifted to [h1] via [upValPi] *)
+  have VM0 : Val Γ M T h0 by (eapply EqVal_Val1; [ apply Nat.lt_succ_diag_r | exact EV ]).
+  have VN0 : Val Γ N T h0 by (eapply EqVal_Val2; [ apply Nat.lt_succ_diag_r | exact EV ]).
+  have VM1 := upValPi IH h1 RK LEa LEg VM0 VT.
+  have VN1 := upValPi IH h1 RK LEa LEg VN0 VT.
+  rewrite (Val_abs Γ M T h1 GB) in VM1. destruct VM1 as [_ VPiM1].
+  rewrite (Val_abs Γ N T h1 GB) in VN1. destruct VN1 as [_ VPiN1].
+  rewrite (EqVal_abs Γ M N T h0 GB') in EV. destruct EV as [_ [_ [_ EPi0]]].
+  rewrite (EqVal_abs Γ M N T h1 GB).
+  split; [ | split; [ exact VPiM1 | split; [ exact VPiN1 | ] ] ].
+  { (* ValTy T at the bigger type, from VT *)
+    rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT. eapply ValTy_irr; exact VT. }
+  (* EqValPi M N T h1 : the binary per-edge transport *)
+  cbn [Rec.EqValPi] in EPi0. destruct EPi0 as [A0 [B0 [HR0 PAEV0]]].
+  rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT.
+  cbn [Rec.ValTy] in VT.
+  destruct VT as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomT [PEV PEE]]]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UPe  := proj1 (proj2 (IH _ mlt)).
+  have DOWN := proj1 (proj2 (proj2 (IH _ mlt))).
+  cbn [Rec.EqValPi]. exists A0, B0. split; [ exact HR0 | ].
+  cbn [Rec.PiAppEqVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+  destruct (is_bot (app g ui)) eqn:Hb.
+  { apply EqVal_isbot; exact Hb. }
+  have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+  have hU0 := wt_tpi_inv2 (wt_abs_ty h0) (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+  have hU1 := wt_tpi_inv2 hUa1 Vui (erefl : app g ui = app g ui).
+  have boundD : Init.Nat.max (rk ui) (rk a)
+                  <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+    { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+  have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                  <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+    { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+  have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+  have NBp : ~ is_bot (app g ui) by rewrite Hb.
+  have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) boundD LEa VP.
+  have Ecod0 := PAEV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
+  have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
+  have Efin := UPe n Γ (Core.app M P) (Core.app N P) B0[P..] vi (app g' ui) (app g ui)
+                 (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                 boundC leC Ecod0 ltac:(eapply Val_irr; exact Vty).
+  eapply EqVal_irr; exact Efin.
+Qed.
+
 Lemma up_down_restrict : forall k,
   (* upVal *)
   (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
@@ -1057,7 +1150,19 @@ Proof.
       dependent destruction h0.
       rewrite le_pi in LE. case/andP: LE => LEa LEg.
       eapply (upValPi IH); [ exact RK | exact LEa | exact LEg | exact V | exact VT ].
-  - (* upEqVal *) admit.
+  - (* upEqVal *)
+    intros n Γ M N T u a0 a1 h0 h1 hUa0 hUa1 RK LE V VT.
+    dependent destruction h1.
+    + (* wt_bot *) apply EqVal_Bot.
+    + (* wt_tuniv *) dependent destruction h0; eapply EqVal_irr; eassumption.
+    + (* wt_tnat  *) dependent destruction h0; eapply EqVal_irr; eassumption.
+    + (* wt_zero  *) dependent destruction h0; eapply EqVal_irr; eassumption.
+    + (* wt_succ  *) dependent destruction h0; eapply EqVal_irr; eassumption.
+    + (* wt_tpi   *) dependent destruction h0; eapply EqVal_irr; eassumption.
+    + (* wt_abs: via [upEqValPi]. *)
+      dependent destruction h0.
+      rewrite le_pi in LE. case/andP: LE => LEa LEg.
+      eapply (upEqValPi IH); [ exact RK | exact LEa | exact LEg | exact V | exact VT ].
   - (* downVal *) admit.
   - (* downEqVal *) admit.
   - (* restrictVal *) admit.
