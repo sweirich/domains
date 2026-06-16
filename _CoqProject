@@ -61,6 +61,7 @@ theories/directed.v
 theories/examples/finelt/utils.v
 theories/examples/finelt/findom.v
 theories/examples/finelt/types.v
+theories/examples/finelt/selection.v
 theories/examples/finelt/raw_semantics.v
 theories/examples/finelt/eval_substitution.v
 theories/examples/finelt/typing_semantics.v
