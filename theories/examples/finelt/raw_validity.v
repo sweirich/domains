@@ -950,9 +950,87 @@ Lemma upValPi (k : nat) (IH : forall m, (m < k)%nat -> UDR m)
   (LEa : le a' a) (LEg : le_fun g' g) :
   Val RB Γ M T h0 -> Val RB Γ T Core.tuniv hUa1 -> Val RB Γ M T h1.
 Proof.
-  (* per-edge transport; rank-IH version recoverable from commit 4cccb40.
-     Re-admitted during the RB-parametrisation of Val/EqVal. *)
-Admitted.
+  move=> V VT.
+  have h0ty : wt (tpi a' g') tuniv := wt_abs_ty h0.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g)) < RB by (move: GUARD; lia).
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g')) < RB by (move: GUARD; lia).
+  have GBu : Init.Nat.max (rk (tpi a g)) (rk tuniv) < RB by (move: GUARD; cbn [rk]; lia).
+  rewrite (Val_abs Γ M T h1 GB).
+  rewrite (Val_abs Γ M T h0 GB') in V.
+  rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT.
+  destruct V as [_ VPi0].
+  split.
+  { eapply ValTy_irr; exact VT. }
+  cbn [Rec.ValPi] in VPi0.
+  destruct VPi0 as [A0 [B0 [HR0 [PAV0 PAE0]]]].
+  cbn [Rec.ValTy] in VT.
+  destruct VT as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomT [PEV PEE]]]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UP    := proj1 (IH _ mlt).
+  have UPe   := proj1 (proj2 (IH _ mlt)).
+  have DOWN  := proj1 (proj2 (proj2 (IH _ mlt))).
+  have DOWNe := proj1 (proj2 (proj2 (proj2 (IH _ mlt)))).
+  cbn [Rec.ValPi]. exists A0, B0. split; [ exact HR0 | split ].
+  - cbn [Rec.PiAppVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+    destruct (is_bot (app g ui)) eqn:Hb.
+    { apply Val_isbot; exact Hb. }
+    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+    have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+         cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have NBp : ~ is_bot (app g ui) by rewrite Hb.
+    have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) RB boundD GBd LEa VP.
+    have Vcod0 := PAV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
+    have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
+    have Vfin := UP n Γ (Core.app M P) B0[P..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                   RB boundC GBc leC Vcod0 ltac:(eapply Val_irr; exact Vty).
+    eapply Val_irr; exact Vfin.
+  - cbn [Rec.PiAppEq]. move=> ui vi Hin RKu v t APP APPg N1 N2 Cv EV. subst.
+    destruct (is_bot (app g ui)) eqn:Hb.
+    { apply EqVal_isbot; exact Hb. }
+    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+    have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+         cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have NBp : ~ is_bot (app g ui) by rewrite Hb.
+    have EV0 := DOWNe n Γ N1 N2 A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) RB boundD GBd LEa EV.
+    have Ecod0 := PAE0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl N1 N2 Cv EV0.
+    have Ety := PEE ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp N1 N2 Cv EV.
+    have Vty : Val RB Γ B0[N1..] Core.tuniv
+                 (wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui)).
+    { eapply EqVal_Val1; [ move: GBc GUARD; cbn [rk]; lia | exact Ety ]. }
+    have Efin := UPe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                   RB boundC GBc leC Ecod0 ltac:(eapply Val_irr; exact Vty).
+    eapply EqVal_irr; exact Efin.
+Qed.
 
 (* The [wt_abs] case of [upEqVal].  The two unary [ValPi] components are
    discharged by [upValPi] (applied to the [EqVal_Val1]/[EqVal_Val2]
@@ -968,9 +1046,60 @@ Lemma upEqValPi (k : nat) (IH : forall m, (m < k)%nat -> UDR m)
   (LEa : le a' a) (LEg : le_fun g' g) :
   EqVal RB Γ M N T h0 -> Val RB Γ T Core.tuniv hUa1 -> EqVal RB Γ M N T h1.
 Proof.
-  (* per-edge transport; rank-IH version recoverable from commit 4cccb40.
-     Re-admitted during the RB-parametrisation of Val/EqVal. *)
-Admitted.
+  move=> EV VT.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g)) < RB by (move: GUARD; lia).
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g')) < RB by (move: GUARD; lia).
+  have GBu : Init.Nat.max (rk (tpi a g)) (rk tuniv) < RB by (move: GUARD; cbn [rk]; lia).
+  have VM0 : Val RB Γ M T h0 by (eapply EqVal_Val1; [ exact GB' | exact EV ]).
+  have VN0 : Val RB Γ N T h0 by (eapply EqVal_Val2; [ exact GB' | exact EV ]).
+  have VM1 : Val RB Γ M T h1.
+  { eapply (upValPi IH); [ exact RK | exact GUARD | exact LEa | exact LEg | exact VM0 | exact VT ]. }
+  have VN1 : Val RB Γ N T h1.
+  { eapply (upValPi IH); [ exact RK | exact GUARD | exact LEa | exact LEg | exact VN0 | exact VT ]. }
+  rewrite (Val_abs Γ M T h1 GB) in VM1. destruct VM1 as [_ VPiM1].
+  rewrite (Val_abs Γ N T h1 GB) in VN1. destruct VN1 as [_ VPiN1].
+  rewrite (EqVal_abs Γ M N T h0 GB') in EV. destruct EV as [_ [_ [_ EPi0]]].
+  rewrite (EqVal_abs Γ M N T h1 GB).
+  split; [ | split; [ exact VPiM1 | split; [ exact VPiN1 | ] ] ].
+  { rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT. eapply ValTy_irr; exact VT. }
+  cbn [Rec.EqValPi] in EPi0. destruct EPi0 as [A0 [B0 [HR0 PAEV0]]].
+  rewrite (Val_tuniv Γ T Core.tuniv hUa1 GBu) in VT.
+  cbn [Rec.ValTy] in VT.
+  destruct VT as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomT [PEV PEE]]]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UPe  := proj1 (proj2 (IH _ mlt)).
+  have DOWN := proj1 (proj2 (proj2 (IH _ mlt))).
+  cbn [Rec.EqValPi]. exists A0, B0. split; [ exact HR0 | ].
+  cbn [Rec.PiAppEqVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+  destruct (is_bot (app g ui)) eqn:Hb. { apply EqVal_isbot; exact Hb. }
+  have hU0 := wt_tpi_inv2 (wt_abs_ty h0) (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
+  have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+         cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have NBp : ~ is_bot (app g ui) by rewrite Hb.
+  have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) RB boundD GBd LEa VP.
+  have Ecod0 := PAEV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
+  have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
+  have Efin := UPe n Γ (Core.app M P) (Core.app N P) B0[P..] vi (app g' ui) (app g ui)
+                 (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+                 RB boundC GBc leC Ecod0 ltac:(eapply Val_irr; exact Vty).
+  eapply EqVal_irr; exact Efin.
+Qed.
 
 (* The [wt_abs] case of [downVal]: lower the function value [M] from the
    bigger Pi-type [tpi a g] to the smaller [tpi a' g'].  Takes the
@@ -988,9 +1117,73 @@ Lemma downValPi (k : nat) (IH : forall m, (m < k)%nat -> UDR m)
   (LEa : le a' a) (LEg : le_fun g' g) :
   Val RB Γ M T h1 -> Val RB Γ T Core.tuniv (wt_abs_ty h0) -> Val RB Γ M T h0.
 Proof.
-  (* per-edge transport; rank-IH version recoverable from commit 4cccb40.
-     Re-admitted during the RB-parametrisation of Val/EqVal. *)
-Admitted.
+  move=> V VTS.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g)) < RB by (move: GUARD; lia).
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g')) < RB by (move: GUARD; lia).
+  have GBu : Init.Nat.max (rk (tpi a' g')) (rk tuniv) < RB by (move: GUARD; cbn [rk]; lia).
+  rewrite (Val_abs Γ M T h0 GB').
+  rewrite (Val_abs Γ M T h1 GB) in V. destruct V as [VTyB VPiB].
+  rewrite (Val_tuniv Γ T Core.tuniv (wt_abs_ty h0) GBu) in VTS.
+  split.
+  { eapply ValTy_irr; exact VTS. }
+  cbn [Rec.ValTy] in VTyB.
+  destruct VTyB as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomB [PEV_B PEE_B]]]]]]]].
+  cbn [Rec.ValPi] in VPiB. destruct VPiB as [A0 [B0 [HR0 [PAV_B PAE_B]]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UP    := proj1 (IH _ mlt).
+  have UPe   := proj1 (proj2 (IH _ mlt)).
+  have DOWN  := proj1 (proj2 (proj2 (IH _ mlt))).
+  have DOWNe := proj1 (proj2 (proj2 (proj2 (IH _ mlt)))).
+  have hUab : wt a tuniv := wt_tpi_dom (wt_abs_ty h1).
+  have hUab' : wt a' tuniv := wt_tpi_dom (wt_abs_ty h0).
+  cbn [Rec.ValPi]. exists A0, B0. split; [ exact HR0 | split ].
+  - cbn [Rec.PiAppVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+        cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have VPb := UP n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
+                  RB boundD GBd LEa VP ltac:(eapply Val_irr; exact VDomB).
+    have Vcodb := PAV_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl P TyP VPb.
+    have Vfin := DOWN n Γ (Core.app M P) B0[P..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl)
+                   RB boundC GBc leC Vcodb.
+    eapply Val_irr; exact Vfin.
+  - cbn [Rec.PiAppEq]. move=> ui vi Hin RKu v t APP APPg N1 N2 Cv EV. subst.
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+        cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+    have EVb := UPe n Γ N1 N2 A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
+                  RB boundD GBd LEa EV ltac:(eapply Val_irr; exact VDomB).
+    have Ecodb := PAE_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl N1 N2 Cv EVb.
+    have Efin := DOWNe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] vi (app g' ui) (app g ui)
+                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl)
+                   RB boundC GBc leC Ecodb.
+    eapply EqVal_irr; exact Efin.
+Qed.
 
 (* The [wt_abs] case of [downEqVal]: dual to [upEqValPi].  The two unary
    [ValPi] components come from [downValPi] (applied to the
@@ -1005,9 +1198,58 @@ Lemma downEqValPi (k : nat) (IH : forall m, (m < k)%nat -> UDR m)
   (LEa : le a' a) (LEg : le_fun g' g) :
   EqVal RB Γ M N T h1 -> Val RB Γ T Core.tuniv (wt_abs_ty h0) -> EqVal RB Γ M N T h0.
 Proof.
-  (* per-edge transport; rank-IH version recoverable from commit 4cccb40.
-     Re-admitted during the RB-parametrisation of Val/EqVal. *)
-Admitted.
+  move=> EV VTS.
+  have GB : Init.Nat.max (rk (abs f)) (rk (tpi a g)) < RB by (move: GUARD; lia).
+  have GB' : Init.Nat.max (rk (abs f)) (rk (tpi a' g')) < RB by (move: GUARD; lia).
+  have GBu : Init.Nat.max (rk (tpi a' g')) (rk tuniv) < RB by (move: GUARD; cbn [rk]; lia).
+  have VM1 : Val RB Γ M T h1 by (eapply EqVal_Val1; [ exact GB | exact EV ]).
+  have VN1 : Val RB Γ N T h1 by (eapply EqVal_Val2; [ exact GB | exact EV ]).
+  have VMS : Val RB Γ M T h0.
+  { eapply (downValPi IH); [ exact RK | exact GUARD | exact LEa | exact LEg | exact VM1 | exact VTS ]. }
+  have VNS : Val RB Γ N T h0.
+  { eapply (downValPi IH); [ exact RK | exact GUARD | exact LEa | exact LEg | exact VN1 | exact VTS ]. }
+  rewrite (Val_abs Γ M T h0 GB') in VMS. destruct VMS as [_ VPiMS].
+  rewrite (Val_abs Γ N T h0 GB') in VNS. destruct VNS as [_ VPiNS].
+  rewrite (EqVal_abs Γ M N T h0 GB').
+  split; [ | split; [ exact VPiMS | split; [ exact VPiNS | ] ] ].
+  { rewrite (Val_tuniv Γ T Core.tuniv (wt_abs_ty h0) GBu) in VTS. eapply ValTy_irr; exact VTS. }
+  rewrite (Val_abs Γ M T h1 GB) in VM1. destruct VM1 as [VTyB _].
+  rewrite (EqVal_abs Γ M N T h1 GB) in EV. destruct EV as [_ [_ [_ EPiB]]].
+  cbn [Rec.ValTy] in VTyB.
+  destruct VTyB as [AT [BT [HRt [TyA0 [TyB0 [vld [VDomB [PEV_B PEE_B]]]]]]]].
+  cbn [Rec.EqValPi] in EPiB. destruct EPiB as [A0 [B0 [HR0 PAEV_B]]].
+  have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have mlt : (Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)) < k)%nat
+    by (move: RK; cbn [rk]; lia).
+  have UP    := proj1 (IH _ mlt).
+  have DOWNe := proj1 (proj2 (proj2 (proj2 (IH _ mlt)))).
+  have hUab : wt a tuniv := wt_tpi_dom (wt_abs_ty h1).
+  have hUab' : wt a' tuniv := wt_tpi_dom (wt_abs_ty h0).
+  cbn [Rec.EqValPi]. exists A0, B0. split; [ exact HR0 | ].
+  cbn [Rec.PiAppEqVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
+    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
+    have boundD : Init.Nat.max (rk ui) (rk a)
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. lia. }
+    have boundC : Init.Nat.max (rk vi) (rk (app g ui))
+                    <= Init.Nat.max (rk_fun f) (Init.Nat.max (rk a) (rk_fun g)).
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have hh2 := rk_app g ui. cbn in hh. lia. }
+    have GBd : Init.Nat.max (rk ui) (Init.Nat.max (rk a') (rk a)) < RB.
+      { have hh := @In_rk_fun1 (ui,vi) f Hin. cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have GBc : Init.Nat.max (rk vi) (Init.Nat.max (rk (app g' ui)) (rk (app g ui))) < RB.
+      { have hh := @In_rk_fun2 (ui,vi) f Hin. have h2 := rk_app g ui. have h3 := rk_app g' ui.
+        cbn in hh. move: GUARD; cbn [rk]; lia. }
+    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
+  have VPb := UP n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
+                RB boundD GBd LEa VP ltac:(eapply Val_irr; exact VDomB).
+  have Ecodb := PAEV_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl P TyP VPb.
+  have Efin := DOWNe n Γ (Core.app M P) (Core.app N P) B0[P..] vi (app g' ui) (app g ui)
+                 (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl)
+                 RB boundC GBc leC Ecodb.
+  eapply EqVal_irr; exact Efin.
+Qed.
 
 Lemma up_down_restrict : forall k, UDR k.
 Proof.
