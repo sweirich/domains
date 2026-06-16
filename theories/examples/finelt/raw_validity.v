@@ -132,6 +132,7 @@ From Stdlib Require Import ProofIrrelevance.
 Require Import finelt.utils.
 Require Import findom.
 Require Import types.
+Require Import selection.
 
 Import Raw.
 
@@ -193,49 +194,40 @@ Definition  PiEdgeEq {n} (Γ : Ctx n)
       (* to related results *)
       EqVal Γ B[N1..] B[N2..] Core.tuniv (wt_tpi_inv2 h (wt_valid_tm WT) APP).
 
+(* [PiAppVal]/[PiAppEq]/[PiAppEqVal]: the *value*-graph edges of a
+   function, following Agda's [PiAppVal2P].  We quantify over a
+   [Selection f u v] of the value graph [f] (a join of edges): [u] is the
+   key-join (typed at the domain [b]), [v] the value-join.  The argument
+   [P] is in the relation at [u]; the result [app M P] is at the
+   value-join [v] (witnessed by [wt_Selection_abs]) and codomain type
+   [app g u].  Quantifying over joins -- not exact entries [In (ui,vi) f]
+   -- is what lets the value-graph restriction (the [wt_abs] case)
+   transport across [f' <= f].  Mirrors [PiEdgeVal]/[PiEdgeEq]. *)
 Definition PiAppVal {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) : Prop :=
-  forall ui vi (Hin : In (ui, vi) f)
-  (* the argument's rank is bounded by [RB] (the subject's rank), so the
-     domain occurrence of [Val] below stays within the well-founded
-     [max]-rank measure.  Mirrors [PiEdgeVal]/[PiEdgeEq]. *)
-  (RKu : rk ui < RB)
-  v t
-  (APP : app f ui = v)
-  (APPg : app g ui = t)
-  (P : Tm n), typing Γ P A0 ->
-              Val Γ P A0 (wt_abs_inv1 h Hin) ->
-              Val  Γ (Core.app M P) B0[P..]
-                  (wt_abs_inv2 h Hin APPg).
+  forall u v (Sel : Selection f u v) (WT : wt u b) (RKu : rk u < RB)
+    (P : Tm n), typing Γ P A0 ->
+                Val Γ P A0 WT ->
+                Val Γ (Core.app M P) B0[P..] (wt_Selection_abs h Sel).
 
 Definition PiAppEq {n} (Γ : Ctx n)
   (M : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g))  :=
-  forall ui vi (Hin : In (ui, vi) f)
-    (RKu : rk ui < RB)
-    v t
-    (APP : app f ui = v)
-    (APPg : app g ui = t)
+  forall u v (Sel : Selection f u v) (WT : wt u b) (RKu : rk u < RB)
     (N1 N2 : Tm n),
     conv Γ N1 N2 A0 ->
-    EqVal  Γ N1 N2 A0 (wt_abs_inv1 h Hin) ->
-    EqVal  Γ (Core.app M N1) (Core.app M N2) B0[N1..]
-          (wt_abs_inv2 h Hin APPg).
+    EqVal Γ N1 N2 A0 WT ->
+    EqVal Γ (Core.app M N1) (Core.app M N2) B0[N1..] (wt_Selection_abs h Sel).
 
 Definition PiAppEqVal {n} (Γ : Ctx n)
   (M N : Tm n) (A0 : Tm n) (B0 : Tm (S n)) b f g
   (h : wt (abs f) (tpi b g)) :=
-  forall ui vi (Hin : In (ui, vi) f)
-  (RKu : rk ui < RB)
-  v t
-  (APP : app f ui = v)
-  (APPg : app g ui = t)
-  (P : Tm n),
+  forall u v (Sel : Selection f u v) (WT : wt u b) (RKu : rk u < RB)
+    (P : Tm n),
         typing Γ P A0 ->
-        Val  Γ P A0 (wt_abs_inv1 h Hin) ->
-        EqVal  Γ (Core.app M P) (Core.app N P) B0[P..]
-          (wt_abs_inv2 h Hin APPg).
+        Val Γ P A0 WT ->
+        EqVal Γ (Core.app M P) (Core.app N P) B0[P..] (wt_Selection_abs h Sel).
 
 Definition ValPi {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) g b f (h : wt (abs g) (tpi b f)):=
@@ -928,37 +920,39 @@ Proof.
   have DOWN  := proj1 (proj2 (proj2 IH)).
   have DOWNe := proj1 (proj2 (proj2 (proj2 IH))).
   cbn [Rec.ValPi]. exists A0, B0. split; [ exact HR0 | split ].
-  - cbn [Rec.PiAppVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
-    destruct (is_bot (app g ui)) eqn:Hb. { apply Val_isbot; exact Hb. }
-    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
-    have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
-    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
-    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-    have NBp : ~ is_bot (app g ui) by rewrite Hb.
-    have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) LEa VP.
-    have Vcod0 := PAV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
-    have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
-    have Vfin := UP n Γ (Core.app M P) B0[P..] vi (app g' ui) (app g ui)
-                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+  - cbn [Rec.PiAppVal]. move=> u v Sel WT RKu P TyP VP.
+    destruct (is_bot (app g u)) eqn:Hb. { apply Val_isbot; exact Hb. }
+    have Vf : valid_fun f by eauto with valid.
+    have Vu : valid u := wt_valid_tm WT.
+    have WT' : wt u a' := wt_Selection (wt_tpi_dom h0ty) Vf (wt_abs_inv1 h0) Sel.
+    have NBp : ~ is_bot (app g u) by rewrite Hb.
+    have hT0 : wt (app g' u) tuniv := wt_tpi_inv2 h0ty Vu erefl.
+    have hT1 : wt (app g u) tuniv := wt_tpi_inv2 hUa1 Vu erefl.
+    have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+    have VP0 := DOWN n Γ P A0 u a' a WT' WT LEa VP.
+    have Vcod0 := PAV0 u v Sel WT' RKu P TyP VP0.
+    have Vty := PEV u (app g u) WT RKu erefl NBp P TyP VP.
+    have Vfin := UP n Γ (Core.app M P) B0[P..] v (app g' u) (app g u)
+                   (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) hT0 hT1
                    leC Vcod0 ltac:(eapply Val_irr; exact Vty).
-    eapply Val_irr; exact Vfin.
-  - cbn [Rec.PiAppEq]. move=> ui vi Hin RKu v t APP APPg N1 N2 Cv EV. subst.
-    destruct (is_bot (app g ui)) eqn:Hb. { apply EqVal_isbot; exact Hb. }
-    have hU0 := wt_tpi_inv2 h0ty (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
-    have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
-    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
-    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-    have NBp : ~ is_bot (app g ui) by rewrite Hb.
-    have EV0 := DOWNe n Γ N1 N2 A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) LEa EV.
-    have Ecod0 := PAE0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl N1 N2 Cv EV0.
-    have Ety := PEE ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp N1 N2 Cv EV.
-    have Vty : Val k Γ B0[N1..] Core.tuniv
-                 (wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui)).
-    { eapply EqVal_Val1; exact Ety. }
-    have Efin := UPe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] vi (app g' ui) (app g ui)
-                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+    exact Vfin.
+  - cbn [Rec.PiAppEq]. move=> u v Sel WT RKu N1 N2 Cv EV.
+    destruct (is_bot (app g u)) eqn:Hb. { apply EqVal_isbot; exact Hb. }
+    have Vf : valid_fun f by eauto with valid.
+    have Vu : valid u := wt_valid_tm WT.
+    have WT' : wt u a' := wt_Selection (wt_tpi_dom h0ty) Vf (wt_abs_inv1 h0) Sel.
+    have NBp : ~ is_bot (app g u) by rewrite Hb.
+    have hT0 : wt (app g' u) tuniv := wt_tpi_inv2 h0ty Vu erefl.
+    have hT1 : wt (app g u) tuniv := wt_tpi_inv2 hUa1 Vu erefl.
+    have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+    have EV0 := DOWNe n Γ N1 N2 A0 u a' a WT' WT LEa EV.
+    have Ecod0 := PAE0 u v Sel WT' RKu N1 N2 Cv EV0.
+    have Ety := PEE u (app g u) WT RKu erefl NBp N1 N2 Cv EV.
+    have Vty : Val k Γ B0[N1..] Core.tuniv hT1 by (eapply Val_irr; eapply EqVal_Val1; exact Ety).
+    have Efin := UPe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] v (app g' u) (app g u)
+                   (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) hT0 hT1
                    leC Ecod0 ltac:(eapply Val_irr; exact Vty).
-    eapply EqVal_irr; exact Efin.
+    exact Efin.
 Qed.
 
 Lemma upEqValPi (k : nat) (IH : UDR k)
@@ -990,20 +984,22 @@ Proof.
   have UPe  := proj1 (proj2 IH).
   have DOWN := proj1 (proj2 (proj2 IH)).
   cbn [Rec.EqValPi]. exists A0, B0. split; [ exact HR0 | ].
-  cbn [Rec.PiAppEqVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
-  destruct (is_bot (app g ui)) eqn:Hb. { apply EqVal_isbot; exact Hb. }
-  have hU0 := wt_tpi_inv2 (wt_abs_ty h0) (wt_valid_tm (wt_abs_inv1 h0 Hin)) (erefl : app g' ui = app g' ui).
-  have hU1 := wt_tpi_inv2 hUa1 (wt_valid_tm (wt_abs_inv1 h1 Hin)) (erefl : app g ui = app g ui).
-  have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h1 Hin).
-  have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-  have NBp : ~ is_bot (app g ui) by rewrite Hb.
-  have VP0 := DOWN n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) LEa VP.
-  have Ecod0 := PAEV0 ui vi Hin RKu (app f ui) (app g' ui) erefl erefl P TyP VP0.
-  have Vty := PEV ui (app g ui) (wt_abs_inv1 h1 Hin) RKu erefl NBp P TyP VP.
-  have Efin := UPe n Γ (Core.app M P) (Core.app N P) B0[P..] vi (app g' ui) (app g ui)
-                 (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) hU0 hU1
+  cbn [Rec.PiAppEqVal]. move=> u v Sel WT RKu P TyP VP.
+  destruct (is_bot (app g u)) eqn:Hb. { apply EqVal_isbot; exact Hb. }
+  have Vf : valid_fun f by eauto with valid.
+  have Vu : valid u := wt_valid_tm WT.
+  have WT' : wt u a' := wt_Selection (wt_tpi_dom (wt_abs_ty h0)) Vf (wt_abs_inv1 h0) Sel.
+  have NBp : ~ is_bot (app g u) by rewrite Hb.
+  have hT0 : wt (app g' u) tuniv := wt_tpi_inv2 (wt_abs_ty h0) Vu erefl.
+  have hT1 : wt (app g u) tuniv := wt_tpi_inv2 hUa1 Vu erefl.
+  have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+  have VP0 := DOWN n Γ P A0 u a' a WT' WT LEa VP.
+  have Ecod0 := PAEV0 u v Sel WT' RKu P TyP VP0.
+  have Vty := PEV u (app g u) WT RKu erefl NBp P TyP VP.
+  have Efin := UPe n Γ (Core.app M P) (Core.app N P) B0[P..] v (app g' u) (app g u)
+                 (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) hT0 hT1
                  leC Ecod0 ltac:(eapply Val_irr; exact Vty).
-  eapply EqVal_irr; exact Efin.
+  exact Efin.
 Qed.
 
 Lemma downValPi (k : nat) (IH : UDR k)
@@ -1029,24 +1025,26 @@ Proof.
   have hUab : wt a tuniv := wt_tpi_dom (wt_abs_ty h1).
   have hUab' : wt a' tuniv := wt_tpi_dom (wt_abs_ty h0).
   cbn [Rec.ValPi]. exists A0, B0. split; [ exact HR0 | split ].
-  - cbn [Rec.PiAppVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
-    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
-    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-    have VPb := UP n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
-                  LEa VP ltac:(eapply Val_irr; exact VDomB).
-    have Vcodb := PAV_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl P TyP VPb.
-    have Vfin := DOWN n Γ (Core.app M P) B0[P..] vi (app g' ui) (app g ui)
-                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) leC Vcodb.
-    eapply Val_irr; exact Vfin.
-  - cbn [Rec.PiAppEq]. move=> ui vi Hin RKu v t APP APPg N1 N2 Cv EV. subst.
-    have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
-    have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-    have EVb := UPe n Γ N1 N2 A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
-                  LEa EV ltac:(eapply Val_irr; exact VDomB).
-    have Ecodb := PAE_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl N1 N2 Cv EVb.
-    have Efin := DOWNe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] vi (app g' ui) (app g ui)
-                   (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) leC Ecodb.
-    eapply EqVal_irr; exact Efin.
+  - cbn [Rec.PiAppVal]. move=> u v Sel WT RKu P TyP VP.
+    have Vu : valid u := wt_valid_tm WT.
+    have Vf : valid_fun f by eauto with valid.
+    have WT1 : wt u a := wt_le WT LEa hUab' hUab.
+    have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+    have VPb := UP n Γ P A0 u a' a WT WT1 hUab' hUab LEa VP ltac:(eapply Val_irr; exact VDomB).
+    have Vcodb := PAV_B u v Sel WT1 RKu P TyP VPb.
+    have Vfin := DOWN n Γ (Core.app M P) B0[P..] v (app g' u) (app g u)
+                   (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) leC Vcodb.
+    exact Vfin.
+  - cbn [Rec.PiAppEq]. move=> u v Sel WT RKu N1 N2 Cv EV.
+    have Vu : valid u := wt_valid_tm WT.
+    have Vf : valid_fun f by eauto with valid.
+    have WT1 : wt u a := wt_le WT LEa hUab' hUab.
+    have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+    have EVb := UPe n Γ N1 N2 A0 u a' a WT WT1 hUab' hUab LEa EV ltac:(eapply Val_irr; exact VDomB).
+    have Ecodb := PAE_B u v Sel WT1 RKu N1 N2 Cv EVb.
+    have Efin := DOWNe n Γ (Core.app M N1) (Core.app M N2) B0[N1..] v (app g' u) (app g u)
+                   (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) leC Ecodb.
+    exact Efin.
 Qed.
 
 Lemma downEqValPi (k : nat) (IH : UDR k)
@@ -1079,15 +1077,16 @@ Proof.
   have hUab : wt a tuniv := wt_tpi_dom (wt_abs_ty h1).
   have hUab' : wt a' tuniv := wt_tpi_dom (wt_abs_ty h0).
   cbn [Rec.EqValPi]. exists A0, B0. split; [ exact HR0 | ].
-  cbn [Rec.PiAppEqVal]. move=> ui vi Hin RKu v t APP APPg P TyP VP. subst.
-  have Vui : valid ui := wt_valid_tm (wt_abs_inv1 h0 Hin).
-  have leC : le (app g' ui) (app g ui) by (apply le_fun_mono; eauto with valid).
-  have VPb := UP n Γ P A0 ui a' a (wt_abs_inv1 h0 Hin) (wt_abs_inv1 h1 Hin) hUab' hUab
-                LEa VP ltac:(eapply Val_irr; exact VDomB).
-  have Ecodb := PAEV_B ui vi Hin RKu (app f ui) (app g ui) erefl erefl P TyP VPb.
-  have Efin := DOWNe n Γ (Core.app M P) (Core.app N P) B0[P..] vi (app g' ui) (app g ui)
-                 (wt_abs_inv2 h0 Hin erefl) (wt_abs_inv2 h1 Hin erefl) leC Ecodb.
-  eapply EqVal_irr; exact Efin.
+  cbn [Rec.PiAppEqVal]. move=> u v Sel WT RKu P TyP VP.
+  have Vu : valid u := wt_valid_tm WT.
+  have Vf : valid_fun f by eauto with valid.
+  have WT1 : wt u a := wt_le WT LEa hUab' hUab.
+  have leC : le (app g' u) (app g u) by (apply le_fun_mono; eauto with valid).
+  have VPb := UP n Γ P A0 u a' a WT WT1 hUab' hUab LEa VP ltac:(eapply Val_irr; exact VDomB).
+  have Ecodb := PAEV_B u v Sel WT1 RKu P TyP VPb.
+  have Efin := DOWNe n Γ (Core.app M P) (Core.app N P) B0[P..] v (app g' u) (app g u)
+                 (wt_Selection_abs h0 Sel) (wt_Selection_abs h1 Sel) leC Ecodb.
+  exact Efin.
 Qed.
 
 (* restrictVal: shrink the *element* witness [u' <= u] at a fixed type

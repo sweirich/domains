@@ -109,6 +109,65 @@ Proof.
 Qed.
 
 (* ------------------------------------------------------------
+   wt_Selection_cod: the value-join [v] of a selection of the value
+   graph [F] is typed at the codomain [app G u] (where [G] is the type's
+   codomain graph and [u] the key-join).  This is the [wt] witness used
+   for the result of the Selection-indexed function-value edge.
+   ------------------------------------------------------------ *)
+Lemma wt_Selection_cod (F G : list (elt * elt)) b u v :
+  wt (tpi b G) tuniv ->
+  (forall ui vi, In (ui, vi) F -> wt ui b) ->
+  (forall ui vi, In (ui, vi) F -> wt vi (app G ui)) ->
+  valid_fun F ->
+  Selection F u v -> wt u b /\ wt v (app G u).
+Proof.
+  move=> HT Keys Vals Vf S.
+  have VG : valid_fun G by (move: (wt_valid_tm HT); cbn => /andP [_ ?]; done).
+  induction S as [| p F' u v S IH | pu0 pv0 F' u' v' Ck Cv S IH ].
+  - split.
+    + apply wt_bot. eapply wt_tpi_dom; exact HT.
+    + apply wt_bot. apply (wt_tpi_inv2 HT (u := bot)); [ done | reflexivity ].
+  - destruct p as [pu0 pv0]. apply IH.
+    + by move=> ui vi Hin; apply (Keys ui vi); right.
+    + by move=> ui vi Hin; apply (Vals ui vi); right.
+    + exact (valid_fun_tail Vf).
+  - have Wpu0 : wt pu0 b by apply (Keys pu0 pv0); left.
+    have Wpv0 : wt pv0 (app G pu0) by apply (Vals pu0 pv0); left.
+    have Vf' := valid_fun_tail Vf.
+    have [Wu' Wv'] : wt u' b /\ wt v' (app G u').
+    { apply IH; [ by move=> ui vi Hin; apply (Keys ui vi); right
+                | by move=> ui vi Hin; apply (Vals ui vi); right
+                | exact Vf' ]. }
+    have Vpu0 : valid pu0 by eauto with valid.
+    have Vu'  : valid u' by (eapply wt_valid_tm; exact Wu').
+    have Vju  : valid (lub pu0 u') by (apply valid_lub; [ exact Ck | exact Vpu0 | exact Vu' ]).
+    have Lpu  : le pu0 (lub pu0 u') by (apply le_lub_left; [ exact Ck | exact Vpu0 | exact Vu' ]).
+    have Lu'  : le u' (lub pu0 u') by (apply le_lub_right; [ exact Ck | exact Vpu0 | exact Vu' ]).
+    have Tu   : wt (app G (lub pu0 u')) tuniv by (apply (wt_tpi_inv2 HT (u := lub pu0 u')); [ exact Vju | reflexivity ]).
+    have Tpu  : wt (app G pu0) tuniv by (apply (wt_tpi_inv2 HT (u := pu0)); [ exact Vpu0 | reflexivity ]).
+    have Tu'  : wt (app G u') tuniv by (apply (wt_tpi_inv2 HT (u := u')); [ exact Vu' | reflexivity ]).
+    have Spu  : le (app G pu0) (app G (lub pu0 u')) by (apply le_fun_mono_arg; [ exact VG | exact Vpu0 | exact Vju | exact Lpu ]).
+    have Su'  : le (app G u') (app G (lub pu0 u')) by (apply le_fun_mono_arg; [ exact VG | exact Vu' | exact Vju | exact Lu' ]).
+    split.
+    + apply (wt_lub Wpu0); [ exact Ck | exact Wu' ].
+    + have Wpv0' : wt pv0 (app G (lub pu0 u')) by (eapply wt_le; [ exact Wpv0 | exact Spu | exact Tpu | exact Tu ]).
+      have Wv''  : wt v' (app G (lub pu0 u')) by (eapply wt_le; [ exact Wv' | exact Su' | exact Tu' | exact Tu ]).
+      apply (wt_lub Wpv0'); [ exact Cv | exact Wv'' ].
+Qed.
+
+(* Convenience wrapper taking the [abs] typing directly: the value-join
+   of a selection is typed at the codomain.  This is the result witness
+   used by the Selection-indexed value edge. *)
+Lemma wt_Selection_abs (F G : list (elt * elt)) b u v :
+  wt (abs F) (tpi b G) -> Selection F u v -> wt v (app G u).
+Proof.
+  move=> h S.
+  have VF : valid_fun F by (move: (wt_valid_tm h); cbn => /andP [? _]; done).
+  exact (proj2 (wt_Selection_cod (wt_abs_ty h) (wt_abs_inv1 h)
+                 (fun ui vi Hin => wt_abs_inv2 h Hin erefl) VF S)).
+Qed.
+
+(* ------------------------------------------------------------
    selectionBelow: for any argument [x], the edges of [f] with key
    below [x] form a selection whose key-join is [<= x] and whose
    value-join is exactly [app f x] (the function's value at [x]).
