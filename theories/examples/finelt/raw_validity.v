@@ -1174,12 +1174,20 @@ Proof.
         eapply EqVal_irr.
         eapply (RESe _ Γ B[N1..] B[N2..] Core.tuniv (app g0 u0) (app g u0) tuniv);
           [ exact leV | exact Res ].
-  - (* wt_abs: u = abs g (function value), a = tpi b f.
-       The PiApp edges quantify over the abs graph; shrinking the graph
-       [g' <= g] would require relating [app g ui] to individual graph
-       entries (lub-closure of [Val]), infrastructure not yet available.
-       Not exercised by adequacy (Val_transport has no callers yet). *)
-    admit.
+  - (* wt_abs: u = abs F (function value), a = tpi b G. *)
+    rewrite Val_abs in V. destruct V as [VTyT VPi1].
+    dependent destruction h0.
+    + apply Val_Bot.
+    + rewrite le_abs in LE.
+      rewrite Val_abs. cbn [Rec.ValPi] in VPi1. destruct VPi1 as [A0 [B0 [HR0 [PAV1 PAE1]]]].
+      cbn [Rec.ValTy] in VTyT.
+      destruct VTyT as [AT [BT [HRt [TyA0 [TyB0 [vldT [VDomT [PEV_T PEE_T]]]]]]]].
+      have [E1 E2] := HeadRed_tpi_det HR0 HRt. subst AT BT.
+      match goal with |- ?GG => idtac "ABSGOAL:" GG end.
+      let t := type of PAV1 in idtac "PAV1:" t.
+      let t := type of PEV_T in idtac "PEVT:" t.
+      let t := type of h0 in idtac "TYPEh0:" t.
+      admit.
 Admitted.
 
 (* restrictEqVal: the binary analog of [restrictVal_step]. *)
