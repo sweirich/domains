@@ -1,7 +1,4 @@
 (* Fundamental theorem of the logical relation
-
-   see Adequacy2.adga
-
  *)
 
 
@@ -473,7 +470,43 @@ Lemma st_abs A B M :
 (* ------------------------- *)
   semantic_typing Γ (Core.abs A M) (Core.tpi A B).
 Proof.
-  (* TODO: rework for current Rec signatures / WF Val-EqVal. *)
+  move=> TA TB STA STB STM.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT evAN evAB.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  move: (substitution_tm _ _ _ _ _ TA TS CΔ) => TAs. cbn in TAs.
+  have CE: ctx (Δ ++ A[σ]). eapply c_cons; eauto.
+  have TSE: typing_subst (Δ ++ A[σ]) (⇑σ) (Γ ++ A).
+  eapply typing_subst_lift; eauto.
+  have TBs: typing (Δ ++ A[σ]) B[⇑ σ] Core.tuniv.
+  {
+    have CC: typing (Δ ++ A[σ]) B[⇑ σ] Core.tuniv[⇑ σ].
+    eapply substitution_tm; eauto. 
+    cbn in CC. auto.
+  } 
+  specialize (STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ).
+  split; intro RB; destruct RB; try solve [cbn; auto].
+  - destruct (is_bot u) eqn:Hu.
+    { have Eu : u = bot by apply is_bot_eq; rewrite Hu.
+      subst u. apply Val_Bot. } 
+    cbn in evAN. destruct u; try done.
+    move: evAN => [Vl [NNl [a0 [WTa0 [Ra0 h0]]]]].
+    cbn in evAB. destruct a; try done. inversion WT.
+    move: evAB => [Va [Vl0 [Ea [a' [Ra' h']]]]].
+    have WTa: wt a tuniv. inversion H5. auto. 
+    specialize (STA _ _ WTa Ea). cbn in STA. autorewrite with le in STA.
+    destruct STA as [ValA EValA]. done.
+    
+    subst.
+    cbn.
+    split.
+    exists A[σ]. exists B[⇑ σ]. 
+    repeat split; eauto. 
+    + eapply ms_refl. 
+    + rewrite Va Vl0. done.
+    + eapply Val_irr. eapply ValA.
+    + intros u v WTua APP NB N TN VN.
+      have FE: fits (Γ ++ A) (u .: ρ).
+      { eapply (fits_cons TA Ea WTa WTua ); eauto. } 
 Admitted.
 
 Lemma st_app A B N M : 
@@ -644,7 +677,7 @@ Proof.
         [ exact (@EqVal_app_transport _ Δ _ _ _ u v_sel a (app f u_sel)
                    (wt_Selection_abs WTbig Sel) WT Caaf LEu_vsel RB Ecomb)
         | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
-Admitted.
+Qed.
 
 (* t_nat: ctx Γ ⟹ tnat : tuniv 0 *)
 Lemma st_nat :
@@ -652,8 +685,22 @@ Lemma st_nat :
 (* ------------------------- *)
   semantic_typing Γ Core.tnat Core.tuniv.
 Proof.
-  (* TODO: rework for current Rec signatures / WF Val-EqVal. *)
-Admitted.
+  intros CG.
+  unfold semantic_typing.
+  intros ρ m Δ s s' Ts Ts' CS F VSs VSs' ES CD u a WT EN EU.
+  cbn in EN.
+  split; intros RB.
+  - destruct (is_bot u) eqn:IB; destruct u; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+  - destruct (is_bot u) eqn:IB; destruct u; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.  
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+Qed.
 
 (* t_zero: ctx Γ ⟹ zero : tnat *)
 Lemma st_zero :

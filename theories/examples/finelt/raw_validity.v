@@ -177,6 +177,26 @@ Variable
               Tm n -> Tm n -> Tm n -> forall u a, wt u a -> Prop.
 
 
+(* TODO: could PiEdgeVal/PiEdgeEq use Selection instead of app?
+   would that make a difference to the rest of the development? *)
+
+(* Unary analog of [PiEdgeEq]: for any argument [N] in the relation at
+   the domain [A], the codomain [B[N..]] is in the relation (as a type).
+   Like [PiEdgeEq], the quantified argument is rank-bounded by [RKu] so
+   the (otherwise unbounded) domain occurrence of [Val] stays within the
+   well-founded [max]-rank measure of [ValF]/[EqValF]. *)
+Definition PiEdgeVal {n} (Γ : Ctx n)
+  (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
+  (h : wt (tpi b f) tuniv) :=
+  forall u v (WT : wt u b)
+      (APP: app f u = v) (NB: ~ is_bot v)
+      (N : Tm n),
+      typing Γ N A ->
+      (* take a related argument *)
+      Val Γ N A WT ->
+      (* to a related result *)
+      Val Γ B[N..] Core.tuniv (wt_tpi_inv2 h (wt_valid_tm WT) APP).
+
 Definition  PiEdgeEq {n} (Γ : Ctx n)
   (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
   (h : wt (tpi b f) tuniv) :=
@@ -236,22 +256,6 @@ Definition EqValPi {n} (Γ : Ctx n)
   exists A0, exists B0, HeadRed A (Core.tpi A0 B0)
   /\ PiAppEqVal Γ M N A0 B0 h.
 
-(* Unary analog of [PiEdgeEq]: for any argument [N] in the relation at
-   the domain [A], the codomain [B[N..]] is in the relation (as a type).
-   Like [PiEdgeEq], the quantified argument is rank-bounded by [RKu] so
-   the (otherwise unbounded) domain occurrence of [Val] stays within the
-   well-founded [max]-rank measure of [ValF]/[EqValF]. *)
-Definition PiEdgeVal {n} (Γ : Ctx n)
-  (A : Tm n) (B : Tm (S n)) (b: elt) (f : list (elt * elt))
-  (h : wt (tpi b f) tuniv) :=
-  forall u v (WT : wt u b)
-      (APP: app f u = v) (NB: ~ is_bot v)
-      (N : Tm n),
-      typing Γ N A ->
-      (* take a related argument *)
-      Val Γ N A WT ->
-      (* to a related result *)
-      Val Γ B[N..] Core.tuniv (wt_tpi_inv2 h (wt_valid_tm WT) APP).
 
 Definition ValTy {n} (Γ : Ctx n)
   (M : Tm n) u (h : wt u tuniv) : Prop  :=
@@ -293,8 +297,8 @@ Definition PiEdgeEqTy {n} (Γ : Ctx n)
           (* to (equal) related results *)
           EqVal Γ B[P..] B'[P..] Core.tuniv (wt_tpi_inv2 h (wt_valid_tm WTu) APP).
 
-Fixpoint EqValTy {n} 
-  (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) {struct h} :  Prop :=
+Definition EqValTy {n} 
+  (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) :  Prop :=
   (match a return wt _ tuniv ->  Prop with
   | tpi b f =>
       fun (h : wt (tpi b f) tuniv)  =>
