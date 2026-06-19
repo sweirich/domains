@@ -81,31 +81,35 @@ Definition Sub m n := fin m -> Tm n.
 
 (* A valid substitution σ maps every term in ρ to one that 
    can be interpreted in Δ. *) 
-Definition ValSub (RB : nat) {n} (Δ : Ctx n) {g} (Γ : Ctx g) (σ : Sub g n) (ρ : Env g)    : Prop :=
+(* The substitution relations hold at *every* fuel [RB] (the [forall RB]
+   is at the leaf).  This is what lets [st_conv] obtain [EqVal (S RB)]
+   for the type-equality bridge while the term is used at fuel [RB],
+   without any (false) fuel-monotonicity step. *)
+Definition ValSub {n} (Δ : Ctx n) {g} (Γ : Ctx g) (σ : Sub g n) (ρ : Env g)    : Prop :=
   forall i u, valid u -> le u (ρ i) ->
     forall a, EvalRel (lookup i Γ) ρ a ->
-    forall (h : wt u a),
+    forall (h : wt u a) RB,
       Val RB Δ (σ i) (lookup i Γ)[σ] h.
 
-Lemma ValSub_empty RB {g} (Δ : Ctx g)(σ : Sub 0 g) :
-  ValSub RB Δ ctx_empty σ null.
+Lemma ValSub_empty {g} (Δ : Ctx g)(σ : Sub 0 g) :
+  ValSub Δ ctx_empty σ null.
 unfold ValSub. done. Qed.
 
-Lemma ValSub_cons RB {g} (Γ : Ctx g) (ρ : Env g) {h} (Δ : Ctx h) (σ : Sub g h) (A: Tm g) v (M : Tm h):
+Lemma ValSub_cons {g} (Γ : Ctx g) (ρ : Env g) {h} (Δ : Ctx h) (σ : Sub g h) (A: Tm g) v (M : Tm h):
     (forall u, valid u -> le u v -> forall a (h : wt u a),
     EvalRel A ρ a ->
-    Val RB Δ M A[σ] h) ->
-    ValSub RB Δ Γ σ ρ ->
-    ValSub RB Δ (Γ ++ A) (M .: σ) (v .: ρ).
+    forall RB, Val RB Δ M A[σ] h) ->
+    ValSub Δ Γ σ ρ ->
+    ValSub Δ (Γ ++ A) (M .: σ) (v .: ρ).
 Proof.
   intros hyp0 VS.
   unfold ValSub in *.
-  move=> i u0 Vu0 Le0 a0 E0 WT0.
+  move=> i u0 Vu0 Le0 a0 E0 WT0 RB.
   destruct i as [i|].
   - (* succ case *) 
     cbn in *. asimpl.
     apply EvalRel_unwk in E0.
-    specialize (VS i u0 Vu0 Le0 a0 E0 WT0).
+    specialize (VS i u0 Vu0 Le0 a0 E0 WT0 RB).
     rewrite renSubst_Tm. asimpl.
     done.
   - (* zero case *)
@@ -115,30 +119,30 @@ Proof.
     eapply hyp0; eauto.
 Qed.
 
-Definition EqValSub (RB : nat) {h} {g} (Δ : Ctx h) (Γ : Ctx g)
+Definition EqValSub {h} {g} (Δ : Ctx h) (Γ : Ctx g)
   (σ1 : Sub g h) (σ2 : Sub g h) (ρ : Env g) : Prop :=
   forall i,
   forall u, valid u -> le u (ρ i) ->
     forall a, EvalRel (lookup i Γ) ρ a ->
-    forall (h : wt u a),
+    forall (h : wt u a) RB,
       EqVal RB Δ (σ1 i) (σ2 i) (lookup i Γ)[σ1] h.
 
   
-Lemma EqValSub_empty RB {g} (Δ : Ctx g)(σ1 σ2 : Sub 0 g) :
-   EqValSub RB Δ ctx_empty  σ1 σ2 null.
+Lemma EqValSub_empty {g} (Δ : Ctx g)(σ1 σ2 : Sub 0 g) :
+   EqValSub Δ ctx_empty  σ1 σ2 null.
 unfold EqValSub. done. Qed.
 
-Lemma EqValSub_cons RB {h} {g} (Δ : Ctx h) (Γ : Ctx g) (ρ : Env g)
+Lemma EqValSub_cons {h} {g} (Δ : Ctx h) (Γ : Ctx g) (ρ : Env g)
   (σ1 σ2 : Sub g h) A v (M1 M2 : Tm h):
     (forall u, valid u -> le u v -> forall a (h : wt u a),
     EvalRel A ρ a ->
-    EqVal RB Δ M1 M2 A[σ1] h) ->
-    EqValSub RB Δ Γ σ1 σ2 ρ ->
-    EqValSub RB Δ (Γ ++ A)  (M1 .: σ1) (M2 .: σ2) (v .: ρ).
+    forall RB, EqVal RB Δ M1 M2 A[σ1] h) ->
+    EqValSub Δ Γ σ1 σ2 ρ ->
+    EqValSub Δ (Γ ++ A)  (M1 .: σ1) (M2 .: σ2) (v .: ρ).
 Proof.
   intros hyp0 VS.
   unfold ValSub in *.
-  move=> i u0 Vu0 Le0 a0 E0 WT0.
+  move=> i u0 Vu0 Le0 a0 E0 WT0 RB.
   destruct i as [i|].
   - (* succ case *) 
     cbn in *. asimpl.
@@ -151,6 +155,7 @@ Proof.
     apply EvalRel_unwk in E0.
     eapply hyp0; eauto.
 Qed.    
+
 
 (* Syntactic pointwise conv between substitutions.  Mirrors Agda's
    WtConvSub: σ and σ' are conv at every variable, in the target context Δ.
@@ -169,6 +174,8 @@ Lemma ConvSub_refl {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ : Sub g h) :
 Proof.
   move=> TS i. eapply c_refl; eauto.
 Qed.
+
+
 
 Lemma ConvSub_cons {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h)
   (A : Tm g) (M1 M2 : Tm h) :
@@ -203,46 +210,52 @@ Lemma subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) :
     conv Δ M[σ] M[σ'] A[σ].
 Proof. Admitted.
 
+Lemma ConvSub_sym {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h) :
+  ConvSub Δ Γ σ1 σ2 -> ConvSub Δ Γ σ2 σ1.
+Proof.
+Admitted.
+
 Definition semantic_typing {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) :=
-  forall RB ρ m (Δ : Ctx m) (σ σ': Sub n m) (TS : typing_subst Δ σ Γ)
+  forall ρ m (Δ : Ctx m) (σ σ': Sub n m) (TS : typing_subst Δ σ Γ)
     (TS' : typing_subst Δ σ' Γ)
     (CS : ConvSub Δ Γ σ σ')
     (F : fits Γ ρ)
-    (VS : EqValSub RB Δ Γ σ σ' ρ) (cΔ : ctx Δ),
+    (VS : EqValSub Δ Γ σ σ' ρ) (cΔ : ctx Δ),
   forall u a (WT : wt u a),
     EvalRel M ρ u ->
     EvalRel A ρ a ->
-    Val RB Δ M[σ] A[σ] WT /\
-    EqVal RB Δ M[σ] M[σ'] A[σ] WT.
+    (forall RB, Val RB Δ M[σ] A[σ] WT) /\
+    (forall RB, EqVal RB Δ M[σ] M[σ'] A[σ] WT) (* TODO: /\
+    (forall RB, EqValTy RB Δ A[σ] A[σ'] (wt_ty_tuniv WT)) *).
 Definition semantic_conv2 {n} (Γ : Ctx n) (M N: Tm n) (A : Tm n) :=
-  forall RB ρ  m (Δ : Ctx m) σ1 σ2 (TS1 : typing_subst Δ σ1 Γ)
+  forall ρ  m (Δ : Ctx m) σ1 σ2 (TS1 : typing_subst Δ σ1 Γ)
     (TS2 : typing_subst Δ σ2 Γ)
     (CS : ConvSub Δ Γ σ1 σ2)
     (F : fits Γ ρ)
-    (EVS : EqValSub RB Δ Γ σ1 σ2 ρ) (cΔ : ctx Δ),
+    (EVS : EqValSub Δ Γ σ1 σ2 ρ) (cΔ : ctx Δ),
   forall u a (WT : wt u a),
     EvalRel M ρ u ->
     EvalRel A ρ a ->
-    EqVal RB Δ M[σ1] N[σ1] A[σ1] WT /\
-    EqVal RB Δ M[σ1] N[σ2] A[σ1] WT.
+    (forall RB, EqVal RB Δ M[σ1] N[σ1] A[σ1] WT) /\
+    (forall RB, EqVal RB Δ M[σ1] N[σ2] A[σ1] WT).
 
-Lemma EqValSub_ValSub_left RB {n} (Γ : Ctx n) ρ {m} (Δ : Ctx m) σ1 σ2 :
-  EqValSub RB Δ Γ σ1 σ2 ρ ->
-  ValSub RB Δ Γ σ1 ρ.
+Lemma EqValSub_ValSub_left {n} (Γ : Ctx n) ρ {m} (Δ : Ctx m) σ1 σ2 :
+  EqValSub Δ Γ σ1 σ2 ρ ->
+  ValSub Δ Γ σ1 ρ.
 Proof.
-  move=> EVS i u Vu LE a E1 h.
-  specialize (EVS i u Vu LE a E1 h).
+  move=> EVS i u Vu LE a E1 h RB.
+  specialize (EVS i u Vu LE a E1 h RB).
   eapply EqVal_Val1; eauto.
 Qed.
 
-Lemma ValSub_EqValSub RB {n} (Γ : Ctx n) ρ {m} (Δ : Ctx m) σ :
-  ValSub RB Δ Γ σ ρ ->
-    EqValSub RB Δ Γ σ σ ρ .
+Lemma ValSub_EqValSub {n} (Γ : Ctx n) ρ {m} (Δ : Ctx m) σ :
+  ValSub Δ Γ σ ρ ->
+    EqValSub Δ Γ σ σ ρ .
 Proof.
   move=> VS.
   unfold EqValSub.
-  move=> i u Vu LE a E1 h.
-  specialize (VS i u Vu LE a E1 h).
+  move=> i u Vu LE a E1 h RB.
+  specialize (VS i u Vu LE a E1 h RB).
   eapply Val_EqVal.
   auto.
 Qed.
@@ -261,13 +274,13 @@ Qed.
      - wt_le on h' to get an intermediate witness wt u' a,
      - restrictVal to drop u: from h (wt u a) → intermediate (wt u' a),
      - downVal to drop a: from intermediate (wt u' a) → h' (wt u' a'). *)
-Lemma Val_transport RB {n} (Γ : Ctx n) (M T : Tm n) u u' a a'
+Lemma Val_transport {n} (Γ : Ctx n) (M T : Tm n) u u' a a'
   (h : wt u a) (h' : wt u' a')
   (hUa : wt a tuniv) (hUa' : wt a' tuniv) :
   le u' u -> le a' a ->
-  Val RB Γ M T h -> Val RB Γ M T h'.
+  forall RB, Val RB Γ M T h -> Val RB Γ M T h'.
 Proof.
-  move=> LEu LEa VH.
+  move=> LEu LEa RB VH.
   have h'' : wt u' a by eapply wt_le; eauto.
   have VH'' : Val RB Γ M T h'' by eapply (@restrictVal RB _ Γ M T u u' a h'' h); eauto.
   eapply (@downVal RB _ Γ M T u' a' a h' h''); eauto.
@@ -323,8 +336,6 @@ Section SemanticTyping.
 Local Notation "Γ ⊨ M ∈ A" := (semantic_typing Γ M A).
 Local Notation "Γ ⊨ M ≡ N ∈ A" := (semantic_conv2 Γ M N A).
 
-
-
 Variable (n:nat) (Γ : Ctx n).
 
 Lemma st_var (x : fin n) : 
@@ -333,11 +344,11 @@ Lemma st_var (x : fin n) :
   (semantic_typing Γ (var x) (lookup x Γ)).
 Proof.
   move=> h.
-  move=> RB ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex ER.
+  move=> ρ m Δ σ σ' TS TS' CS FR VS CD u1 a1 WT1 Ex ER.
   cbn in *. move: Ex => [Vu1 Le1].
   split.
-  - eapply EqValSub_ValSub_left; eauto.
-  - eapply (VS x); eauto.
+  - move=> RB. eapply (EqValSub_ValSub_left VS); eauto.
+  - move=> RB. eapply (VS x); eauto.
 Qed.
 
 Lemma st_conv M A B :
@@ -348,25 +359,30 @@ Lemma st_conv M A B :
 (* ------------------------- *)
   semantic_typing Γ M B.
 Proof.
-  (* Following Adequacy2.agda's ty-conv case (UCode branch, lines 535-542):
-       evA'  = convSound-inv d2 evA       — bridge EvalRel B → EvalRel A
-       val   = adequacySub2 d1 ... evA'   — Val of M at A
-       eqAB  = adequacyEqSub2 d2 ...      — EqVal of A B at tuniv
-       eqvty = snd (snd eqAB)             — extract EqValTy
-       result = Val2-EqValTy2-fwd val eqvty  — transport Val along EqValTy
-     Coq counterparts:
-       conv_EvalRel C2 FR's bwd direction ≈ convSound-inv
-       h1 ≈ adequacySub2 d1
-       h2 ≈ adequacyEqSub2 d2
-       Val_EqVal_fwd ≈ Val2-EqValTy2-fwd *)
-  (* The Agda-style proof transports [Val M:A] to [Val M:B] via
-     [Val_EqVal_fwd] (same fuel [RB]) using [EqValTy RB A B].  But under
-     the honest single-[RB] design [EqValTy RB] is extracted from
-     [EqVal (S RB)] (off-by-one [EqVal_EqValTy]), and obtaining the
-     codomain equality at fuel [S RB] would need [EqValSub (S RB)] -- a
-     fuel-monotonicity of the substitution relation we do not yet have.
-     Admitted alongside the other fundamental-theorem cases. *)
-Admitted.
+  (* With the leaf-[forall RB] design, the codomain equality [EqValTy RB]
+     is obtained from [EqVal (S RB)] (off-by-one [EqVal_EqValTy]) directly:
+     [EqValSub] provides [EqVal] at *every* fuel, so [SCA] gives the type
+     equality at [S RB] with no fuel-monotonicity step.  We then transport
+     [Val M:A] -> [Val M:B] (resp. [EqVal]) via [Val_EqVal_fwd] /
+     [EqVal_EqVal_fwd] at fuel [RB]. *)
+  move=> TA CA STA SCA.
+  move=> ρ m Δ s s' Ts Ts' CS Fρ EVS CΔ u a WT evM evB.
+  (* bridge EvalRel B ρ a -> EvalRel A ρ a *)
+  move: (conv_EvalRel CA Fρ) => [_ [_ [_ bwd]]].
+  have evA : EvalRel A ρ a by (apply bwd; exact evB).
+  have WTa : wt a tuniv by (eapply wt_ty_tuniv; exact WT).
+  have evU : EvalRel Core.tuniv ρ tuniv by [].
+  have VSdiag : EqValSub Δ Γ s s ρ
+    by (apply ValSub_EqValSub; eapply EqValSub_ValSub_left; exact EVS).
+  have [valMA eqvalMA] := STA ρ _ Δ s s' Ts Ts' CS Fρ EVS CΔ u a WT evM evA.
+  have [eqAB _] := SCA ρ _ Δ s s Ts Ts (ConvSub_refl Ts) Fρ VSdiag CΔ a tuniv WTa evA evB evU.
+  asimpl. asimpl in valMA. asimpl in eqvalMA. asimpl in eqAB.
+  split.
+  - move=> RB. eapply Val_EqVal_fwd;
+      [ exact (valMA RB) | eapply EqVal_EqValTy; exact (eqAB (S RB)) ].
+  - move=> RB. eapply EqVal_EqVal_fwd;
+      [ exact (eqvalMA RB) | eapply EqVal_EqValTy; exact (eqAB (S RB)) ].
+Qed.
 
 Lemma st_abs A B M :
   typing Γ A Core.tuniv ->
@@ -489,19 +505,20 @@ Proof.
        (3) Bridge the right-hand-side M[σ1] ↔ M[σ2] via the fundamental
            lemma for semantic substitution equivalence (admitted). *)
   move=> T1 h_typ.
-  move=> RB ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA.
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM _ EA.
   (* Step 1: get Val and EqVal at (σ1, σ2) from h_typ. *)
-  have VS1 : ValSub RB Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
-  move: (h_typ RB ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD u a WT EM EA)
+  have VS1 : ValSub Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
+  move: (h_typ ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD u a WT EM EA)
     => [val_M _].
-  move: (h_typ RB ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA)
+  move: (h_typ ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EM EA)
     => [_ eq_M].
   split.
-  - (* EqVal Δ M[σ1] M[σ1] A[σ1] WT — diagonal via Val_EqVal. *)
-    apply Val_EqVal. exact val_M.
-  - (* EqVal Δ M[σ1] M[σ2] A[σ1] WT — directly from h_typ at (σ1, σ2). *)
-    exact eq_M.
-Qed.
+  - move=> RB.
+    (* EqVal Δ M[σ1] M[σ1] A[σ1] WT — diagonal via Val_EqVal. *)
+    apply Val_EqVal. eapply val_M.
+  - (* EqVal Δ M[σ1] M[σ2] A[σ1] WT — directly from h_typ at (σ1, σ2). *)  move=> RB.
+    eapply eq_M.
+Qed. 
 
 (* c_sym: M ≡ N : A ⟹ N ≡ M : A *)
 Lemma sc_sym M N A :
@@ -521,7 +538,16 @@ Proof.
      In Agda a single σ is used everywhere so swap is trivial.  Coq's
      semantic_conv2 carries (σ1, σ2) potentially different, which makes
      swapping require a σ1↔σ2 bridge on the type substitution. *)
-  (* TODO: RB threading + the σ1/σ2 crossed bridge. Admitted as before. *)
+Proof.
+  move=> C1 h_conv.
+  move=> ρ m Δ σ1 σ2 TS1 TS2 CS FR VS_eq CD u a WT EN EM EA.
+  (* Step 1: EqVal at (σ1, σ2) and EqVal at (σ1, σ2) from h_conv. *)
+  have VS1 : ValSub Δ Γ σ1 ρ by exact (EqValSub_ValSub_left VS_eq).
+
+  move: (h_conv ρ m Δ σ1 σ1 TS1 TS1 (ConvSub_refl TS1) FR (ValSub_EqValSub VS1) CD u a WT EM EN EA) => [h1 _]. 
+Search ConvSub.
+  move: (h_conv ρ m Δ σ2 σ1 TS2 TS1 CS FR VS_eq CD u a WT EM EN EA)
+    => h2.
 Admitted.
 
 (* c_trans: M ≡ N : A, N ≡ P : A ⟹ M ≡ P : A *)
@@ -772,8 +798,8 @@ Proof.
     + eapply wt_bot. eapply wt_bot. eapply wt_tuniv. 
 Qed.
 
-Lemma ValSub_id RB n (Γ:Ctx n) :
-  ValSub RB Γ Γ var bot_env.
+Lemma ValSub_id n (Γ:Ctx n) :
+  ValSub Γ Γ var bot_env.
 Proof.
   unfold ValSub.
   move=> i u Vu LE a ER h.
@@ -783,8 +809,8 @@ Proof.
 Qed.
 
 
-Lemma EqValSub_id RB n (Γ:Ctx n) :
-  EqValSub RB Γ Γ var var bot_env.
+Lemma EqValSub_id n (Γ:Ctx n) :
+  EqValSub Γ Γ var var bot_env.
 Proof.
   unfold EqValSub.
   move=> i u Vu LE a ER h.
