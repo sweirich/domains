@@ -449,23 +449,6 @@ Proof.
   eapply (@downEqVal RB _ Γ M N T u a (lub a af) h' huc); [ exact LEac | exact VHuc ].
 Qed.
 
-(* codomain_type_ValTy: adequacy for the codomain *type* [B[N..]] — it is a
-   valid type ([ValTy], i.e. [Val … tuniv]) at any of its semantic evaluations
-   [c].  This is the [ValTy]-at-join input threaded into [st_app]'s
-   [Val_app_transport] / [EqVal_app_transport] (with [c := lub a (app f u_sel)],
-   the join of the two codomain evals, itself an evaluation by
-   [EvalRel_compatible_lub]).  It is exactly adequacy applied to the codomain
-   type [B[N..] : tuniv]; the App rule's IHs cover only the application's
-   subterms [M] and [N], not the codomain type [B], so it is not threaded and
-   is ADMITTED here.  (Sound: a special case of the very fundamental theorem
-   being proved, instantiated at the codomain type.) *)
-Lemma codomain_type_ValTy {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (N : Tm n)
-  ρ {m} (Δ : Ctx m) (σ : Sub n m) c (hUc : wt c tuniv) :
-  typing Γ A Core.tuniv -> typing (Γ ++ A) B Core.tuniv -> typing Γ N A ->
-  fits Γ ρ -> typing_subst Δ σ Γ -> ctx Δ ->
-  EvalRel (B[N..]) ρ c ->
-  forall RB, Val RB Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc.
-Admitted.
 
 (* subst1_subst_comm: a pure autosubst fact (single substitution commutes
    with [σ]).  [asimpl] cannot discharge it here because this development's
@@ -483,28 +466,82 @@ Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : Sub n m) :
   B[N .: σ] = B[⇑ σ][N .: var].
 Admitted.
 
-(* dom_transport: the domain-type [Sup] transport (Agda [transportVal2']).
-   The argument [N], known to be in the relation at the domain value [u'] (type
-   code [b]), is in the relation at every smaller value [u''] AND every domain
-   type code [a] (any [EvalRel A ρ a]).  Relating the distinct domain type
-   codes [b]/[a] needs the [ValTy_Sup] family (Aborted); ADMITTED.  This is
-   exactly the [hyp0] premise of [ValSub_cons]. *)
-Lemma dom_transport {g} (A : Tm g) ρ {m} (Δ : Ctx m) (σ : Sub g m)
+(* dom_transport: the domain-type transport (Agda [transportVal2']).  The
+   argument [N], in the relation at the domain value [u'] (type code [b]), is in
+   the relation at every smaller value [u''] AND every domain type code [a]
+   (any [EvalRel A ρ a]).  PROVEN: the two domain codes [a], [b] are compatible
+   (both evaluate the domain [A]), so route through their join [lub a b]; the
+   join [ValTy] comes from the domain IH [STA] (domain-type adequacy at the
+   join code, itself an evaluation of [A]); then [Val_app_transport] moves
+   [(u',b) -> (u'',a)] at a high fuel and [Val_fuel_down_to] drops back to the
+   target [RB].  This is exactly the [hyp0] premise of [ValSub_cons]. *)
+Lemma dom_transport {g} (Γ : Ctx g) (A : Tm g) ρ {m} (Δ : Ctx m) (σ : Sub g m)
+  (STA : semantic_typing Γ A Core.tuniv)
+  (Fρ : fits Γ ρ) (TS : typing_subst Δ σ Γ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
   (N : Tm m) b u' (WTu' : wt u' b) (evAdom : EvalRel A ρ b)
   (VN : forall RB, max (rk u') (rk b) < RB -> Val RB Δ N A[σ] WTu') :
   forall u'', valid u'' -> le u'' u' -> forall a (hh : wt u'' a),
     EvalRel A ρ a -> forall RB, max (rk u'') (rk a) < RB -> Val RB Δ N A[σ] hh.
-Admitted.
+Proof.
+  move=> u'' Vu'' LEu a hh evAa RB Hrank.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have Cab : compatible a b := EvalRel_compatible Vρ evAa evAdom.
+  have ELub : EvalRel A ρ (lub a b) := proj2 (EvalRel_compatible_lub Vρ evAa evAdom) _ erefl.
+  have Wb : wt b tuniv := wt_ty_tuniv WTu'.
+  have Wa : wt a tuniv := wt_ty_tuniv hh.
+  have hUc : wt (lub a b) tuniv := wt_lub Wa Cab Wb.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  pose RBh := S (max RB (max (max (rk u') (rk b)) (max (rk (lub a b)) (rk tuniv)))).
+  have HhVN  : max (rk u') (rk b) < RBh by (unfold RBh; lia).
+  have HhLub : max (rk (lub a b)) (rk tuniv) < RBh by (unfold RBh; lia).
+  have HleR  : RB <= RBh by (unfold RBh; lia).
+  have [valLub _] :=
+    STA ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ
+        (lub a b) tuniv hUc ELub evU.
+  have VTc : Val RBh Δ A[σ] Core.tuniv hUc := valLub RBh HhLub.
+  have Vtr : Val RBh Δ N A[σ] hh.
+  { eapply (@Val_app_transport _ Δ N A[σ] u'' u' a b WTu' hh hUc);
+      [ exact Cab | exact LEu | exact VTc | exact (VN RBh HhVN) ]. }
+  eapply (@Val_fuel_down_to _ Δ N A[σ] u'' a hh RBh RB);
+    [ exact HleR | lia | lia | exact Vtr ].
+Qed.
 
 (* dom_transport_eq: the [EqVal] analog of [dom_transport] (Agda's
-   [transportEqVal2']).  Same domain-[Sup] gap; matches the [hyp0] premise of
-   [EqValSub_cons].  ADMITTED. *)
-Lemma dom_transport_eq {g} (A : Tm g) ρ {m} (Δ : Ctx m) (σ : Sub g m)
+   [transportEqVal2']).  PROVEN by the same route — route the two compatible
+   domain codes [a]/[b] through their join [lub a b] with the join [ValTy] from
+   the domain IH [STA], move [EqVal] via [EqVal_app_transport] at a high fuel,
+   then [EqVal_fuel_down_to] back.  Matches the [hyp0] premise of
+   [EqValSub_cons]. *)
+Lemma dom_transport_eq {g} (Γ : Ctx g) (A : Tm g) ρ {m} (Δ : Ctx m) (σ : Sub g m)
+  (STA : semantic_typing Γ A Core.tuniv)
+  (Fρ : fits Γ ρ) (TS : typing_subst Δ σ Γ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
   (N1 N2 : Tm m) b u' (WTu' : wt u' b) (evAdom : EvalRel A ρ b)
   (EV : forall RB, max (rk u') (rk b) < RB -> EqVal RB Δ N1 N2 A[σ] WTu') :
   forall u'', valid u'' -> le u'' u' -> forall a (hh : wt u'' a),
     EvalRel A ρ a -> forall RB, max (rk u'') (rk a) < RB -> EqVal RB Δ N1 N2 A[σ] hh.
-Admitted.
+Proof.
+  move=> u'' Vu'' LEu a hh evAa RB Hrank.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have Cab : compatible a b := EvalRel_compatible Vρ evAa evAdom.
+  have ELub : EvalRel A ρ (lub a b) := proj2 (EvalRel_compatible_lub Vρ evAa evAdom) _ erefl.
+  have Wb : wt b tuniv := wt_ty_tuniv WTu'.
+  have Wa : wt a tuniv := wt_ty_tuniv hh.
+  have hUc : wt (lub a b) tuniv := wt_lub Wa Cab Wb.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  pose RBh := S (max RB (max (max (rk u') (rk b)) (max (rk (lub a b)) (rk tuniv)))).
+  have HhEV  : max (rk u') (rk b) < RBh by (unfold RBh; lia).
+  have HhLub : max (rk (lub a b)) (rk tuniv) < RBh by (unfold RBh; lia).
+  have HleR  : RB <= RBh by (unfold RBh; lia).
+  have [valLub _] :=
+    STA ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ
+        (lub a b) tuniv hUc ELub evU.
+  have VTc : Val RBh Δ A[σ] Core.tuniv hUc := valLub RBh HhLub.
+  have Etr : EqVal RBh Δ N1 N2 A[σ] hh.
+  { eapply (@EqVal_app_transport _ Δ N1 N2 A[σ] u'' u' a b WTu' hh hUc);
+      [ exact Cab | exact LEu | exact VTc | exact (EV RBh HhEV) ]. }
+  eapply (@EqVal_fuel_down_to _ Δ N1 N2 A[σ] u'' a hh RBh RB);
+    [ exact HleR | lia | lia | exact Etr ].
+Qed.
 
 (* conv_typing: regularity of conversion — both sides of a conversion are
    well-typed at the common type.  A standard syntactic metatheory fact (by
@@ -532,6 +569,63 @@ Lemma cod_subst_conv {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
     ctx Δ -> typing_subst Δ σ Γ -> typing_subst Δ σ' Γ -> ConvSub Δ Γ σ σ' ->
     conv (Δ ++ A[σ]) B[⇑ σ] B[⇑ σ'] Core.tuniv.
 Admitted.
+
+(* codomain_type_ValTy: adequacy for the codomain *type* [B[N..]] — it is a
+   valid type ([ValTy], i.e. [Val … tuniv]) at any of its semantic evaluations
+   [c].  This is the [ValTy]-at-join input threaded into [st_app]'s
+   [Val_app_transport] / [EqVal_app_transport] (with [c := lub a (app f u_sel)],
+   the join of the two codomain evals, itself an evaluation by
+   [EvalRel_compatible_lub]).  PROVEN from the App rule's own premise IHs
+   [STB]/[STN]: split [N]'s value off the codomain evaluation
+   ([EvalRel_subst1_forward]), type it by soundness ([typing_EvalRel]), extend
+   the substitution at that value ([STN] + [dom_transport] + [ValSub_cons]),
+   and apply the codomain IH [STB] at the extended substitution
+   [(N[σ] .: σ)] — whose action on [B] is [B[N..][σ]] by [subst_cons_eq]. *)
+Lemma codomain_type_ValTy {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (N : Tm n)
+  (TA : typing Γ A Core.tuniv) (TN : typing Γ N A)
+  (STA : semantic_typing Γ A Core.tuniv)
+  (STB : semantic_typing (Γ ++ A) B Core.tuniv)
+  (STN : semantic_typing Γ N A)
+  ρ {m} (Δ : Ctx m) (σ : Sub n m) c (hUc : wt c tuniv)
+  (Fρ : fits Γ ρ) (TS : typing_subst Δ σ Γ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
+  (EC : EvalRel (B[N..]) ρ c) :
+  forall RB, max (rk c) (rk tuniv) < RB -> Val RB Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc.
+Proof.
+  move=> RB HrC.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have [vN [evN evBvN]] := EvalRel_subst1_forward Vρ EC.
+  have VvN : valid vN := EvalRel_valid evN.
+  (* type [N]'s value via soundness *)
+  have IT : InvTyped Γ N A ρ. { apply typing_EvalRel. exact TN. exact Fρ. }
+  have [vbig [abig [WTbig [LEvN [evNbig evAbig]]]]] := IT vN evN.
+  have Vvbig : valid vbig := wt_valid_tm WTbig.
+  (* lift the codomain evaluation to the enlarged env value *)
+  have evBvbig : EvalRel B (vbig .: ρ) c.
+  { eapply EvalRel_mono_env;
+      [ exact evBvN | apply valid_cons; [ exact VvN | exact Vρ ]
+      | apply valid_cons; [ exact Vvbig | exact Vρ ]
+      | apply le_env_cons; [ exact LEvN | apply le_env_refl; exact Vρ ] ]. }
+  (* extend the substitution at [N]'s value via the argument IH [STN] *)
+  have TNσ : typing Δ N[σ] A[σ] by (eapply substitution_tm; [ exact TN | exact TS | exact CΔ ]).
+  have [valNbig _] :=
+    STN ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ vbig abig WTbig evNbig evAbig.
+  have HYP0 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N[σ])
+                 (b := abig) (u' := vbig) (WTu' := WTbig) evAbig valNbig.
+  have VS1 : ValSub Δ (Γ ++ A) (N[σ] .: σ) (vbig .: ρ)
+    by (eapply ValSub_cons; [ exact HYP0 | exact VS ]).
+  have TS1 : typing_subst Δ (N[σ] .: σ) (Γ ++ A)
+    by (eapply typing_subst_cons; [ exact TNσ | exact TS ]).
+  have Fits : fits (Γ ++ A) (vbig .: ρ)
+    by (eapply fits_cons; [ exact TA | exact evAbig | eapply wt_ty_tuniv; exact WTbig | exact WTbig | exact Fρ ]).
+  have evU' : EvalRel Core.tuniv (vbig .: ρ) tuniv by (cbn; apply le_refl).
+  (* apply the codomain IH at the extended substitution *)
+  have [valB _] :=
+    STB (vbig .: ρ) m Δ (N[σ] .: σ) (N[σ] .: σ) TS1 TS1 (ConvSub_refl TS1)
+        Fits VS1 VS1 (ValSub_EqValSub VS1) CΔ c tuniv hUc evBvbig evU'.
+  move: (valB RB HrC) => HvB.
+  rewrite (subst_cons_eq B (N[σ]) σ) in HvB.
+  exact HvB.
+Qed.
 
 
 (* EvalRel_Pi_app_type: from EvalRel of a (Core.tpi A B) at semantic
@@ -720,9 +814,15 @@ Proof.
       (* [ValTy] at the join: codomain-type adequacy (the threaded input) *)
       have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
       have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+      have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+      { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+        have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+        have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+        unfold RBf; lia. }
       have VTc : Val RBf Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc
         by (eapply codomain_type_ValTy;
-              [ exact TA | exact TB | exact TN | exact Fρ | exact TS | exact CΔ | exact ELub ]).
+              [ exact TA | exact TN | exact STA | exact STB | exact STN | exact Fρ | exact TS
+              | exact VS | exact CΔ | exact ELub | exact HrC ]).
       (* the result element [u] is below the selection value [v_sel] *)
       have LEu_vsel : le u v_sel.
       { rewrite le_fun_cons in LEfun.
@@ -810,9 +910,15 @@ Proof.
         by (exact (proj2 (EvalRel_compatible_lub Vρ evBN evB_af) _ erefl)).
       have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
       have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+      have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+      { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+        have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+        have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+        unfold RBf; lia. }
       have VTc : Val RBf Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc
         by (eapply codomain_type_ValTy;
-              [ exact TA | exact TB | exact TN | exact Fρ | exact TS | exact CΔ | exact ELub ]).
+              [ exact TA | exact TN | exact STA | exact STB | exact STN | exact Fρ | exact TS
+              | exact VS | exact CΔ | exact ELub | exact HrC ]).
       have LEu_vsel : le u v_sel.
       { rewrite le_fun_cons in LEfun.
         have LEua := proj1 (andb_prop _ _ LEfun).
@@ -905,6 +1011,7 @@ Proof. Admitted.
    PiEdgeEq: convertible arguments give equal codomain types. *)
 Lemma tpi_PiEdgeVal (A : Tm n) (B : Tm (S n))
   (TA : typing Γ A Core.tuniv) (TB : typing (Γ ++ A) B Core.tuniv)
+  (STA : semantic_typing Γ A Core.tuniv)
   (STB : semantic_typing (Γ ++ A) B Core.tuniv)
   ρ m (Δ : Ctx m) (σ : Sub n m)
   (TS : typing_subst Δ σ Γ) (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
@@ -946,7 +1053,7 @@ Proof.
   (* the [hyp0] premise of [ValSub_cons], via the domain-[Sup] transport *)
   have HYP0 : forall u0, valid u0 -> le u0 u -> forall a0 (h0 : wt u0 a0),
       EvalRel A ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 -> Val RB0 Δ N A[σ] h0.
-  { exact (dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := N)
+  { exact (dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N)
              (b := b) (u' := u) (WTu' := WT0) evAdom VNall). }
   have VScons : ValSub Δ (Γ ++ A) (N .: σ) (u .: ρ).
   { eapply ValSub_cons; [ exact HYP0 | exact VS ]. }
@@ -982,6 +1089,7 @@ Qed.
 
 Lemma tpi_PiEdgeEq (A : Tm n) (B : Tm (S n))
   (TA : typing Γ A Core.tuniv) (TB : typing (Γ ++ A) B Core.tuniv)
+  (STA : semantic_typing Γ A Core.tuniv)
   (STB : semantic_typing (Γ ++ A) B Core.tuniv)
   ρ m (Δ : Ctx m) (σ : Sub n m)
   (TS : typing_subst Δ σ Γ) (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
@@ -1026,15 +1134,15 @@ Proof.
   (* the three [hyp0] premises (two [ValSub_cons], one [EqValSub_cons]) *)
   have HYP1 : forall u0, valid u0 -> le u0 u -> forall a0 (h0 : wt u0 a0),
       EvalRel A ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 -> Val RB0 Δ N1 A[σ] h0.
-  { exact (dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := N1)
+  { exact (dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N1)
              (b := b) (u' := u) (WTu' := WT0) evAdom VN1all). }
   have HYP2 : forall u0, valid u0 -> le u0 u -> forall a0 (h0 : wt u0 a0),
       EvalRel A ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 -> Val RB0 Δ N2 A[σ] h0.
-  { exact (dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := N2)
+  { exact (dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N2)
              (b := b) (u' := u) (WTu' := WT0) evAdom VN2all). }
   have HYPE : forall u0, valid u0 -> le u0 u -> forall a0 (h0 : wt u0 a0),
       EvalRel A ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 -> EqVal RB0 Δ N1 N2 A[σ] h0.
-  { exact (dom_transport_eq (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := N1) (N2 := N2)
+  { exact (dom_transport_eq (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := N1) (N2 := N2)
              (b := b) (u' := u) (WTu' := WT0) evAdom EVall). }
   have VS1 : ValSub Δ (Γ ++ A) (N1 .: σ) (u .: ρ)
     by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
@@ -1084,6 +1192,7 @@ Qed.
    [Val_ty_conv] along [subst_conv_cross]. *)
 Lemma tpi_PiEdgeEqTy (A : Tm n) (B : Tm (S n))
   (TA : typing Γ A Core.tuniv) (TB : typing (Γ ++ A) B Core.tuniv)
+  (STA : semantic_typing Γ A Core.tuniv)
   (STB : semantic_typing (Γ ++ A) B Core.tuniv)
   ρ m (Δ : Ctx m) (σ σ' : Sub n m)
   (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
@@ -1118,11 +1227,11 @@ Proof.
   { move=> RB0 Hr0. eapply Val_ty_conv; [ exact convAA' | exact (VPall RB0 Hr0) ]. }
   have EVall : forall RB0, max (rk u) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu.
   { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
-  have HYP1 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
+  have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
                  (b := b) (u' := u) (WTu' := WTu) evAdom VPall.
-  have HYP2 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ') (N := P)
+  have HYP2 := dom_transport (A := A) STA Fρ TS' VS' CΔ (ρ := ρ) (Δ := Δ) (σ := σ') (N := P)
                  (b := b) (u' := u) (WTu' := WTu) evAdom VPall'.
-  have HYPE := dom_transport_eq (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := P) (N2 := P)
+  have HYPE := dom_transport_eq (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := P) (N2 := P)
                  (b := b) (u' := u) (WTu' := WTu) evAdom EVall.
   have VS1 : ValSub Δ (Γ ++ A) (P .: σ) (u .: ρ)
     by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
@@ -1347,7 +1456,7 @@ Proof.
         have RKapp : rk (app f_ty u0) <= rk_fun f_ty := rk_app f_ty u0.
         have VPall : forall RB0, max (rk u0) (rk b) < RB0 -> Val RB0 Δ P A[σ] WTu0.
         { move=> RB0 Hr0. eapply (Val_fuel_any (k := RB)); [ cbn in Hrank; lia | cbn in Hrank; lia | lia | lia | exact VP ]. }
-        have HYP1 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
+        have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
                        (b := b) (u' := u0) (WTu' := WTu0) ERA_b VPall.
         have VS1 : ValSub Δ (Γ ++ A) (P .: σ) (u0 .: ρ)
           by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
@@ -1379,11 +1488,11 @@ Proof.
         { move=> RB0 Hr0. eapply (Val_fuel_any (k := RB)); [ cbn in Hrank; lia | cbn in Hrank; lia | lia | lia | exact VN2 ]. }
         have EVall : forall RB0, max (rk u0) (rk b) < RB0 -> EqVal RB0 Δ N1 N2 A[σ] WTu0.
         { move=> RB0 Hr0. eapply (EqVal_fuel_any (k := RB)); [ cbn in Hrank; lia | cbn in Hrank; lia | lia | lia | exact EV ]. }
-        have HYP1 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := N1)
+        have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N1)
                        (b := b) (u' := u0) (WTu' := WTu0) ERA_b VN1all.
-        have HYP2 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := N2)
+        have HYP2 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N2)
                        (b := b) (u' := u0) (WTu' := WTu0) ERA_b VN2all.
-        have HYPE := dom_transport_eq (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := N1) (N2 := N2)
+        have HYPE := dom_transport_eq (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := N1) (N2 := N2)
                        (b := b) (u' := u0) (WTu' := WTu0) ERA_b EVall.
         have VS1 : ValSub Δ (Γ ++ A) (N1 .: σ) (u0 .: ρ)
           by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
@@ -1488,11 +1597,11 @@ Proof.
     { move=> RB0 Hr0. eapply Val_ty_conv; [ exact convAA' | exact (VPall RB0 Hr0) ]. }
     have EVall : forall RB0, max (rk u0) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu0.
     { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
-    have HYP1 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
+    have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
                    (b := b) (u' := u0) (WTu' := WTu0) ERA_b VPall.
-    have HYP2 := dom_transport (A := A) (ρ := ρ) (Δ := Δ) (σ := σ') (N := P)
+    have HYP2 := dom_transport (A := A) STA Fρ TS' VS' CΔ (ρ := ρ) (Δ := Δ) (σ := σ') (N := P)
                    (b := b) (u' := u0) (WTu' := WTu0) ERA_b VPall'.
-    have HYPE := dom_transport_eq (A := A) (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := P) (N2 := P)
+    have HYPE := dom_transport_eq (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N1 := P) (N2 := P)
                    (b := b) (u' := u0) (WTu' := WTu0) ERA_b EVall.
     have VS1 : ValSub Δ (Γ ++ A) (P .: σ) (u0 .: ρ)
       by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
