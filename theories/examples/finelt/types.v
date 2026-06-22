@@ -140,6 +140,10 @@ Proof.
 Defined.
 
 
+Lemma wt_tpi_keys a g :
+  wt (tpi a g) tuniv -> forall ui vi, In (ui, vi) g -> wt ui a.
+Proof. move=> h. inversion h. eauto. Defined.
+
 Lemma wt_tpi_dom a g :
   wt (tpi a g) tuniv  -> wt a tuniv.
 Proof.

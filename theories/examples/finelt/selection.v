@@ -167,6 +167,30 @@ Proof.
                  (fun ui vi Hin => wt_abs_inv2 h Hin erefl) VF S)).
 Qed.
 
+(* wt_Selection_codU: the value-join of a selection of the *type* graph [f]
+   (whose values are codomains in the universe) is itself typed at [tuniv].
+   This is the result witness for the Selection-indexed *type* edges
+   [PiEdgeVal]/[PiEdgeEq]/[PiEdgeEqTy] (Agda's RValTyPi edges). *)
+Lemma wt_Selection_codU (f : list (elt * elt)) b u v :
+  wt (tpi b f) tuniv -> Selection f u v -> wt v tuniv.
+Proof.
+  move=> HT S.
+  have Vals : forall ui vi, In (ui, vi) f -> wt vi tuniv
+    by (inversion HT; subst; assumption).
+  have Vf : valid_fun f by (move: (wt_valid_tm HT); cbn => /andP [_ ?]; done).
+  clear HT.
+  move: Vals Vf. induction S as [| p f' u v S IH | pu0 pv0 f' u' v' Ck Cv S IH ];
+    move=> Vals Vf.
+  - apply wt_bot, wt_tuniv.
+  - destruct p as [pu0 pv0]. apply IH;
+      [ by move=> ui vi Hin; apply (Vals ui vi); right | exact (valid_fun_tail Vf) ].
+  - have Wpv0 : wt pv0 tuniv by apply (Vals pu0 pv0); left.
+    have Wv' : wt v' tuniv
+      by (apply IH; [ by move=> ui vi Hin; apply (Vals ui vi); right
+                    | exact (valid_fun_tail Vf) ]).
+    apply (wt_lub Wpv0); [ exact Cv | exact Wv' ].
+Qed.
+
 (* ------------------------------------------------------------
    selectionBelow: for any argument [x], the edges of [f] with key
    below [x] form a selection whose key-join is [<= x] and whose
