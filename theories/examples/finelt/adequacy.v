@@ -703,9 +703,10 @@ Lemma codomain_type_ValTy {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (N : Tm n)
   (TA : typing Γ A Core.tuniv) (TN : typing Γ N A)
   (STA : semantic_typing Γ A Core.tuniv)
   (STB : semantic_typing (Γ ++ A) B Core.tuniv)
-  (STN : semantic_typing Γ N A)
   ρ {m} (Δ : Ctx m) (σ : Sub n m) c (hUc : wt c tuniv)
   (Fρ : fits Γ ρ) (TS : typing_subst Δ σ Γ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
+  (VNarg : forall v c0 (h : wt v c0), EvalRel N ρ v -> EvalRel A ρ c0 ->
+            forall RB, max (rk v) (rk c0) < RB -> Val RB Δ N[σ] A[σ] h)
   (EC : EvalRel (B[N..]) ρ c) :
   forall RB, max (rk c) (rk tuniv) < RB -> Val RB Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc.
 Proof.
@@ -725,8 +726,8 @@ Proof.
       | apply le_env_cons; [ exact LEvN | apply le_env_refl; exact Vρ ] ]. }
   (* extend the substitution at [N]'s value via the argument IH [STN] *)
   have TNσ : typing Δ N[σ] A[σ] by (eapply substitution_tm; [ exact TN | exact TS | exact CΔ ]).
-  have [valNbig _] :=
-    STN ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ vbig abig WTbig evNbig evAbig.
+  have valNbig : forall RB, max (rk vbig) (rk abig) < RB -> Val RB Δ N[σ] A[σ] WTbig
+    by (move=> RB0 Hr0; exact (VNarg vbig abig WTbig evNbig evAbig RB0 Hr0)).
   have HYP0 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := N[σ])
                  (b := abig) (u' := vbig) (WTu' := WTbig) evAbig valNbig.
   have VS1 : ValSub Δ (Γ ++ A) (N[σ] .: σ) (vbig .: ρ)
@@ -937,10 +938,14 @@ Proof.
         have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
         have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
         unfold RBf; lia. }
+      have VNarg : forall v c0 (h : wt v c0), EvalRel N ρ v -> EvalRel A ρ c0 ->
+          forall RB0, max (rk v) (rk c0) < RB0 -> Val RB0 Δ N[σ] A[σ] h
+        by (move=> v c0 h ev ea;
+            exact (proj1 (STN ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ v c0 h ev ea))).
       have VTc : Val RBf Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc
         by (eapply codomain_type_ValTy;
-              [ exact TA | exact TN | exact STA | exact STB | exact STN | exact Fρ | exact TS
-              | exact VS | exact CΔ | exact ELub | exact HrC ]).
+              [ exact TA | exact TN | exact STA | exact STB | exact Fρ | exact TS
+              | exact VS | exact CΔ | exact VNarg | exact ELub | exact HrC ]).
       (* the result element [u] is below the selection value [v_sel] *)
       have LEu_vsel : le u v_sel.
       { rewrite le_fun_cons in LEfun.
@@ -1033,10 +1038,14 @@ Proof.
         have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
         have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
         unfold RBf; lia. }
+      have VNarg : forall v c0 (h : wt v c0), EvalRel N ρ v -> EvalRel A ρ c0 ->
+          forall RB0, max (rk v) (rk c0) < RB0 -> Val RB0 Δ N[σ] A[σ] h
+        by (move=> v c0 h ev ea;
+            exact (proj1 (STN ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS (ValSub_EqValSub VS) CΔ v c0 h ev ea))).
       have VTc : Val RBf Δ (B[⇑ σ][N[σ] .: var]) Core.tuniv hUc
         by (eapply codomain_type_ValTy;
-              [ exact TA | exact TN | exact STA | exact STB | exact STN | exact Fρ | exact TS
-              | exact VS | exact CΔ | exact ELub | exact HrC ]).
+              [ exact TA | exact TN | exact STA | exact STB | exact Fρ | exact TS
+              | exact VS | exact CΔ | exact VNarg | exact ELub | exact HrC ]).
       have LEu_vsel : le u v_sel.
       { rewrite le_fun_cons in LEfun.
         have LEua := proj1 (andb_prop _ _ LEfun).
@@ -1887,8 +1896,86 @@ Lemma sc_app1 A B N N' M :
 (* ------------------------- *)
   semantic_conv2 Γ (Core.app N M) (Core.app N' M) B[M..].
 Proof.
-  (* TODO: rework for current Rec signatures / WF Val-EqVal. *)
-Admitted.
+  move=> TA TB CNN' TM STA STB SCnn STM.
+  move=> ρ m Δ σ TS FR VS CD u a WT Eapp EBM.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  move=> RB Hrank.
+  destruct (is_bot u) eqn:Hu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply EqVal_Bot. }
+  (* [app N M] evaluates: [N]'s value is a singleton [w ↦ u], arg [M]'s value [w] *)
+  cbn in Eapp. rewrite Hu in Eapp. move: Eapp => [w [evN_sing evMw]].
+  have [TN _] := conv_typing CNN'.
+  have IT : InvTyped Γ N (Core.tpi A B) ρ by (apply typing_EvalRel; [ exact TN | exact FR ]).
+  have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
+  unfold singleton in LEbig. rewrite Hu in LEbig.
+  have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
+  destruct abig as [ | | | | | b f | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
+  have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
+  have Vw : valid w := EvalRel_valid evMw.
+  have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vw.
+  have [WTu_sel WTv_sel] : wt u_sel b /\ wt v_sel (app f u_sel).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty WTbig) | exact (wt_abs_inv1 WTbig)
+      | move=> ui vi Hin; exact (wt_abs_inv2 WTbig Hin erefl) | exact Vg | exact Sel ]. }
+  have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+  have evM_usel : EvalRel M ρ u_sel
+    by (eapply EvalRel_down; [ exact Vρ | exact Vusel | exact evMw | exact Le_usel ]).
+  pose RBf := S (max (max (rk (abs g)) (rk (tpi b f))) (max (rk u) (rk a))).
+  have RKusel : rk u_sel <= rk_fun g := rk_Selection_key Sel.
+  have RKb : rk b < rk (tpi b f) by (cbn; lia).
+  have RKfg : rk_fun g < rk (abs g) by (cbn; lia).
+  have HfM : max (rk (abs g)) (rk (tpi b f)) < S RBf by (unfold RBf; lia).
+  have HfN : max (rk u_sel) (rk b) < RBf by (unfold RBf; lia).
+  have [valM _] :=
+    STM ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS) CD
+        u_sel b WTu_sel evM_usel evA_b.
+  have eqvalNbig := SCnn ρ m Δ σ TS FR VS CD (abs g) (tpi b f) WTbig evMbig evTpi.
+  have TMσ : typing Δ M[σ] A[σ] by (eapply substitution_tm; [ exact TM | exact TS | exact CD ]).
+  (* expose the function's [EqValPi] (function variation) *)
+  have EM := eqvalNbig (S RBf) HfM. rewrite EqVal_abs in EM.
+  move: EM => [_ [_ [_ EPi]]]. move: EPi => [A0 [B0 [HRpi paev]]].
+  asimpl in HRpi. have [EA0 EB0] := HeadRed_tpi_eq HRpi. subst A0 B0.
+  have Efun := paev u_sel v_sel Sel WTu_sel M[σ] TMσ (valM RBf HfN).
+  have VNarg : forall v c0 (h : wt v c0), EvalRel M ρ v -> EvalRel A ρ c0 ->
+      forall RB0, max (rk v) (rk c0) < RB0 -> Val RB0 Δ M[σ] A[σ] h
+    by (move=> v c0 h ev ea;
+        exact (proj1 (STM ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS) CD v c0 h ev ea))).
+  (* the edge codomain [app f u_sel] also evaluates [B[M..]] *)
+  have evB_af : EvalRel B[M..] ρ (app f u_sel).
+  { destruct (is_bot (app f u_sel)) eqn:Hbaf.
+    - have -> : app f u_sel = bot by apply is_bot_eq; rewrite Hbaf. apply EvalRel_bot.
+    - have NB : ~ is_bot (app f u_sel) by rewrite Hbaf.
+      eapply EvalRel_Pi_app_type;
+        [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evM_usel ]. }
+  have Caaf : compatible a (app f u_sel)
+    by (eapply EvalRel_app_Comp; [ exact Vρ | exact EBM | exact evB_af ]).
+  have ELub : EvalRel B[M..] ρ (lub a (app f u_sel))
+    by (exact (proj2 (EvalRel_compatible_lub Vρ EBM evB_af) _ erefl)).
+  have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
+  have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+  have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+  { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+    have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+    have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+    unfold RBf; lia. }
+  have VTc : Val RBf Δ (B[⇑ σ][M[σ] .: var]) Core.tuniv hUc
+    by (eapply codomain_type_ValTy;
+          [ exact TA | exact TM | exact STA | exact STB | exact FR | exact TS
+          | exact VS | exact CD | exact VNarg | exact ELub | exact HrC ]).
+  have LEu_vsel : le u v_sel.
+  { rewrite le_fun_cons in LEfun.
+    have LEua := proj1 (andb_prop _ _ LEfun). rewrite Eq_vsel in LEua. exact LEua. }
+  apply (EqVal_fuel_any (k := RBf) (k' := RB));
+    [ unfold RBf; lia | unfold RBf; lia | lia | lia | ].
+  asimpl in Efun.
+  match goal with
+  | |- EqVal _ _ _ _ ?T _ => replace T with (B[⇑ σ][M[σ] .: var])
+  end;
+    [ exact (@EqVal_app_transport _ Δ _ _ _ u v_sel a (app f u_sel)
+               (wt_Selection_abs WTbig Sel) WT hUc Caaf LEu_vsel RBf VTc Efun)
+    | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
+Qed.
 
 (* c_app2: N : (tpi A B), M ≡ M' : A ⟹ app N M ≡ app N M' : B[M..] *)
 Lemma sc_app2 A B N M M' :
@@ -1903,8 +1990,86 @@ Lemma sc_app2 A B N M M' :
 (* ------------------------- *)
   semantic_conv2 Γ (Core.app N M) (Core.app N M') B[M..].
 Proof.
-  (* TODO: rework for current Rec signatures / WF Val-EqVal. *)
-Admitted.
+  move=> TA TB TN CMM' STA STB STN SCmm.
+  have [TM _] := conv_typing CMM'.
+  move=> ρ m Δ σ TS FR VS CD u a WT Eapp EBM.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  move=> RB Hrank.
+  destruct (is_bot u) eqn:Hu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply EqVal_Bot. }
+  cbn in Eapp. rewrite Hu in Eapp. move: Eapp => [w [evN_sing evMw]].
+  have IT : InvTyped Γ N (Core.tpi A B) ρ by (apply typing_EvalRel; [ exact TN | exact FR ]).
+  have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
+  unfold singleton in LEbig. rewrite Hu in LEbig.
+  have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
+  destruct abig as [ | | | | | b f | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
+  have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
+  have Vw : valid w := EvalRel_valid evMw.
+  have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vw.
+  have [WTu_sel WTv_sel] : wt u_sel b /\ wt v_sel (app f u_sel).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty WTbig) | exact (wt_abs_inv1 WTbig)
+      | move=> ui vi Hin; exact (wt_abs_inv2 WTbig Hin erefl) | exact Vg | exact Sel ]. }
+  have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+  have evM_usel : EvalRel M ρ u_sel
+    by (eapply EvalRel_down; [ exact Vρ | exact Vusel | exact evMw | exact Le_usel ]).
+  pose RBf := S (max (max (rk (abs g)) (rk (tpi b f))) (max (rk u) (rk a))).
+  have RKusel : rk u_sel <= rk_fun g := rk_Selection_key Sel.
+  have RKb : rk b < rk (tpi b f) by (cbn; lia).
+  have RKfg : rk_fun g < rk (abs g) by (cbn; lia).
+  have HfM : max (rk (abs g)) (rk (tpi b f)) < S RBf by (unfold RBf; lia).
+  have HfN : max (rk u_sel) (rk b) < RBf by (unfold RBf; lia).
+  have eqvalM := SCmm ρ m Δ σ TS FR VS CD u_sel b WTu_sel evM_usel evA_b.
+  have [valNbig _] :=
+    STN ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS) CD
+        (abs g) (tpi b f) WTbig evMbig evTpi.
+  have convMM' : conv Δ M[σ] M'[σ] A[σ]
+    by (eapply substitution_conv; [ exact CMM' | exact TS | exact CD ]).
+  (* expose the function's [PiAppEq] (argument variation) *)
+  have VN := valNbig (S RBf) HfM. rewrite Val_abs in VN.
+  move: VN => [_ VPi]. move: VPi => [A0 [B0 [HRpi [_ pae]]]].
+  asimpl in HRpi. have [EA0 EB0] := HeadRed_tpi_eq HRpi. subst A0 B0.
+  have Earg := pae u_sel v_sel Sel WTu_sel M[σ] M'[σ] convMM' (eqvalM RBf HfN).
+  have VNarg : forall v c0 (h : wt v c0), EvalRel M ρ v -> EvalRel A ρ c0 ->
+      forall RB0, max (rk v) (rk c0) < RB0 -> Val RB0 Δ M[σ] A[σ] h
+    by (move=> v c0 h ev ea RB0 Hr0;
+        eapply EqVal_Val1; exact (SCmm ρ m Δ σ TS FR VS CD v c0 h ev ea RB0 Hr0)).
+  (* the edge codomain [app f u_sel] also evaluates [B[M..]] *)
+  have evB_af : EvalRel B[M..] ρ (app f u_sel).
+  { destruct (is_bot (app f u_sel)) eqn:Hbaf.
+    - have -> : app f u_sel = bot by apply is_bot_eq; rewrite Hbaf. apply EvalRel_bot.
+    - have NB : ~ is_bot (app f u_sel) by rewrite Hbaf.
+      eapply EvalRel_Pi_app_type;
+        [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evM_usel ]. }
+  have Caaf : compatible a (app f u_sel)
+    by (eapply EvalRel_app_Comp; [ exact Vρ | exact EBM | exact evB_af ]).
+  have ELub : EvalRel B[M..] ρ (lub a (app f u_sel))
+    by (exact (proj2 (EvalRel_compatible_lub Vρ EBM evB_af) _ erefl)).
+  have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
+  have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+  have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+  { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+    have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+    have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+    unfold RBf; lia. }
+  have VTc : Val RBf Δ (B[⇑ σ][M[σ] .: var]) Core.tuniv hUc
+    by (eapply codomain_type_ValTy;
+          [ exact TA | exact TM | exact STA | exact STB | exact FR | exact TS
+          | exact VS | exact CD | exact VNarg | exact ELub | exact HrC ]).
+  have LEu_vsel : le u v_sel.
+  { rewrite le_fun_cons in LEfun.
+    have LEua := proj1 (andb_prop _ _ LEfun). rewrite Eq_vsel in LEua. exact LEua. }
+  apply (EqVal_fuel_any (k := RBf) (k' := RB));
+    [ unfold RBf; lia | unfold RBf; lia | lia | lia | ].
+  asimpl in Earg.
+  match goal with
+  | |- EqVal _ _ _ _ ?T _ => replace T with (B[⇑ σ][M[σ] .: var])
+  end;
+    [ exact (@EqVal_app_transport _ Δ _ _ _ u v_sel a (app f u_sel)
+               (wt_Selection_abs WTbig Sel) WT hUc Caaf LEu_vsel RBf VTc Earg)
+    | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
+Qed.
 
 (* c_beta: A, B, body N, arg M ⟹ app (abs A N) M ≡ N[M..] : B[M..] *)
 Lemma sc_beta A B M N :
@@ -1988,8 +2153,8 @@ Proof.
   move: LEuv. rewrite le_succ. move=> Lwv.
   have Vw : valid w by (eapply wt_valid_tm; eapply wt_succ_inv; exact WT).
   have EMw : EvalRel M ρ w by (eapply EvalRel_down; [ exact Vρ | exact Vw | exact EMv | exact Lwv ]).
-  rewrite EqVal_succ.
-  exists M[σ]. split; [ apply ms_refl | ]. exists N[σ]. split; [ apply ms_refl | ].
+  refine (ex_intro _ M[σ] (conj _ (ex_intro _ N[σ] (conj _ _))));
+    [ apply ms_refl | apply ms_refl | ].
   (* inner [EqVal M[σ] N[σ] : tnat] at the predecessor value [w] *)
   destruct (is_bot w) eqn:Bw.
   { have Ew : w = bot by (apply is_bot_eq; rewrite Bw).
@@ -2087,7 +2252,7 @@ Proof.
     + eapply sc_refl; eauto. 
     + eapply sc_sym; eauto.
     + eapply sc_trans; eauto.
-    + eapply sc_app1; eauto. 
+    + eapply sc_app1; eauto.
     + eapply sc_app2; eauto.
     + eapply sc_beta; eauto.
     + eapply sc_eta; eauto.
