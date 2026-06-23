@@ -32,6 +32,23 @@ Open Scope subst_scope.
 Import SubstNotations.
 Import SyntaxNotations.
 
+(* subst1_subst_comm: a pure autosubst fact (single substitution commutes
+   with [σ]).  [asimpl] cannot discharge it here because this development's
+   [..] uses the raw [var] constructor rather than the typeclass [ids], so
+   the [asimpl] rewrite system does not fire (the same gap that leaves
+   [syntax.typing.substitution_tm] admitted).  ADMITTED. *)
+Lemma subst1_subst_comm {n m} (B : Tm (S n)) (N : Tm n) (σ : Sub n m) :
+  B[N .: var][σ] = B[⇑ σ][N[σ] .: var].
+Admitted.
+
+(* subst_cons_eq: extending a substitution by a closed term commutes with the
+   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  Same autosubst var≠ids
+   gap as [subst1_subst_comm].  ADMITTED. *)
+Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : Sub n m) :
+  B[N .: σ] = B[⇑ σ][N .: var].
+Admitted.
+
+
 
 (* Fundamental theorem for the logical relation
    
@@ -262,7 +279,23 @@ Lemma subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) :
     typing_subst Δ σ' Γ ->
     ConvSub Δ Γ σ σ' ->
     conv Δ M[σ] M[σ'] A[σ].
-Proof. Admitted.
+Proof.
+  induction 1.
+  all: intros.
+  all: cbn.
+  - unfold ConvSub in H3. eauto.
+  - eapply c_conv; eauto.
+    eapply substitution_conv with (A:=Core.tuniv); eauto.
+  - admit. 
+  - eapply c_trans with (N:=(Core.app N[σ'] M[σ])).
+    + rewrite subst1_subst_comm.
+      eapply c_app1; eauto. 
+      all: fold (@subst_Tm n m).
+      eapply substitution_tm with (A:= Core.tuniv); eauto.
+      eapply substitution_tm with (A:= Core.tuniv); eauto.
+      eapply typing_subst_cons; eauto. eapply t_var'.
+      cbn. asimpl. done.
+Admitted.
 
 Lemma ConvSub_sym {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h) :
   ConvSub Δ Γ σ1 σ2 -> ConvSub Δ Γ σ2 σ1.
@@ -450,21 +483,6 @@ Proof.
 Qed.
 
 
-(* subst1_subst_comm: a pure autosubst fact (single substitution commutes
-   with [σ]).  [asimpl] cannot discharge it here because this development's
-   [..] uses the raw [var] constructor rather than the typeclass [ids], so
-   the [asimpl] rewrite system does not fire (the same gap that leaves
-   [syntax.typing.substitution_tm] admitted).  ADMITTED. *)
-Lemma subst1_subst_comm {n m} (B : Tm (S n)) (N : Tm n) (σ : Sub n m) :
-  B[N .: var][σ] = B[⇑ σ][N[σ] .: var].
-Admitted.
-
-(* subst_cons_eq: extending a substitution by a closed term commutes with the
-   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  Same autosubst var≠ids
-   gap as [subst1_subst_comm].  ADMITTED. *)
-Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : Sub n m) :
-  B[N .: σ] = B[⇑ σ][N .: var].
-Admitted.
 
 (* dom_transport: the domain-type transport (Agda [transportVal2']).  The
    argument [N], in the relation at the domain value [u'] (type code [b]), is in
@@ -543,12 +561,6 @@ Proof.
     [ exact HleR | lia | lia | exact Etr ].
 Qed.
 
-(* conv_typing: regularity of conversion — both sides of a conversion are
-   well-typed at the common type.  A standard syntactic metatheory fact (by
-   induction on [conv]); ADMITTED alongside the other syntactic gaps. *)
-Lemma conv_typing {n} (Γ : Ctx n) (M N A : Tm n) :
-  conv Γ M N A -> typing Γ M A /\ typing Γ N A.
-Admitted.
 
 (* Val_ty_conv: the logical relation respects type conversion — a value in the
    relation at [A] is in the relation at any convertible type [A'].  Standard
@@ -980,6 +992,7 @@ Admitted.
 
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
+(*
 Lemma st_nrec (T U : Tm (S n)) M0 M1 :
   typing (Γ ++ Core.tnat) T Core.tuniv ->
   typing Γ M0 (T[Core.zero..]) ->
@@ -990,7 +1003,7 @@ Lemma st_nrec (T U : Tm (S n)) M0 M1 :
   semantic_typing Γ M1 (Core.tpi Core.tnat (Core.tpi T U⟨↑⟩)) ->
 (* ------------------------- *)
   semantic_typing Γ (Core.nrec T M0 M1) (Core.tpi Core.tnat T).
-Proof. Admitted.
+Proof. Admitted. *)
 
 (* t_tpi: A : tuniv i, (Γ ++ A) ⊢ B : tuniv i ⟹ tpi A B : tuniv i *)
 (* The Pi-type edge bundles (Agda Pi.agda / VE.agda: adequacy of [Pi A B : U]).
@@ -1785,6 +1798,7 @@ Lemma sc_eta A B (N N' : Tm n) :
   semantic_conv2 Γ N N' (Core.tpi A B).
 Proof. Admitted.
 
+(*
 (* c_nrec_Z: app (nrec T M0 M1) zero ≡ M0 : T[zero..] *)
 Lemma sc_nrec_Z M0 M1 (T : Tm (S n)) :
   typing (Γ ++ Core.tnat) T Core.tuniv ->
@@ -1810,13 +1824,13 @@ Lemma sc_nrec_S (T : Tm (S n)) M0 M1 (e : Tm n) :
                    (Core.app (Core.app M1 e) (Core.app (Core.nrec T M0 M1) e))
                    T[(Core.succ e)..].
 Proof. Admitted.
+*)
 
-
-Lemma sc_tuniv M N  :
-  conv Γ M N Core.tuniv ->
-  semantic_conv2 Γ M N Core.tuniv ->
+Lemma sc_succ M N  :
+  conv Γ M N Core.tnat ->
+  semantic_conv2 Γ M N Core.tnat ->
 (* ------------------------- *)
-  semantic_conv2 Γ M N Core.tuniv.
+  semantic_conv2 Γ (Core.succ M) (Core.succ N) Core.tnat.
 Proof. Admitted.
 
 (* c_tpi: A0 ≡ A1 : tuniv i, B0 ≡ B1 : tuniv i ⟹ tpi A0 B0 ≡ tpi A1 B1 : tuniv i *)
@@ -1889,7 +1903,6 @@ Proof.
     + eapply st_nat; eauto.
     + eapply st_zero; eauto.
     + eapply st_succ; eauto.
-    + eapply st_nrec; eauto.
     + eapply st_tpi; eauto.
     + eapply st_univ; eauto.
   - move=> h. dependent destruction h.
@@ -1901,9 +1914,7 @@ Proof.
     + eapply sc_app2; eauto.
     + eapply sc_beta; eauto.
     + eapply sc_eta; eauto.
-    + eapply sc_nrec_Z; eauto.
-    + eapply sc_nrec_S; eauto.
-    + eapply sc_tuniv; eauto.
+    + eapply sc_succ; eauto.
     + eapply sc_tpi; eauto.
 Qed.
 

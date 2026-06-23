@@ -1101,10 +1101,11 @@ Proof.
         split; first by rewrite Vv.
         exists v. split; first by eapply le_refl. exact EMv. }
       cbn. done.
+(*
     + (* t_nrec — nrec is a fake case in EvalRel: only produces bot. *)
       move=> u Eu. cbn in Eu.
       destruct (Raw.is_bot u) eqn:HU; first by destruct u; try done; apply Typed_bot.
-      done.
+      done. *)
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1120,9 +1121,9 @@ Proof.
       | ?n ?Γ ?A ?B ?N ?N' ?M hA hB hNN' hM
       | ?n ?Γ ?A ?B ?N ?M ?M' hA hB hN hMM'
       | ?n ?Γ ?A ?B ?M ?N hA hB hM hN
-      | ?n ?Γ ?A ?B ?N ?N' hA hB hN hN' hbody
-      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
-      | ?n ?Γ ?T ?M0 ?M1 ?z hT hM0 hM1
+      | ?n ?Γ ?A ?B ?N ?N' hA hB hN hN' hbody 
+(*      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
+      | ?n ?Γ ?T ?M0 ?M1 ?z hT hM0 hM1 *)
       | ?n ?Γ ?M ?N hMN
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
     all: move=> ρ Fρ.
@@ -1157,6 +1158,7 @@ Proof.
         eapply fits_cons; eauto.
     + (* c_eta: function extensionality at type A⟨↑⟩, see Admitted note. *)
       move: ρ Fρ. eapply InvConv_eta; eauto.
+(*
     + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
          (app ... → M0): EvalRel of app (nrec ...) ρ u forces u = bot, and
          EvalRel _ ρ bot is always trivially True.  Backward direction:
@@ -1166,11 +1168,11 @@ Proof.
       eapply InvConv_nrec_Z; eauto.      
     + (* c_nrec_S: similar — nrec is fake. *)
       move: ρ Fρ.
-      eapply InvConv_nrec_S; eauto.
+      eapply InvConv_nrec_S; eauto. *)
     + (* c_tuniv: identity rule — just recurse. *)
-      exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
+      admit.
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.
       eapply InvConv_tpi; eauto.
-Qed.
+Admitted.
 

@@ -90,12 +90,13 @@ Inductive typing : forall {n} (Γ : Ctx n), Tm n -> Tm n -> Prop :=
   | t_succ n (Γ : Ctx n) M : 
     typing Γ M tnat ->
     typing Γ (succ M) tnat 
+(*
   | t_nrec n (Γ : Ctx n) (T U : Tm (S n)) M0 M1 :
     typing (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
     U = T[rho] ->
     typing Γ M1 (tpi tnat (tpi T U⟨↑⟩ )) ->       
-    typing Γ (nrec T M0 M1) (tpi tnat T)
+    typing Γ (nrec T M0 M1) (tpi tnat T) *)
   (* universes *)
   | t_tpi n (Γ : Ctx n) A B : 
     typing Γ A tuniv ->
@@ -146,6 +147,7 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
       (app N'⟨↑⟩ (var var_zero)) A⟨↑⟩ ->
     conv Γ N N' (tpi A B)
   (* natural numbers: TODO add typing hyps *)
+(*
   | c_nrec_Z n (Γ : Ctx n) M0 M1 (T : Tm (S n)) : 
     typing  (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
@@ -156,10 +158,10 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     typing Γ M0 (T[zero..]) ->
     typing Γ M1 (tpi tnat (tpi T T[rho]⟨↑⟩ )) ->    
     conv Γ (app (nrec T M0 M1) (succ n)) 
-      (app (app M1 n) (app (nrec T M0 M1) n)) T[(succ n)..]
-  | c_tuniv n (Γ : Ctx n) M N : 
-    conv Γ M N tuniv ->
-    conv Γ M N tuniv
+      (app (app M1 n) (app (nrec T M0 M1) n)) T[(succ n)..] *)
+  | c_succ n (Γ : Ctx n) M N : 
+    conv Γ M N tnat ->
+    conv Γ (succ M) (succ N) tnat
   | c_tpi n (Γ : Ctx n) A0 A1 B0 B1 :
     conv Γ A0 A1 tuniv -> 
     conv (Γ ++ A0) B0 B1 tuniv -> 
@@ -232,6 +234,7 @@ Definition c_beta' {n} (Γ : Ctx n) A B M N C D :
     conv Γ (app (abs A N) M) C D.
 Proof. intros; subst; eauto using c_beta. Qed.
 
+(*
 Definition c_nrec_Z' {n} (Γ : Ctx n) M0 M1 (T : Tm (S n)) C :
     typing (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
@@ -248,6 +251,7 @@ Definition c_nrec_S' {n} (Γ : Ctx n) T M0 M1 e C :
     conv Γ (app (nrec T M0 M1) (succ e))
       (app (app M1 e) (app (nrec T M0 M1) e)) C.
 Proof. intros; subst; eauto using c_nrec_S. Qed.
+*)
 
 #[export] Hint Resolve t_var'  t_univ': syntax.
 
@@ -353,7 +357,7 @@ Proof.
       asimpl.
       auto. *)
 
-    + (* nrec *)
+(*    + (* nrec *)
       have EC: ctx (Δ ++ tnat).
       { eapply c_cons; eauto with renaming.
         eapply t_nat; eauto. }
@@ -365,7 +369,7 @@ Proof.
       asimpl.
       f_equal. f_equal.
       unfold rho. asimpl.
-      eapply ext_fin. intros [k|]; asimpl; reflexivity.
+      eapply ext_fin. intros [k|]; asimpl; reflexivity. *)
     + (* tpi *)
       eapply t_tpi; eauto with renaming.
       eapply renaming_typing'; eauto with renaming.
@@ -422,8 +426,9 @@ Proof.
       specialize (renaming_conv' _ _ _ _ _ (S m) _ _ 
                     (⟨↑⟩ (⟨δ⟩ A)) h TR' EC EQ). 
       admit.
+(*
     + (* c_nrec_Z *) admit.
-    + (* c_nrec_S *) admit.
+    + (* c_nrec_S *) admit. *)
     + (* c_tpi *) admit.
 Admitted.
 
@@ -548,6 +553,13 @@ Lemma ctx_conv_conv {n} (Γ:Ctx n) A A' M N B :
   conv (Γ ++ A) M N B -> conv (Γ ++ A') M N B.
 Proof.
   move=> CA CMN.
+Admitted.
+
+(* conv_typing: regularity of conversion — both sides of a conversion are
+   well-typed at the common type.  A standard syntactic metatheory fact (by
+   induction on [conv]); ADMITTED alongside the other syntactic gaps. *)
+Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
+  conv Γ M N A -> typing Γ M A /\ typing Γ N A.
 Admitted.
 
 
