@@ -222,16 +222,22 @@ Lemma InvConv_conv {n} (Γ : Ctx n) (M N A B : Tm n) :
   Γ ⊨ A ≡ B ∈ Core.tuniv -> 
   Γ ⊨ M ≡ N ∈ B.
 Proof.
-Admitted.
-(*
-    move: iM => [v [a [LE [EM [Wv EA]]]]].
+  move=> cMN CAB HMN HAB.
+  unfold InvConv.
+  intros ρ Fρ.
+  specialize (HMN ρ Fρ). unfold InvConv in HMN.
+  move: HMN => [iM [iN [h1 h2]]].
+  specialize (HAB ρ Fρ). unfold InvConv in HAB.
+  move: HAB => [iA [iB [h3 h4]]].
+  unfold InvTyped in *.
+  repeat split; eauto.
+  + intros u EM. specialize (iM u EM). unfold Typed in iM.
+  move: iM => [v [a [WTv [LE [EMv EA]]]]].
     exists v, a. repeat split; eauto.
-  - move=> u Eu. specialize (iN u Eu).
-    move: iN => [v [a [LE [EN [Wv EA]]]]].
+  + intros u EN. specialize (iN u EN). unfold Typed in iN.
+    move: iN => [v [a [WTv [LE [EMv EA]]]]].
     exists v, a. repeat split; eauto.
-  - eauto.
-  - eauto.
-Qed. *)
+Qed. 
 
 (* =====================================================================
    Lam_L1 (LemmaForTS.agda): Lam inversion with typed keys.
@@ -976,6 +982,7 @@ Admitted.
 
      Backward (N → M) is symmetric. *)
 
+(*
 Lemma InvConv_nrec_Z : forall (n : nat) (Γ : Ctx n) (M0 M1 : Tm n) (T : Tm (S n)),
     typing (Γ ++ Core.tnat) T Core.tuniv ->
     typing Γ M0 T[Core.zero..] ->
@@ -996,7 +1003,7 @@ Lemma InvConv_nrec_S : forall (n : nat) (Γ : Ctx n) (T : Tm (S n)) (M0 M1 n0 : 
     Γ ⊨ (Core.app (nrec T M0 M1) (Core.succ n0)) ≡ 
       (Core.app (Core.app M1 n0) (Core.app (nrec T M0 M1) n0)) ∈ T[(Core.succ n0)..].
 Admitted.
-
+*)
 
 Lemma InvConv_tpi : forall (n : nat) (Γ : Ctx n) (A0 A1 : Tm n) (B0 B1 : Tm (S n)),
     conv Γ A0 A1 Core.tuniv ->
@@ -1125,6 +1132,7 @@ Proof.
 (*      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
       | ?n ?Γ ?T ?M0 ?M1 ?z hT hM0 hM1 *)
       | ?n ?Γ ?M ?N hMN
+      | ?n ?Γ ?A ?A' ?B ?M ?M' hAconv hMconv
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
     all: move=> ρ Fρ.
     + (* c_conv: M = N : A, A = B : U_i ⟹ M = N : B *)
@@ -1157,7 +1165,7 @@ Proof.
         apply (typing_EvalRel _ _ _ _ hM (x .: ρ)).
         eapply fits_cons; eauto.
     + (* c_eta: function extensionality at type A⟨↑⟩, see Admitted note. *)
-      move: ρ Fρ. eapply InvConv_eta; eauto.
+      move: ρ Fρ. eapply InvConv_eta; eauto. all: admit.
 (*
     + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
          (app ... → M0): EvalRel of app (nrec ...) ρ u forces u = bot, and
@@ -1169,7 +1177,13 @@ Proof.
     + (* c_nrec_S: similar — nrec is fake. *)
       move: ρ Fρ.
       eapply InvConv_nrec_S; eauto. *)
-    + (* c_tuniv: identity rule — just recurse. *)
+    + (* c_succ *)
+      eapply conv_EvalRel in hMN; eauto.
+      clear conv_EvalRel typing_EvalRel.
+      unfold InvConv in *.
+      destruct hMN as [TM [TN [h1 h2]]].
+      admit.
+    + (* c_abs: lambda congruence — soundness deferred with the rest. *)
       admit.
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.

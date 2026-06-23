@@ -32,21 +32,6 @@ Open Scope subst_scope.
 Import SubstNotations.
 Import SyntaxNotations.
 
-(* subst1_subst_comm: a pure autosubst fact (single substitution commutes
-   with [σ]).  [asimpl] cannot discharge it here because this development's
-   [..] uses the raw [var] constructor rather than the typeclass [ids], so
-   the [asimpl] rewrite system does not fire (the same gap that leaves
-   [syntax.typing.substitution_tm] admitted).  ADMITTED. *)
-Lemma subst1_subst_comm {n m} (B : Tm (S n)) (N : Tm n) (σ : Sub n m) :
-  B[N .: var][σ] = B[⇑ σ][N[σ] .: var].
-Admitted.
-
-(* subst_cons_eq: extending a substitution by a closed term commutes with the
-   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  Same autosubst var≠ids
-   gap as [subst1_subst_comm].  ADMITTED. *)
-Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : Sub n m) :
-  B[N .: σ] = B[⇑ σ][N .: var].
-Admitted.
 
 
 
@@ -266,13 +251,52 @@ Proof.
   apply: t_var. exact CΓ.
 Qed.
 
+(* Lift a [ConvSub] under a new domain binder [A]: mirrors [typing_subst_lift],
+   weakening each component conversion by [↑] ([renaming_conv]); the new
+   variable is [c_refl]. *)
+Lemma ConvSub_lift {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ σ' : Sub g h) (A : Tm g) :
+  ctx (Δ ++ A[σ]) ->
+  typing_subst Δ σ Γ ->
+  ConvSub Δ Γ σ σ' ->
+  ConvSub (Δ ++ A[σ]) (Γ ++ A) (⇑ σ) (⇑ σ').
+Proof.
+  move=> EC TS CS. intro x. destruct x.
+  - (* succ: weaken the component conv by [↑] *)
+    cbn. specialize (CS f).
+    eapply renaming_conv with (Δ := Δ ++ A[σ]) in CS; eauto with renaming.
+    asimpl in CS. asimpl. exact CS.
+  - (* zero: the new variable, by reflexivity *)
+    cbn. eapply c_refl. eapply t_var'; eauto. cbn. asimpl. done.
+Qed.
+
+(* Lift the second substitution [σ'] into the *[σ]*-extended context
+   [Δ ++ A[σ]] (rather than [Δ ++ A[σ']]): the new variable is retyped from
+   [A[σ]⟨↑⟩] to [A[σ']⟨↑⟩] via the domain conversion [A[σ] ≡ A[σ']]. *)
+Lemma typing_subst_lift_conv {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ σ' : Sub g h) (A : Tm g) :
+  ctx (Δ ++ A[σ]) ->
+  typing_subst Δ σ' Γ ->
+  conv Δ A[σ] A[σ'] Core.tuniv ->
+  typing_subst (Δ ++ A[σ]) (⇑ σ') (Γ ++ A).
+Proof.
+  move=> EC TS' Hconv. intro x. destruct x.
+  - (* succ: weaken the component typing by [↑] *)
+    cbn. specialize (TS' f).
+    eapply renaming_typing with (Δ := Δ ++ A[σ]) in TS'; eauto with renaming.
+    asimpl in TS'. asimpl. exact TS'.
+  - (* zero: [var 0 : A[σ]⟨↑⟩] retyped to [A[σ']⟨↑⟩] *)
+    cbn. eapply t_conv with (A := A[σ]⟨↑⟩).
+    + eapply t_var'; eauto.
+    + asimpl.
+      eapply renaming_conv with (Δ := Δ ++ A[σ]) in Hconv; eauto with renaming.
+      asimpl in Hconv. exact Hconv.
+Qed.
+
 (* Cross-substitution conv: if M is typed at A in Γ, and σ ≈ σ' pointwise
    (both as ConvSub and well-typed), then M[σ] is conv to M[σ'] at A[σ].
    This is the syntactic analog of EqValSub's effect at any well-typed M.
    Proof would go by induction on typing — admitted here, to be developed
    alongside the other syntactic substitution lemmas. *)
-Lemma subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) :
-  typing Γ M A ->
+Fixpoint subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) (h : typing Γ M A) {struct h} :
   forall m (Δ : Ctx m) (σ σ' : Sub n m),
     ctx Δ ->
     typing_subst Δ σ Γ ->
@@ -280,22 +304,92 @@ Lemma subst_conv_cross {n} (Γ : Ctx n) (M A : Tm n) :
     ConvSub Δ Γ σ σ' ->
     conv Δ M[σ] M[σ'] A[σ].
 Proof.
-  induction 1.
-  all: intros.
-  all: cbn.
-  - unfold ConvSub in H3. eauto.
-  - eapply c_conv; eauto.
-    eapply substitution_conv with (A:=Core.tuniv); eauto.
-  - admit. 
-  - eapply c_trans with (N:=(Core.app N[σ'] M[σ])).
-    + rewrite subst1_subst_comm.
-      eapply c_app1; eauto. 
-      all: fold (@subst_Tm n m).
-      eapply substitution_tm with (A:= Core.tuniv); eauto.
-      eapply substitution_tm with (A:= Core.tuniv); eauto.
-      eapply typing_subst_cons; eauto. eapply t_var'.
-      cbn. asimpl. done.
-Admitted.
+  destruct h as
+    [ n0 Γ0 x cv                          (* t_var *)
+    | n0 Γ0 M0 A0 B0 hM cAB               (* t_conv *)
+    | n0 Γ0 A0 B0 N0 hA hB hN             (* t_abs *)
+    | n0 Γ0 A0 B0 N0 M0 hA hB hN hM       (* t_app *)
+    | n0 Γ0 cv                            (* t_nat *)
+    | n0 Γ0 cv                            (* t_zero *)
+    | n0 Γ0 M0 hM                         (* t_succ *)
+    | n0 Γ0 A0 B0 hA hB                   (* t_tpi *)
+    | n0 Γ0 cv ];                         (* t_univ *)
+  move=> m Δ σ σ' CΔ TS TS' CS.
+  - (* t_var *) cbn. exact (CS x).
+  - (* t_conv *)
+    eapply c_conv.
+    + exact (subst_conv_cross _ _ _ _ hM m Δ σ σ' CΔ TS TS' CS).
+    + eapply substitution_conv with (A := Core.tuniv); eauto.
+  - (* t_abs *)
+    have CAσ : typing Δ A0[σ] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have ECA : ctx (Δ ++ A0[σ]) by (eapply c_cons; [ exact CΔ | exact CAσ ]).
+    have convA : conv Δ A0[σ] A0[σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hA m Δ σ σ' CΔ TS TS' CS.
+    have TSl : typing_subst (Δ ++ A0[σ]) (⇑ σ) (Γ0 ++ A0)
+      by (eapply typing_subst_lift; eauto).
+    have TSl' : typing_subst (Δ ++ A0[σ]) (⇑ σ') (Γ0 ++ A0)
+      by (eapply typing_subst_lift_conv; eauto).
+    have CSl : ConvSub (Δ ++ A0[σ]) (Γ0 ++ A0) (⇑ σ) (⇑ σ')
+      by (eapply ConvSub_lift; eauto).
+    have convN : conv (Δ ++ A0[σ]) N0[⇑ σ] N0[⇑ σ'] B0[⇑ σ]
+      := subst_conv_cross _ _ _ _ hN _ (Δ ++ A0[σ]) (⇑ σ) (⇑ σ') ECA TSl TSl' CSl.
+    cbn. eapply c_abs; [ exact convA | exact convN ].
+  - (* t_app *)
+    have CAσ : typing Δ A0[σ] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have ECA : ctx (Δ ++ A0[σ]) by (eapply c_cons; [ exact CΔ | exact CAσ ]).
+    have convA : conv Δ A0[σ] A0[σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hA m Δ σ σ' CΔ TS TS' CS.
+    have TSl : typing_subst (Δ ++ A0[σ]) (⇑ σ) (Γ0 ++ A0)
+      by (eapply typing_subst_lift; eauto).
+    have TSl' : typing_subst (Δ ++ A0[σ]) (⇑ σ') (Γ0 ++ A0)
+      by (eapply typing_subst_lift_conv; eauto).
+    have CSl : ConvSub (Δ ++ A0[σ]) (Γ0 ++ A0) (⇑ σ) (⇑ σ')
+      by (eapply ConvSub_lift; eauto).
+    have convB : conv (Δ ++ A0[σ]) B0[⇑ σ] B0[⇑ σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hB _ (Δ ++ A0[σ]) (⇑ σ) (⇑ σ') ECA TSl TSl' CSl.
+    have TBσ : typing (Δ ++ A0[σ]) B0[⇑ σ] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have TMσ : typing Δ M0[σ] A0[σ]
+      by (eapply substitution_tm with (A := A0); eauto).
+    (* function [N0[σ']] retyped to the [σ]-domain Pi type *)
+    have TNσ' : typing Δ N0[σ'] (Core.tpi A0[σ] B0[⇑ σ]).
+    { eapply t_conv with (A := (Core.tpi A0 B0)[σ']).
+      - eapply substitution_tm with (A := Core.tpi A0 B0); eauto.
+      - cbn. eapply c_sym. eapply c_tpi; [ exact convA | exact convB ]. }
+    cbn.
+    eapply c_trans with (N := Core.app N0[σ'] M0[σ]).
+    + (* function variation, via [c_app1] *)
+      rewrite subst1_subst_comm.
+      eapply c_app1; [ exact CAσ | exact TBσ | | exact TMσ ].
+      have := subst_conv_cross _ _ _ _ hN m Δ σ σ' CΔ TS TS' CS. cbn. by [].
+    + (* argument variation, via [c_app2] *)
+      rewrite subst1_subst_comm.
+      eapply c_app2; [ exact CAσ | exact TBσ | exact TNσ' | ].
+      exact (subst_conv_cross _ _ _ _ hM m Δ σ σ' CΔ TS TS' CS).
+  - (* t_nat *) cbn. eapply c_refl. eapply t_nat. exact CΔ.
+  - (* t_zero *) cbn. eapply c_refl. eapply t_zero. exact CΔ.
+  - (* t_succ *)
+    cbn. eapply c_succ.
+    exact (subst_conv_cross _ _ _ _ hM m Δ σ σ' CΔ TS TS' CS).
+  - (* t_tpi *)
+    have CAσ : typing Δ A0[σ] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have ECA : ctx (Δ ++ A0[σ]) by (eapply c_cons; [ exact CΔ | exact CAσ ]).
+    have convA : conv Δ A0[σ] A0[σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hA m Δ σ σ' CΔ TS TS' CS.
+    have TSl : typing_subst (Δ ++ A0[σ]) (⇑ σ) (Γ0 ++ A0)
+      by (eapply typing_subst_lift; eauto).
+    have TSl' : typing_subst (Δ ++ A0[σ]) (⇑ σ') (Γ0 ++ A0)
+      by (eapply typing_subst_lift_conv; eauto).
+    have CSl : ConvSub (Δ ++ A0[σ]) (Γ0 ++ A0) (⇑ σ) (⇑ σ')
+      by (eapply ConvSub_lift; eauto).
+    have convB : conv (Δ ++ A0[σ]) B0[⇑ σ] B0[⇑ σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hB _ (Δ ++ A0[σ]) (⇑ σ) (⇑ σ') ECA TSl TSl' CSl.
+    cbn. eapply c_tpi; [ exact convA | exact convB ].
+  - (* t_univ *) cbn. eapply c_refl. eapply t_univ. exact CΔ.
+Qed.
 
 Lemma ConvSub_sym {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h) :
   ConvSub Δ Γ σ1 σ2 -> ConvSub Δ Γ σ2 σ1.
@@ -562,13 +656,11 @@ Proof.
 Qed.
 
 
-(* Val_ty_conv: the logical relation respects type conversion — a value in the
-   relation at [A] is in the relation at any convertible type [A'].  Standard
-   "type conversion preserves [Val]" fact (Agda transports [Val] along the
-   semantic equality of convertible types); ADMITTED. *)
-Lemma Val_ty_conv {n} (Γ : Ctx n) (M A A' : Tm n) u a (h : wt u a) RB :
-  conv Γ A A' Core.tuniv -> Val RB Γ M A h -> Val RB Γ M A' h.
-Admitted.
+(* (Val_ty_conv removed: transporting [Val] across a *syntactic* type conversion
+   has no Agda analog — Agda transports along the *semantic* type-equality
+   [EqValTy] (= Coq's [Val_EqVal_fwd]).  Its two former uses now build the
+   semantic equality from the domain/Pi IH [STA]/[st_tpi_EqVal_edge] and apply
+   [Val_EqVal_fwd] directly.) *)
 
 (* cod_subst_conv: the codomain-level instance of [subst_conv_cross] — a body
    [B] typed in [Γ++A] is convertible under the two lifted substitutions, in
@@ -576,11 +668,25 @@ Admitted.
    plus a [ConvSub] lift / context conversion; ADMITTED alongside the other
    syntactic substitution gaps. *)
 Lemma cod_subst_conv {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
   forall m (Δ : Ctx m) (σ σ' : Sub n m),
     ctx Δ -> typing_subst Δ σ Γ -> typing_subst Δ σ' Γ -> ConvSub Δ Γ σ σ' ->
     conv (Δ ++ A[σ]) B[⇑ σ] B[⇑ σ'] Core.tuniv.
-Admitted.
+Proof.
+  move=> TA TB m Δ σ σ' CΔ TS TS' CS.
+  (* lift the substitutions/conversion into the extended context [Δ ++ A[σ]] *)
+  have CAσ : typing Δ A[σ] Core.tuniv
+    by (eapply substitution_tm with (A := Core.tuniv); eauto).
+  have ECA : ctx (Δ ++ A[σ]) by (eapply c_cons; eauto).
+  have convA : conv Δ A[σ] A[σ'] Core.tuniv := subst_conv_cross TA CΔ TS TS' CS.
+  have TSl : typing_subst (Δ ++ A[σ]) (⇑ σ) (Γ ++ A) by (eapply typing_subst_lift; eauto).
+  have TSl' : typing_subst (Δ ++ A[σ]) (⇑ σ') (Γ ++ A)
+    by (eapply typing_subst_lift_conv; eauto).
+  have CSl : ConvSub (Δ ++ A[σ]) (Γ ++ A) (⇑ σ) (⇑ σ') by (eapply ConvSub_lift; eauto).
+  (* the codomain conversion is [subst_conv_cross] at the lifted substitution *)
+  exact (subst_conv_cross TB ECA TSl TSl' CSl).
+Qed.
 
 (* codomain_type_ValTy: adequacy for the codomain *type* [B[N..]] — it is a
    valid type ([ValTy], i.e. [Val … tuniv]) at any of its semantic evaluations
@@ -1233,11 +1339,18 @@ Proof.
   set WT_ := (wt_Selection_codU WT Sel).
   have Vv : valid v := wt_valid_tm WT_.
   have TP' : typing Δ P A[σ'] by (eapply t_conv; [ exact TP | exact convAA' ]).
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  (* the domain semantic type-equality [A[σ] ≡ A[σ']], from the domain IH [STA] *)
+  have [_ eqA] :=
+    STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ b tuniv (wt_ty_tuniv WTu) evAdom evU.
   (* [Val] of [P] (both base types), [EqVal P P], all lifted to above-rank fuels *)
   have VPall : forall RB0, max (rk u) (rk b) < RB0 -> Val RB0 Δ P A[σ] WTu.
   { move=> RB0 Hr0. eapply (Val_fuel_any (k := RB)); [ lia | lia | lia | lia | exact VP ]. }
+  (* retype [Val P : A[σ]] to [A[σ']] via the *semantic* type-equality
+     ([Val_EqVal_fwd]) — the Agda-faithful route (no syntactic-conv transport) *)
   have VPall' : forall RB0, max (rk u) (rk b) < RB0 -> Val RB0 Δ P A[σ'] WTu.
-  { move=> RB0 Hr0. eapply Val_ty_conv; [ exact convAA' | exact (VPall RB0 Hr0) ]. }
+  { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ exact (VPall RB0 Hr0) | ].
+    eapply EqVal_EqValTy. eapply (eqA (S RB0)). cbn in Hr0 |- *; lia. }
   have EVall : forall RB0, max (rk u) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu.
   { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
   have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
@@ -1361,7 +1474,7 @@ Proof.
     (* domain conv (syntactic) and domain EqVal (semantic, from STA) *)
     have convAA' : conv Δ A[σ] A[σ'] Core.tuniv := subst_conv_cross TA CΔ TS TS' CS.
     have codConv : conv (Δ ++ A[σ]) B[⇑ σ] B[⇑ σ'] Core.tuniv :=
-      cod_subst_conv TB CΔ TS TS' CS.
+      cod_subst_conv TA TB CΔ TS TS' CS.
     have [_ eqA] :=
       STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ b tuniv (wt_tpi_dom WT) evAdom evU.
     have eqDom : EqVal RB Δ A[σ] A[σ'] Core.tuniv (wt_tpi_dom WT).
@@ -1589,10 +1702,14 @@ Proof.
     { eapply st_abs_Val_edge with (σ' := σ'); try eassumption.
       - exact (ConvSub_refl TS').
       - exact (ValSub_EqValSub VS'). }
-    have Ttpi : typing Γ (Core.tpi A B) Core.tuniv by (eapply t_tpi; [ exact TA | exact TB ]).
-    have convTpi : conv Δ (Core.tpi A B)[σ'] (Core.tpi A B)[σ] Core.tuniv
-      by (apply c_sym; exact (subst_conv_cross Ttpi CΔ TS TS' CS)).
-    have VN := Val_ty_conv convTpi VN0.
+    (* semantic type-equality of the Pi type between σ and σ' (st_tpi_EqVal_edge),
+       used to retype the σ'-lambda's [Val] to the σ-type via [Val_EqVal_fwd] —
+       the Agda-faithful route (no syntactic-conv transport) *)
+    have eqPi : EqVal (S (S RB)) Δ (Core.tpi A B)[σ] (Core.tpi A B)[σ'] Core.tuniv (wt_abs_ty WT).
+    { eapply st_tpi_EqVal_edge; try eassumption.
+      cbn in Hrank |- *; lia. }
+    have VN : Val (S RB) Δ (Core.abs A M)[σ'] (Core.tpi A B)[σ] WT
+      by (eapply Val_EqVal_fwd; [ exact VN0 | exact (EqValTy_sym (EqVal_EqValTy eqPi)) ]).
     rewrite Val_abs in VM. rewrite Val_abs in VN.
     move: VM => [VTd VPiM]. move: VN => [_ VPiN].
     split; [ exact VTd | ]. split; [ exact VPiM | ]. split; [ exact VPiN | ].
@@ -1606,8 +1723,11 @@ Proof.
     have TP' : typing Δ P A[σ'] by (eapply t_conv; [ exact TP | exact convAA' ]).
     have VPall : forall RB0, max (rk u0) (rk b) < RB0 -> Val RB0 Δ P A[σ] WTu0.
     { move=> RB0 Hr0. eapply (Val_fuel_any (k := RB)); [ cbn in Hrank; lia | cbn in Hrank; lia | lia | lia | exact VP ]. }
+    have [_ eqA] :=
+      STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ b tuniv (wt_ty_tuniv WTu0) ERA_b evU.
     have VPall' : forall RB0, max (rk u0) (rk b) < RB0 -> Val RB0 Δ P A[σ'] WTu0.
-    { move=> RB0 Hr0. eapply Val_ty_conv; [ exact convAA' | exact (VPall RB0 Hr0) ]. }
+    { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ exact (VPall RB0 Hr0) | ].
+      eapply EqVal_EqValTy. eapply (eqA (S RB0)). cbn in Hr0 |- *; lia. }
     have EVall : forall RB0, max (rk u0) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu0.
     { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
     have HYP1 := dom_transport (A := A) STA Fρ TS VS CΔ (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
@@ -1678,7 +1798,19 @@ Lemma sc_conv M N A B :
   semantic_conv2 Γ A B Core.tuniv ->
 (* ------------------------- *)
   semantic_conv2 Γ M N B.
-Proof. Admitted.
+Proof.
+  move=> CMN CAB SC1 SC2.
+  move=> ρ m Δ σ TS FR VS CD u a WT EM EB.
+  move: (conv_EvalRel CAB FR) => [_ [_ [_ bwd]]].
+  have EA : EvalRel A ρ a by (apply bwd; exact EB).
+  have WTa : wt a tuniv by (eapply wt_ty_tuniv; exact WT).
+  have evU : EvalRel Core.tuniv ρ tuniv by [].
+  have eqMN := SC1 ρ m Δ σ TS FR VS CD u a WT EM EA.
+  have eqAB := SC2 ρ m Δ σ TS FR VS CD a tuniv WTa EA evU.
+  move=> RB Hrank. eapply EqVal_EqVal_fwd;
+    [ exact (eqMN RB Hrank)
+    | eapply EqVal_EqValTy; eapply (eqAB (S RB)); cbn in Hrank |- *; lia ].
+Qed.
 
 (* c_refl: M : A ⟹ M ≡ M : A *)
 Lemma sc_refl M A :
@@ -1732,7 +1864,15 @@ Lemma sc_trans M N P A :
   semantic_conv2 Γ N P A ->
 (* ------------------------- *)
   semantic_conv2 Γ M P A.
-Proof. Admitted.
+Proof.
+  move=> CMN CNP SC1 SC2.
+  move=> ρ m Δ σ TS FR VS CD u a WT EM EA.
+  move: (conv_EvalRel CMN FR) => [_ [_ [fwd _]]].
+  have EN : EvalRel N ρ u by (apply fwd; exact EM).
+  have e1 := SC1 ρ m Δ σ TS FR VS CD u a WT EM EA.
+  have e2 := SC2 ρ m Δ σ TS FR VS CD u a WT EN EA.
+  move=> RB Hrank. eapply EqVal_trans; [ exact (e1 RB Hrank) | exact (e2 RB Hrank) ].
+Qed.
 
 (* c_app1: N ≡ N' : (tpi A B), M : A ⟹ app N M ≡ app N' M : B[M..] *)
 Lemma sc_app1 A B N N' M :
@@ -1787,13 +1927,13 @@ Lemma sc_eta A B (N N' : Tm n) :
   typing Γ N (Core.tpi A B) ->
   typing Γ N' (Core.tpi A B) ->
   conv (Γ ++ A) (Core.app N⟨↑⟩ (var var_zero))
-                (Core.app N'⟨↑⟩ (var var_zero)) A⟨↑⟩ ->
+                (Core.app N'⟨↑⟩ (var var_zero)) B ->
   semantic_typing Γ A Core.tuniv ->
   semantic_typing (Γ ++ A) B Core.tuniv ->
   semantic_typing Γ N (Core.tpi A B) ->
   semantic_typing Γ N' (Core.tpi A B) ->
   semantic_conv2 (Γ ++ A) (Core.app N⟨↑⟩ (var var_zero))
-                          (Core.app N'⟨↑⟩ (var var_zero)) A⟨↑⟩ ->
+                          (Core.app N'⟨↑⟩ (var var_zero)) B ->
 (* ------------------------- *)
   semantic_conv2 Γ N N' (Core.tpi A B).
 Proof. Admitted.
@@ -1831,7 +1971,34 @@ Lemma sc_succ M N  :
   semantic_conv2 Γ M N Core.tnat ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.succ M) (Core.succ N) Core.tnat.
-Proof. Admitted.
+Proof.
+  move=> CMN SC1.
+  move=> ρ m Δ σ TS FR VS CD u a WT EM EA.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  (* [u = bot] is trivial *)
+  destruct (is_bot u) eqn:Bu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Bu). subst u. apply EqVal_Bot. }
+  (* [u <> bot]: from [EvalRel (succ M) ρ u], [u <= succ v] and [EvalRel M ρ v] *)
+  move: EM. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
+  destruct u as [ | | | | w | b f | g ];
+    try discriminate; try (exfalso; move: LEuv; done).
+  (* only [u = succ w] survives *)
+  have Ea : a = tnat by (inversion WT; reflexivity). subst a.
+  move: LEuv. rewrite le_succ. move=> Lwv.
+  have Vw : valid w by (eapply wt_valid_tm; eapply wt_succ_inv; exact WT).
+  have EMw : EvalRel M ρ w by (eapply EvalRel_down; [ exact Vρ | exact Vw | exact EMv | exact Lwv ]).
+  rewrite EqVal_succ.
+  exists M[σ]. split; [ apply ms_refl | ]. exists N[σ]. split; [ apply ms_refl | ].
+  (* inner [EqVal M[σ] N[σ] : tnat] at the predecessor value [w] *)
+  destruct (is_bot w) eqn:Bw.
+  { have Ew : w = bot by (apply is_bot_eq; rewrite Bw).
+    move: (wt_succ_inv WT). rewrite Ew. move=> wb. apply EqVal_Bot. }
+  have RPw : 1 <= rk w := rk_pos Bw.
+  have evN : EvalRel Core.tnat ρ tnat by (cbn; apply le_refl).
+  apply (SC1 ρ m Δ σ TS FR VS CD w tnat (wt_succ_inv WT) EMw evN RB).
+  cbn in Hrank |- *. lia.
+Qed.
 
 (* c_tpi: A0 ≡ A1 : tuniv i, B0 ≡ B1 : tuniv i ⟹ tpi A0 B0 ≡ tpi A1 B1 : tuniv i *)
 Lemma sc_tpi A0 A1 (B0 B1 : Tm (S n)) :
@@ -1841,6 +2008,16 @@ Lemma sc_tpi A0 A1 (B0 B1 : Tm (S n)) :
   semantic_conv2 (Γ ++ A0) B0 B1 Core.tuniv ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.tpi A0 B0) (Core.tpi A1 B1) Core.tuniv.
+Proof. Admitted.
+
+(* c_abs: A ≡ A' : tuniv i, M ≡ M' : B ⟹ abs A M ≡ abs A' M' : tpi A B *)
+Lemma sc_abs (A A' : Tm n) (B M M' : Tm (S n)) :
+  conv Γ A A' Core.tuniv ->
+  conv (Γ ++ A) M M' B ->
+  semantic_conv2 Γ A A' Core.tuniv ->
+  semantic_conv2 (Γ ++ A) M M' B ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.abs A M) (Core.abs A' M') (Core.tpi A B).
 Proof. Admitted.
 
 
@@ -1915,6 +2092,7 @@ Proof.
     + eapply sc_beta; eauto.
     + eapply sc_eta; eauto.
     + eapply sc_succ; eauto.
+    + eapply sc_abs; eauto.
     + eapply sc_tpi; eauto.
 Qed.
 

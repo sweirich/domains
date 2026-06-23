@@ -32,6 +32,22 @@ Create HintDb syntax.
 Open Scope syntax_scope.
 
 
+(* Single substitution commutes with [σ].*)
+Lemma subst1_subst_comm 
+  {n m} {B : Tm (S n)}{N : Tm n}{σ : fin n -> Tm m} :
+  B[N .: var][σ] = B[⇑ σ][N[σ] .: var].
+Proof.
+Admitted.
+
+(* subst_cons_eq: extending a substitution by a closed term commutes with the
+   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  Same autosubst var≠ids
+   gap as [subst1_subst_comm].  ADMITTED. *)
+Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : fin n -> Tm m) :
+  B[N .: σ] = B[⇑ σ][N .: var].
+Admitted.
+
+(* ------------------------------------------------ *)
+
 Inductive Ctx : nat -> Type := 
 | ctx_empty    : Ctx 0
 | ctx_extend n : Ctx n -> Tm n -> Ctx (S n).
@@ -144,7 +160,7 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     typing Γ N (tpi A B) ->     
     typing Γ N' (tpi A B) ->     
     conv (Γ ++ A) (app N⟨↑⟩ (var var_zero))
-      (app N'⟨↑⟩ (var var_zero)) A⟨↑⟩ ->
+      (app N'⟨↑⟩ (var var_zero)) B ->
     conv Γ N N' (tpi A B)
   (* natural numbers: TODO add typing hyps *)
 (*
@@ -159,9 +175,13 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     typing Γ M1 (tpi tnat (tpi T T[rho]⟨↑⟩ )) ->    
     conv Γ (app (nrec T M0 M1) (succ n)) 
       (app (app M1 n) (app (nrec T M0 M1) n)) T[(succ n)..] *)
-  | c_succ n (Γ : Ctx n) M N : 
+  | c_succ n (Γ : Ctx n) M N :
     conv Γ M N tnat ->
     conv Γ (succ M) (succ N) tnat
+  | c_abs n (Γ : Ctx n) A A' B M M' :
+    conv Γ A A' tuniv ->
+    conv (Γ ++ A) M M' B ->
+    conv Γ (abs A M) (abs A' M') (tpi A B)
   | c_tpi n (Γ : Ctx n) A0 A1 B0 B1 :
     conv Γ A0 A1 tuniv -> 
     conv (Γ ++ A0) B0 B1 tuniv -> 
@@ -269,12 +289,6 @@ Import Notations.
 (** * Renaming and substitution properties *)
 
 (* == RenTypes *)
-(*
-Definition typing_renaming {n} (Δ : fin n -> Tm n) 
-  {m} (δ : fin m -> fin n)
-  (Γ : fin m -> Tm m) : Prop := 
-  forall i, Δ (δ i) = (Γ i)⟨δ⟩.
-*)
 Definition typing_renaming {n} (Δ : Ctx n) 
   {m} (δ : fin m -> fin n)
   (Γ : Ctx m) : Prop := 
@@ -311,15 +325,7 @@ Create HintDb renaming.
 Fixpoint renaming_typing {n} (Γ : Ctx n) a A {m} (Δ:Ctx m) δ : 
   Γ |-e a ∈ A -> typing_renaming Δ δ Γ -> ctx Δ -> Δ |-e a⟨δ⟩ ∈ A⟨δ⟩
 with renaming_conv {n} (Γ : Ctx n) a b A {m} (Δ:Ctx m) δ : 
-  Γ |-e a ≡ b ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ A⟨δ⟩
-(*
-with renaming_type {n} (Γ : Ctx n) A {m} (Δ:Ctx m) δ : 
-  Γ |-τ A -> typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-τ A⟨δ⟩
-with renaming_type_conv {n} (Γ : Ctx n) A B {m} (Δ:Ctx m) δ : 
-  Γ |-τ A ≡ B -> typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-τ A⟨δ⟩ ≡ B⟨δ⟩
-with ctx_extend {n} {Γ:Ctx n}{A:Tm n} :
-  ctx Γ -> type Γ A -> ctx (Γ ++ A)
-*).
+  Γ |-e a ≡ b ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ A⟨δ⟩.
 Proof.
   (* typing *)
   - have renaming_typing':
@@ -336,27 +342,17 @@ Proof.
     { intros until B. intros h tR cD ->. eapply renaming_conv; eauto. }
     intros h tR wtΔ.
     dependent destruction h; subst.
-    all: asimpl.
-    all: try solve [econstructor; eauto with renaming; cbn].
+    all: try have EC: ctx (Δ ++ A ⟨δ⟩) by
+      eapply c_cons; eauto with renaming. 
+    all: try solve [asimpl; econstructor; eauto with renaming; cbn].
+
     + (* var case *)
       eapply t_var'; eauto.
-    + (* abs *)
-      have EC: ctx (Δ ++ A ⟨δ⟩).
-      { eapply c_cons; eauto with renaming. } 
-      eapply t_abs; eauto with renaming.
     + (* app *) 
-      have EC: ctx (Δ ++ A ⟨δ⟩).
-      { eapply c_cons; eauto with renaming.
-        } 
+      cbn. asimpl.
       eapply t_app' with (B:=B⟨up_ren δ⟩); eauto with renaming. 
-      eapply renaming_typing' in h1; eauto with renaming.
-      admit.
-(*      cbn; eauto.
-      eapply renaming_typing' in h2; eauto with renaming.
-      eapply renaming_typing' in h3; eauto with renaming.
       asimpl.
-      auto. *)
-
+      auto.
 (*    + (* nrec *)
       have EC: ctx (Δ ++ tnat).
       { eapply c_cons; eauto with renaming.
@@ -370,10 +366,6 @@ Proof.
       f_equal. f_equal.
       unfold rho. asimpl.
       eapply ext_fin. intros [k|]; asimpl; reflexivity. *)
-    + (* tpi *)
-      eapply t_tpi; eauto with renaming.
-      eapply renaming_typing'; eauto with renaming.
-      eapply c_cons; eauto.
   (* conv *)
   - have renaming_typing':
       forall n (Γ : Ctx n) a A m (Δ:Ctx m) δ B,
@@ -389,47 +381,42 @@ Proof.
     { intros until B. intros h tR cD ->. eapply renaming_conv; eauto. }
     intros h tR tΔ.
     dependent destruction h; subst.
-    all: asimpl.
-    all: try solve [econstructor; eauto with renaming].
+    all: try have EC: ctx (Δ ++ A⟨δ⟩)
+               by eapply c_cons; eauto with renaming.
+    all: try solve [asimpl; econstructor; 
+              eauto using renaming_typing' with renaming].
     + (* c_app1 *)
-      have EC: ctx (Δ ++ A⟨δ⟩).
-      { eapply c_cons; eauto with renaming.
-        } 
+      cbn. asimpl.
       eapply c_app1' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
         eauto using renaming_typing' with renaming.
       asimpl. reflexivity.
     + (* c_app2 *)
-      have EC: ctx (Δ ++ A⟨δ⟩).
-      { eapply c_cons; eauto with renaming. } 
+      cbn. asimpl.
       eapply c_app2' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
         eauto using renaming_typing' with renaming.
       asimpl. reflexivity.
     + (* c_beta *)
-      have EC: ctx (Δ ++ A⟨δ⟩).
-      { eapply c_cons; eauto with renaming. } 
-      eapply c_beta' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩).
-      eapply renaming_typing'; eauto with renaming.
-      eapply renaming_typing'; eauto with renaming.
-      eapply renaming_typing'; eauto with renaming.
-      eapply renaming_typing'; eauto with renaming.
+      cbn. asimpl.
+      eapply c_beta' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
+        try eapply renaming_typing'; eauto with renaming.
       asimpl; auto.
       asimpl; auto.
     + (* c_eta *)
-      have EC: ctx (Δ ++ A⟨δ⟩).
-      { eapply c_cons; eauto with renaming. }
+      cbn. 
       eapply c_eta with (A := A⟨δ⟩)(B := B⟨up_ren δ⟩);
         try (eapply renaming_typing'; eauto with renaming).
       have TR': typing_renaming (Δ ++ ⟨δ⟩ A) (up_ren δ) (Γ ++ A).
       eauto with renaming.
-      have EQ: ⟨↑⟩ (⟨δ⟩ A) = A ⟨↑⟩ ⟨up_ren δ⟩.
-      { asimpl. auto.  } 
-      specialize (renaming_conv' _ _ _ _ _ (S m) _ _ 
-                    (⟨↑⟩ (⟨δ⟩ A)) h TR' EC EQ). 
+      eapply renaming_conv' with (Δ := Δ ++ ⟨δ⟩ A)
+        (δ := up_ren δ) (B := ⟨up_ren δ⟩ B) in h; eauto.
+      cbn in h. 
       admit.
-(*
+    + (* c_abs  *)
+      admit.
+    (*
     + (* c_nrec_Z *) admit.
     + (* c_nrec_S *) admit. *)
-    + (* c_tpi *) admit.
+    + (* c_tpi *) 
 Admitted.
 
 (* All typed in well-formed contexts are well-formed *)
@@ -560,6 +547,19 @@ Admitted.
    induction on [conv]); ADMITTED alongside the other syntactic gaps. *)
 Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
   conv Γ M N A -> typing Γ M A /\ typing Γ N A.
+Proof.
+  induction 1; eauto.
+  all: split.
+  all: try destruct IHconv1 as [h1 h2].
+  all: try destruct IHconv2 as [h3 h4].
+  all: try destruct IHconv as [h5 h6].
+  all: eauto.
+  - eapply t_conv; eauto.
+  - eapply t_conv; eauto.
+  - eapply t_app; eauto.
+  - eapply t_app'; eauto.
+  - eapply t_app; eauto.
+  - eapply t_conv. eapply t_app; eauto.
 Admitted.
 
 
