@@ -440,6 +440,7 @@ Definition FwdResult {h g} (σ : Sub h g) (M : Tm h) (ρ : Env g) (u : elt) : Pr
 Lemma fold_edge_fwd {h g} (σ : Sub h g) (ρ : Env g)
   (M : Tm (S h)) (a : elt) :
   forall (gs : list (elt * elt)) (acc : Env h),
+    valid_fun gs ->
     valid_env ρ -> valid_env acc -> SubRel σ acc ρ ->
     (forall u v, valid u -> app gs u = v ->
        exists x (h: wt x a) ρ_uv,
@@ -451,41 +452,101 @@ Lemma fold_edge_fwd {h g} (σ : Sub h g) (ρ : Env g)
       forall u v, valid u -> app gs u = v ->
         exists x (h: wt x a), le x u /\ EvalRel M (x .: ρ') v.
 Proof.
-Admitted.
-(*
-  induction gs as [|[u v] gs IH].
-  - move=> acc Vρ Vacc SRacc _.
-    exists acc. repeat split; auto.
+  induction gs as [|[u0 v0] gs' IH].
+  - (* gs = [] : app [] u = bot *)
+    move=> acc VF Vρ Vacc SRacc body.
+    exists acc. split; [exact Vacc | split; [exact SRacc | split]].
     + by apply le_env_refl.
     + move=> u v Vu APP.
-      cbn in APP. inversion APP. subst.
-      exists bot. split. eapply wt_bot. eapply wt_
-  - move=> acc Vρ Vacc SRacc body.
-    move: (body u v ltac:(left; reflexivity))
-      => [x   [Wtx [ρ_uv [Lex [Vρuv [SRρuv ERuv]]]]]].
-    move: (@combine_fwd _ _ σ ρ acc ρ_uv Vρ Vacc Vρuv SRacc SRρuv)
-      => [mid [Vmid [SRmid [LEacc LEuv]]]].
-    have IH' := IH mid Vρ Vmid SRmid
-                  (fun u' v' h => body u' v' (or_intror h)).
-    move: IH' => [ρ' [Vρ' [SRρ' [LEmid bodyAll]]]].
-    have LEρuv : le_env ρ_uv ρ'
-      := le_env_trans Vρuv Vmid Vρ' LEuv LEmid.
-    have LEacc' : le_env acc ρ'
-      := le_env_trans Vacc Vmid Vρ' LEacc LEmid.
-    exists ρ'. repeat split; auto.
-    move=> u' v' [EQ|InGS].
-    * inversion EQ; subst.
-      have Vx: valid x by eapply wt_valid_tm; eauto.
-      exists x. repeat split; auto.
-      have V1 : valid_env (x .: ρ_uv) := valid_cons Vx Vρuv.
-      have V2 : valid_env (x .: ρ') := valid_cons Vx Vρ'.
-      have LE : le_env (x .: ρ_uv) (x .: ρ').
-      { move=> [k|]; cbn.
-        - apply LEρuv.
-        - apply le_refl. exact Vx. }
-      exact (EvalRel_mono_env ERuv V1 V2 LE).
-    * by apply bodyAll.
-Qed. *)
+      rewrite app_nil_eq in APP. subst v.
+      move: (body u bot Vu (app_nil_eq u)) => [x [Wtx [ρ_uv [Lx _]]]].
+      exists x, Wtx. split; [exact Lx | apply EvalRel_bot].
+  - (* gs = (u0,v0) :: gs' *)
+    move=> acc VF Vρ Vacc SRacc body.
+    have Vft : valid_fun gs' := valid_fun_tail VF.
+    have [Vu0 Vv0 _ COH] := valid_fun_head VF.
+    (* tail body: app gs' u <= app ((u0,v0)::gs') u, so transport the witness *)
+    have body' : forall u w, valid u -> app gs' u = w ->
+       exists x (hh : wt x a) ρ_uv, le x u /\ valid_env ρ_uv /\
+         SubRel σ ρ_uv ρ /\ EvalRel M (x .: ρ_uv) w.
+    { move=> u w Vu APP.
+      move: (body u (app ((u0,v0)::gs') u) Vu erefl)
+        => [x [Wtx [ρ_uv [Lx [Vρuv [SRρuv ER]]]]]].
+      exists x, Wtx, ρ_uv. split; [exact Lx | split; [exact Vρuv | split; [exact SRρuv |]]].
+      eapply EvalRel_down;
+        [ apply valid_cons; [ exact (wt_valid_tm Wtx) | exact Vρuv ]
+        | rewrite -APP; apply valid_app; [ exact Vft | exact Vu ]
+        | exact ER | ].
+      rewrite -APP app_cons_eq.
+      destruct (le u0 u) eqn:Hle.
+      - apply le_lub_right.
+        + apply compatible_app. apply/forallb_forall. move=> [ui vi] Hin.
+          apply/implyP => Hleui.
+          move: COH => /forallb_forall /(_ (ui,vi) Hin) /implyP HC. apply HC.
+          eapply le_compatible_pair; [exact Vu | exact Hle | exact Hleui].
+        + exact Vv0.
+        + apply valid_app; [exact Vft | exact Vu].
+      - apply le_refl. apply valid_app; [exact Vft | exact Vu]. }
+    (* recurse on the tail *)
+    move: (IH acc Vft Vρ Vacc SRacc body')
+      => [ρt [Vρt [SRρt [LEρt bodyAllt]]]].
+    (* head witness at the key u0 *)
+    have Hle00 : le u0 u0 := le_refl Vu0.
+    have COMP00 : compatible v0 (app gs' u0).
+    { apply compatible_app. apply/forallb_forall. move=> [ui vi] Hin.
+      apply/implyP => Hleui.
+      move: COH => /forallb_forall /(_ (ui,vi) Hin) /implyP HC. apply HC.
+      apply compatible_sym. eapply le_compatible; [exact Vu0 | exact Hleui]. }
+    have Vapp0 : valid (app gs' u0) := valid_app Vft Vu0.
+    move: (body u0 (app ((u0,v0)::gs') u0) Vu0 erefl)
+      => [x0 [Wtx0 [ρ0 [Lx0 [Vρ0 [SRρ0 ER0]]]]]].
+    have ER0v : EvalRel M (x0 .: ρ0) v0.
+    { eapply EvalRel_down;
+        [ apply valid_cons; [ exact (wt_valid_tm Wtx0) | exact Vρ0 ]
+        | exact Vv0 | exact ER0
+        | rewrite app_cons_eq Hle00; exact (le_lub_left COMP00 Vv0 Vapp0) ]. }
+    (* combine the head env with the tail env *)
+    move: (@combine_fwd _ _ σ ρ ρ0 ρt Vρ Vρ0 Vρt SRρ0 SRρt)
+      => [ρ' [Vρ' [SRρ' [LE0 LEt]]]].
+    exists ρ'. split; [exact Vρ' | split; [exact SRρ' | split]].
+    + exact (le_env_trans Vacc Vρt Vρ' LEρt LEt).
+    + move=> u v Vu APP.
+      have Vappu : valid (app gs' u) := valid_app Vft Vu.
+      move: (bodyAllt u (app gs' u) Vu erefl) => [xt [Wtxt [Lxt ERt]]].
+      have Vxt : valid xt := wt_valid_tm Wtxt.
+      destruct (le u0 u) eqn:Hle.
+      * (* le u0 u : app ((u0,v0)::gs') u = lub v0 (app gs' u) *)
+        have Vx0 : valid x0 := wt_valid_tm Wtx0.
+        have Lx0u : le x0 u := le_trans Vx0 Vu0 Vu Lx0 Hle.
+        have Cx0xt : compatible x0 xt.
+        { eapply le_compatible_pair; [exact Vu | exact Lx0u | exact Lxt]. }
+        have Vlub : valid (lub x0 xt) := valid_lub Cx0xt Vx0 Vxt.
+        have WTlub : wt (lub x0 xt) a := wt_lub Wtx0 Cx0xt Wtxt.
+        exists (lub x0 xt), WTlub.
+        split; [ exact (le_sup_lub Lx0u Lxt) |].
+        have E_v0 : EvalRel M (lub x0 xt .: ρ') v0.
+        { eapply EvalRel_mono_env;
+            [ exact ER0v
+            | apply valid_cons; [exact Vx0 | exact Vρ0]
+            | apply valid_cons; [exact Vlub | exact Vρ']
+            | apply le_env_cons; [ exact (le_lub_left Cx0xt Vx0 Vxt) | exact LE0 ] ]. }
+        have E_t : EvalRel M (lub x0 xt .: ρ') (app gs' u).
+        { eapply EvalRel_mono_env;
+            [ exact ERt
+            | apply valid_cons; [exact Vxt | exact Vρt]
+            | apply valid_cons; [exact Vlub | exact Vρ']
+            | apply le_env_cons; [ exact (le_lub_right Cx0xt Vx0 Vxt) | exact LEt ] ]. }
+        move: (EvalRel_compatible_lub (valid_cons Vlub Vρ') E_v0 E_t) => [_ hlub].
+        rewrite -APP app_cons_eq Hle. apply hlub. reflexivity.
+      * (* ~ le u0 u : app ((u0,v0)::gs') u = app gs' u *)
+        exists xt, Wtxt. split; [exact Lxt |].
+        rewrite -APP app_cons_eq Hle.
+        eapply EvalRel_mono_env;
+          [ exact ERt
+          | apply valid_cons; [exact Vxt | exact Vρt]
+          | apply valid_cons; [exact Vxt | exact Vρ']
+          | apply le_env_cons; [ apply le_refl; exact Vxt | exact LEt ] ].
+Qed.
 
 (** ** Main forward witness lemma *)
 
@@ -538,7 +599,7 @@ Proof.
         exact (EvalRel_mono_env ERxv Vρxv V1 LE). }
       exists x. exists Wtx. exists ρ_uv. by repeat split. }
 
-    move: (@fold_edge_fwd _ _ σ ρ M2 a l ρA Vρ VρA SRρA body')
+    move: (@fold_edge_fwd _ _ σ ρ M2 a l ρA Vf Vρ VρA SRρA body')
       => [ρ' [Vρ' [SRρ' [LEρA bodyAll]]]].
     exists ρ'. split; [|split]; auto.
     repeat split; eauto.
@@ -620,7 +681,7 @@ Proof.
         exact (EvalRel_mono_env ERxv Vρxv V1 LE). }
       fold fin in ρ_uv.
       exists x, Wtx, ρ_uv. by repeat split. }
-    move: (@fold_edge_fwd _ _ σ ρ M2 a0 l ρA1 Vρ VρA1 SRρA1 body')
+    move: (@fold_edge_fwd _ _ σ ρ M2 a0 l ρA1 Vf Vρ VρA1 SRρA1 body')
       => [ρ' [Vρ' [SRρ' [LEρ' bodyAll]]]].
     exists ρ'. split; [|split]; first done.
     { exact SRρ'. }

@@ -179,12 +179,21 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     conv Γ M N tnat ->
     conv Γ (succ M) (succ N) tnat
   | c_abs n (Γ : Ctx n) A A' B M M' :
+    typing Γ A tuniv ->
+    typing Γ A' tuniv ->
+    typing (Γ ++ A) B tuniv ->
+    typing (Γ ++ A) M B ->
+    typing (Γ ++ A) M' B ->
     conv Γ A A' tuniv ->
     conv (Γ ++ A) M M' B ->
     conv Γ (abs A M) (abs A' M') (tpi A B)
   | c_tpi n (Γ : Ctx n) A0 A1 B0 B1 :
-    conv Γ A0 A1 tuniv -> 
-    conv (Γ ++ A0) B0 B1 tuniv -> 
+    typing Γ A0 tuniv ->
+    typing Γ A1 tuniv ->
+    typing (Γ ++ A0) B0 tuniv ->
+    typing (Γ ++ A1) B1 tuniv ->
+    conv Γ A0 A1 tuniv ->
+    conv (Γ ++ A0) B0 B1 tuniv ->
     conv Γ (tpi A0 B0) (tpi A1 B1) tuniv
 with ctx : forall {n}, Ctx n -> Prop :=
   | c_empty : ctx ctx_empty
@@ -411,12 +420,9 @@ Proof.
         (δ := up_ren δ) (B := ⟨up_ren δ⟩ B) in h; eauto.
       cbn in h. 
       admit.
-    + (* c_abs  *)
+    (* c_abs is now discharged by the [all: try solve] above *)
+    + (* c_tpi *)
       admit.
-    (*
-    + (* c_nrec_Z *) admit.
-    + (* c_nrec_S *) admit. *)
-    + (* c_tpi *) 
 Admitted.
 
 (* All typed in well-formed contexts are well-formed *)

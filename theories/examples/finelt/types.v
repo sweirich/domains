@@ -180,7 +180,16 @@ Qed.
 Lemma wt_tpi_tail a u v g : 
   wt (tpi a ((u,v)::g)) tuniv -> wt (tpi a g) tuniv.
 Proof.
-Admitted.
+  intro h. inversion h.
+  eapply wt_tpi; eauto.
+  - intros ui vi Ing.
+    eapply H2; eauto. right. eauto.
+  - intros ui vi Ing.
+    eapply H3; eauto. right. eauto.
+  - apply valid_tpi_inv in H4. move: H4 => [Va Vl].
+    eapply valid_tpi_intro; eauto.
+    eapply valid_fun_tail; eauto.
+Qed.
 
 Lemma wt_abs_tail u v w b f :
   wt (abs ((u,v)::w)) (tpi b f) -> ~~is_nil w ->
@@ -193,7 +202,10 @@ Proof.
   move: (valid_fun_tail Vw) => Vt.
   move: (valid_fun_head Vw) => Vh.
   eapply wt_abs; eauto. 
-Admitted.
+  - intros ui vi Inw. eapply H2; eauto. right; eauto.
+  - intros ui vi Inw. eapply H3; eauto. right; eauto.
+  - cbn. rewrite Vt. rewrite Nw. done.
+Qed.
 
 
 From Stdlib Require Import Psatz.

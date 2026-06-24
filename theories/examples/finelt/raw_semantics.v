@@ -716,7 +716,7 @@ Proof.
   - (* tpi A B *)
     rename M1 into A. rename M2 into B.
     (* The tpi case requires full lub-of-tpi construction.
-       Admitted; mirrors the abs case structurally. *)
+       mirrors the abs case structurally. *)
     admit.
   - (* tuniv *)
     move=> L1 L2.

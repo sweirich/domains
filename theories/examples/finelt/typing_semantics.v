@@ -991,7 +991,6 @@ Lemma InvConv_nrec_Z : forall (n : nat) (Γ : Ctx n) (M0 M1 : Tm n) (T : Tm (S n
     Γ  ⊨ M0 ∈ T[Core.zero..] ->
     Γ  ⊨ M1 ∈ (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
     Γ  ⊨ (Core.app (nrec T M0 M1) Core.zero) ≡ M0 ∈ T[Core.zero..].
-Admitted.
 
 Lemma InvConv_nrec_S : forall (n : nat) (Γ : Ctx n) (T : Tm (S n)) (M0 M1 n0 : Tm n),    
     typing (Γ ++ Core.tnat) T Core.tuniv ->
@@ -1002,7 +1001,6 @@ Lemma InvConv_nrec_S : forall (n : nat) (Γ : Ctx n) (T : Tm (S n)) (M0 M1 n0 : 
     Γ ⊨ M1 ∈ (Core.tpi Core.tnat (Core.tpi T (⟨↑⟩ T[rho]))) ->
     Γ ⊨ (Core.app (nrec T M0 M1) (Core.succ n0)) ≡ 
       (Core.app (Core.app M1 n0) (Core.app (nrec T M0 M1) n0)) ∈ T[(Core.succ n0)..].
-Admitted.
 *)
 
 Lemma InvConv_tpi : forall (n : nat) (Γ : Ctx n) (A0 A1 : Tm n) (B0 B1 : Tm (S n)),
@@ -1164,7 +1162,7 @@ Proof.
       * move=> x a Wx Wa EA.
         apply (typing_EvalRel _ _ _ _ hM (x .: ρ)).
         eapply fits_cons; eauto.
-    + (* c_eta: function extensionality at type A⟨↑⟩, see Admitted note. *)
+    + (* c_eta: function extensionality at type A⟨↑⟩ see note. *)
       move: ρ Fρ. eapply InvConv_eta; eauto. all: admit.
 (*
     + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
