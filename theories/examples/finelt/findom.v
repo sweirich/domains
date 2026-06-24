@@ -1884,8 +1884,56 @@ Proof.
   - move=> ui vi In /andP [_ Le]. eapply app_compatible ; eassumption.
 Qed.
 
-Lemma incompatible_lub a b: ~~(compatible a b) -> lub a b = bot.
-Admitted.
+Lemma lub_up_left : 
+  forall {a a0 b}, 
+    valid a0 -> valid a -> valid b ->
+    compatible a0 b ->
+    le a a0 -> le (lub a b) (lub a0 b).
+Proof.
+  move=> a a0 b Va0 Va Vb Cab LEa.
+  move: (le_sup_lub a b (lub a0 b)) => h1.
+  eapply h1.
+  - eapply (@le_trans _ a0); eauto.
+    eapply valid_lub; eauto.
+    eapply le_lub_left; eauto.
+  - eapply le_lub_right; eauto.
+Qed.  
+
+Lemma lub_up_right : 
+  forall {a b b0}, 
+    valid a -> valid b -> valid b0 ->
+    compatible a b0 ->
+    le b b0 -> le (lub a b) (lub a b0).
+Proof.
+  move=> a b b0 Va Vb Vb0 Cab LEb.
+  move: (le_sup_lub a b (lub a b0)) => h1.
+  eapply h1.
+  eapply le_lub_left; eauto.
+  eapply (@le_trans _ b0); eauto.    
+  eapply valid_lub; eauto.
+  eapply le_lub_right; eauto.
+Qed.  
+
+
+Lemma lub_up : 
+  forall {a b c a0 b0 c0}, 
+    valid a -> valid b ->
+    valid a0 -> valid b0 ->
+    compatible a0 b0 ->
+    le a a0 -> le b b0 -> lub a b = c -> lub a0 b0 = c0 -> le c c0.
+Proof.
+  intros a b c a0 b0 c0 Va Vb Va0 Vb0 C0 La Lb LUB LUB0.
+  subst.
+  have Cab : compatible a b. eapply comp_down_pair; eauto.
+  have Ca0 : compatible a0 b. 
+  eapply (comp_down_pair _ _ _ _ C0); eauto. eapply le_refl; eauto.
+  have Vc: valid (lub a b). eapply valid_lub; eauto.
+  have V1: valid (lub a0 b). eapply valid_lub; eauto.
+  have Vc0: valid (lub a0 b0). eapply valid_lub; eauto.
+  eapply (@le_trans _ (lub a0 b)); eauto. 
+  eapply lub_up_left; eauto.
+  eapply lub_up_right; eauto.
+Qed.
 
 
 (* ------------------------------------------------------------ *)

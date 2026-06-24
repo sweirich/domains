@@ -520,11 +520,6 @@ Proof.
 Qed.
 
 
-Lemma lub_up : 
-  forall a b c a0 b0 c0, 
-    le a a0 -> le b b0 -> lub a b = c -> lub a0 b0 = c0 -> le c c0.
-Proof.
-Admitted.
 
 Lemma EvalRel_compatible_lub {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
@@ -697,7 +692,9 @@ Proof.
       have Ve : valid (lub a b) by eapply (valid_lub Cab); eauto.
       have [w EQ] : { w & lub a0 b0 = w } by exists (lub a0 b0).
       specialize (IH0 _ EQ).
-      move: (lub_up LEa LEb (erefl : lub a b = lub a b) EQ) => LEw.
+      have Va0 : valid a0. eapply EvalRel_valid; eauto. 
+      have Vb0 : valid b0. eapply EvalRel_valid; eauto.
+      move: (lub_up Va Vb Va0 Vb0 C0 LEa LEb (erefl : lub a b = lub a b) EQ) => LEw.
       cbn. split.
       by rewrite Ve.
       exists w. rewrite le_succ. split; eauto.
