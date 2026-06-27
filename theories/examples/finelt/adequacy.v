@@ -423,11 +423,6 @@ Proof.
   - (* t_univ *) cbn. eapply c_refl. eapply t_univ. exact CΔ.
 Qed.
 
-Lemma ConvSub_sym {h} {g} (Δ : Ctx h) (Γ : Ctx g) (σ1 σ2 : Sub g h) :
-  ConvSub Δ Γ σ1 σ2 -> ConvSub Δ Γ σ2 σ1.
-Proof.
-Admitted.
-
 (* [semantic_typing] bundles the two value-only results of
    [MIN/Adequacy/Value.agda] over a well-typed [M : A]:
      - [adequacySub2]     : [Val]   at [M[σ]]            (one substitution),
@@ -2158,7 +2153,29 @@ Lemma sc_beta A B M N :
   semantic_typing Γ M A ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.app (Core.abs A N) M) N[M..] B[M..].
-Proof. Admitted.
+Proof.
+  move=> TA TB TN TM STA STB STN STM.
+  (* the redex [app (abs A N) M] is semantically well-typed at [B[M..]]
+     (st_abs then st_app); we use its reflexive [EqVal] and contract the
+     second side along the beta head-reduction to [N[M..]]. *)
+  have Tabs : typing Γ (Core.abs A N) (Core.tpi A B)
+    by (eapply t_abs; [ exact TA | exact TB | exact TN ]).
+  have STabs : semantic_typing Γ (Core.abs A N) (Core.tpi A B)
+    by (eapply st_abs; [ exact TA | exact TB | exact STA | exact STB | exact STN ]).
+  have ST_app : semantic_typing Γ (Core.app (Core.abs A N) M) B[M..]
+    by (eapply st_app;
+        [ exact TA | exact TB | exact Tabs | exact TM
+        | exact STA | exact STB | exact STabs | exact STM ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evApp evB RB Hrank.
+  have eqApp :=
+    proj2 (ST_app ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+             CD u a WT evApp evB).
+  eapply EqVal_headred_contract.
+  - apply ms_refl.
+  - rewrite subst1_subst_comm.
+    eapply ms_trans; [ apply hr_beta | apply ms_refl ].
+  - exact (eqApp RB Hrank).
+Qed.
 
 (* c_eta: function extensionality *)
 Lemma sc_eta A B (N N' : Tm n) :
@@ -2176,7 +2193,109 @@ Lemma sc_eta A B (N N' : Tm n) :
                           (Core.app N'⟨↑⟩ (var var_zero)) B ->
 (* ------------------------- *)
   semantic_conv2 Γ N N' (Core.tpi A B).
-Proof. Admitted.
+Proof.
+  move=> TA TB TN TN' CBody STA STB STN STN' SC_body.
+  have CNN' : conv Γ N N' (Core.tpi A B)
+    by (eapply c_eta; [ exact TA | exact TB | exact TN | exact TN' | exact CBody ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evN evTpi.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  (* [N'] reaches the same value [u] by conversion soundness *)
+  move: (conv_EvalRel CNN' FR) => [_ [_ [fwd _]]].
+  have evN' : EvalRel N' ρ u := fwd u evN.
+  have evTpi0 := evTpi. cbn in evTpi.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  destruct a as [ | | | | | b f_ty | ];
+    try solve [ exfalso; clear -evTpi; cbn in evTpi; done ].
+  - (* a = bot: the type value is [bot], so [u = bot] *)
+    have Eu := wt_bot_inv WT. subst u. apply EqVal_Bot.
+  - (* a = tpi b f_ty *)
+    move: evTpi => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
+    destruct u as [ | | | | | | g_val ];
+      try solve [ exfalso; clear -WT; inversion WT ].
+    + (* u = bot *) apply EqVal_Bot.
+    + (* u = abs g_val *)
+      (* the two [ValPi]s from [STN]/[STN'] at the shared value [abs g_val] *)
+      have VM : Val (S RB) Δ N[σ] (Core.tpi A B)[σ] WT.
+      { have [vM _] :=
+          STN ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+              CD (abs g_val) (tpi b f_ty) WT evN evTpi0.
+        exact (vM (S RB) Hrank). }
+      have VN' : Val (S RB) Δ N'[σ] (Core.tpi A B)[σ] WT.
+      { have [vN _] :=
+          STN' ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+               CD (abs g_val) (tpi b f_ty) WT evN' evTpi0.
+        exact (vN (S RB) Hrank). }
+      rewrite Val_abs in VM. rewrite Val_abs in VN'.
+      move: VM => [VTd VPiM]. move: VN' => [_ VPiN'].
+      rewrite EqVal_abs.
+      split; [ exact VTd | ]. split; [ exact VPiM | ]. split; [ exact VPiN' | ].
+      (* codomain-type evaluation edge (mirrors [st_abs]) *)
+      have bodyB : forall u0, valid u0 -> EvalRel B (u0 .: ρ) (app f_ty u0).
+      { move=> u0 Vu0.
+        destruct (EFunB u0 (app f_ty u0) Vu0 erefl) as [y [WTy [Ley EBy]]].
+        have Vy : valid y := wt_valid_tm WTy.
+        eapply EvalRel_mono_env;
+          [ exact EBy | apply valid_cons; [ exact Vy | exact Vρ ]
+          | apply valid_cons; [ exact Vu0 | exact Vρ ]
+          | apply le_env_cons; [ exact Ley | apply le_env_refl; exact Vρ ] ]. }
+      have Vg : valid_fun g_val := proj1 (andb_prop _ _ (wt_valid_tm WT)).
+      (* the [EqValPi] edge: each related result equals via the body conversion *)
+      exists A[σ], B[⇑ σ]. split; [ apply ms_refl | ].
+      cbn [Rec.PiAppEqVal]. move=> u0 v0 Sel WTu0 P TP VP.
+      have Vu0 : valid u0 := wt_valid_tm WTu0.
+      have RKu0 : rk u0 <= rk_fun g_val := rk_Selection_key Sel.
+      have RKv0 : rk v0 <= rk_fun g_val := rk_Selection_val Sel.
+      have RKapp : rk (app f_ty u0) <= rk_fun f_ty := rk_app f_ty u0.
+      set WTcod := (wt_Selection_abs WT Sel).
+      destruct (is_bot v0) eqn:Bv0.
+      { have Ev0 : v0 = bot by (apply is_bot_eq; rewrite Bv0). subst v0. apply EqVal_Bot. }
+      have Vv0 : valid v0 := wt_valid_tm WTcod.
+      have NBv0 : ~~ le v0 bot.
+      { apply /negP => H. move/le_bot_inv: H => H. rewrite H /= in Bv0. discriminate Bv0. }
+      (* the eta-application evaluates: [app N⟨↑⟩ var0] at [(u0.:ρ)] reaches [v0] *)
+      have LEsing : le (u0 ↦ v0) (abs g_val).
+      { rewrite /singleton Bv0 le_abs le_fun_cons le_fun_nil andbT.
+        eapply Selection_le_app;
+          [ exact Vg | exact Vg | apply le_fun_refl; exact Vg | exact Vu0 | exact Sel ]. }
+      have Vsing : valid (u0 ↦ v0).
+      { rewrite /singleton Bv0 /= /_valid_fun /= !Bool.andb_true_r.
+        apply /andP; split.
+        2: by rewrite Vu0 Vv0.
+        apply /andP; split.
+        2: exact NBv0.
+        apply /implyP => _. by apply compatible_refl. }
+      have evNsing : EvalRel N ρ (u0 ↦ v0)
+        by (eapply EvalRel_down; [ exact Vρ | exact Vsing | exact evN | exact LEsing ]).
+      have evApp0 : EvalRel (Core.app N⟨↑⟩ (var var_zero)) (u0 .: ρ) v0.
+      { have -> : EvalRel (Core.app N⟨↑⟩ (var var_zero)) (u0 .: ρ) v0
+                = (exists w, EvalRel (N⟨↑⟩) (u0 .: ρ) (w ↦ v0)
+                          /\ EvalRel (var var_zero) (u0 .: ρ) w)
+          by (cbn [EvalRel]; rewrite Bv0; reflexivity).
+        exists u0. split.
+        - apply EvalRel_wk; exact evNsing.
+        - cbn. split; [ exact Vu0 | apply le_refl; exact Vu0 ]. }
+      (* extend the substitution to [(P .: σ)] over [Γ ++ A] *)
+      have VPall : forall RB0, max (rk u0) (rk b) < RB0 -> Val RB0 Δ P A[σ] WTu0.
+      { move=> RB0 Hr0. eapply (Val_fuel_any (k := RB));
+          [ cbn in Hrank; lia | cbn in Hrank; lia | lia | lia | exact VP ]. }
+      have HYP1 := dom_transport (A := A) STA FR TS VS CD (ρ := ρ) (Δ := Δ) (σ := σ) (N := P)
+                     (b := b) (u' := u0) (WTu' := WTu0) ERA_b VPall.
+      have VS1 : ValSub Δ (Γ ++ A) (P .: σ) (u0 .: ρ)
+        by (eapply ValSub_cons; [ exact HYP1 | exact VS ]).
+      have TS1 : typing_subst Δ (P .: σ) (Γ ++ A)
+        by (eapply typing_subst_cons; [ exact TP | exact TS ]).
+      have Fits : fits (Γ ++ A) (u0 .: ρ)
+        by (eapply fits_cons; [ exact TA | exact ERA_b | eapply wt_ty_tuniv; exact WTu0 | exact WTu0 | exact FR ]).
+      have eqBody := SC_body (u0 .: ρ) m Δ (P .: σ) TS1 Fits VS1 CD
+                       v0 (app f_ty u0) WTcod evApp0 (bodyB u0 Vu0).
+      have HrB : max (rk v0) (rk (app f_ty u0)) < RB by (cbn in Hrank; lia).
+      move: (eqBody RB HrB) => HvB.
+      have E1 : (Core.app N⟨↑⟩ (var var_zero))[P .: σ] = Core.app N[σ] P by asimpl.
+      have E2 : (Core.app N'⟨↑⟩ (var var_zero))[P .: σ] = Core.app N'[σ] P by asimpl.
+      rewrite E1 E2 (subst_cons_eq B P σ) in HvB.
+      exact HvB.
+Qed.
 
 (*
 (* c_nrec_Z: app (nrec T M0 M1) zero ≡ M0 : T[zero..] *)
