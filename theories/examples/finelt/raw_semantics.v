@@ -710,18 +710,43 @@ Proof.
     all: cbn.
     all: split; auto.
     all: move=> c h; inversion h; subst c; done.
-  - (* tpi A B *)
+  - (* tpi A B : mirrors the abs case, plus the domain [a] ([compatible a1 a2]
+       in [compatible], [lub a1 a2] in the lub of the two [tpi] values) *)
     rename M1 into A. rename M2 into B.
-    (* The tpi case requires full lub-of-tpi construction.
-       mirrors the abs case structurally. *)
-    admit.
+    destruct a; try done; destruct b; try done.
+    + (* bot, bot *)
+      move=> _ _. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. done.
+    + (* bot, tpi *)
+      move=> _ h1. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. subst. eapply h1.
+    + (* tpi, bot *)
+      move=> h1 _. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. subst. eapply h1.
+    + (* tpi, tpi *)
+      move=> [Va1 [Vg1 [EA1 [a1' [EA1' h1]]]]].
+      move=> [Va2 [Vg2 [EA2 [a2' [EA2' h2]]]]].
+      have Va1' : valid a1' by (eapply EvalRel_valid; eauto).
+      have Va2' : valid a2' by (eapply EvalRel_valid; eauto).
+      move: (IHM1 _ _ _ Vρ EA1 EA2) => [Ca1a2 h3].
+      move: (IHM1 _ _ _ Vρ EA1' EA2') => [Ca1'a2' h3'].
+      have [c' LUB'] : { c' & lub a1' a2' = c' } by exists (lub a1' a2').
+      destruct (EvalRel_fun_compatible Vρ IHM2 Ca1'a2' Va1' Vg1 h1 Va2' Vg2 h2 LUB')
+        as [Cgg EAPP].
+      split.
+      * cbn. apply /andP. split; [ exact Ca1a2 | exact Cgg ].
+      * move=> c LUB. cbn in LUB. rewrite Cgg in LUB. cbn in LUB. subst c.
+        split; [ by eapply valid_lub; eauto | ].
+        split; [ by eapply valid_append; eauto | ].
+        split; [ exact (h3 _ erefl) | ].
+        exists c'. split; [ exact (h3' _ LUB') | exact EAPP ].
   - (* tuniv *)
     move=> L1 L2.
     destruct a; try done; destruct b; try done.
     all: cbn.
     all: split; auto.
     all: move=> c h; inversion h; subst c; done.
-Admitted.
+Qed.
 
 Lemma EvalRel_compatible {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->

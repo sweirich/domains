@@ -1151,19 +1151,43 @@ Lemma st_succ M :
 Proof.
   move=> TM SM.
   intros ρ m Δ s s' Ts Ts' CS F VSs VSs' ES CD u a WT EN EU.
-  specialize (SM ρ m Δ s s' Ts Ts' CS F VSs VSs' ES CD). 
-  cbn in EN. 
-  cbn in EU.
-  destruct (is_bot a) eqn:IBa; destruct a; try done.
-  - inversion WT. subst. cbn in EN.
-    split; intros RB LT; destruct RB; done.
-  - destruct (is_bot u) eqn:IBu.
-    + destruct u; try done. 
-      split; intros RB LT; destruct RB; done.
-    + destruct EN as [Vu [a [leS ERa]]].
-      destruct u; autorewrite with le in leS; try done.
-      inversion WT.
-Admitted.
+  have Vρ : valid_env ρ := fits_valid_env F.
+  specialize (SM ρ m Δ s s' Ts Ts' CS F VSs VSs' ES CD).
+  (* [u = bot] is trivial in both conjuncts *)
+  destruct (is_bot u) eqn:Bu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Bu). subst u.
+    split; intros RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
+  (* [u <> bot]: [EvalRel (succ M) ρ u] gives [u <= succ v] and [EvalRel M ρ v] *)
+  move: EN. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
+  destruct u as [ | | | | w | b f | g ];
+    try discriminate; try (exfalso; move: LEuv; done).
+  (* only [u = succ w] survives *)
+  have Ea : a = tnat by (inversion WT; reflexivity). subst a.
+  move: LEuv. rewrite le_succ. move=> Lwv.
+  have Vw : valid w by (eapply wt_valid_tm; eapply wt_succ_inv; exact WT).
+  have EMw : EvalRel M ρ w by (eapply EvalRel_down; [ exact Vρ | exact Vw | exact EMv | exact Lwv ]).
+  have evN : EvalRel Core.tnat ρ tnat by (cbn; apply le_refl).
+  split.
+  - (* Val (succ M)[σ] : tnat, at value [succ w] *)
+    intros RB Hrank. destruct RB as [ | RB' ]; [ cbn in Hrank; lia | ].
+    rewrite Val_succ. exists M[s]. split; [ apply ms_refl | ].
+    destruct (is_bot w) eqn:Bw.
+    { have Ew : w = bot by (apply is_bot_eq; rewrite Bw).
+      move: (wt_succ_inv WT). rewrite Ew. move=> wb. apply Val_Bot. }
+    have RPw : 1 <= rk w := rk_pos Bw.
+    apply (proj1 (SM w tnat (wt_succ_inv WT) EMw evN) RB').
+    cbn in Hrank |- *. lia.
+  - (* EqVal (succ M)[σ] (succ M)[σ'] : tnat *)
+    intros RB Hrank. destruct RB as [ | RB' ]; [ cbn in Hrank; lia | ].
+    rewrite EqVal_succ. exists M[s]. split; [ apply ms_refl | ].
+    exists M[s']. split; [ apply ms_refl | ].
+    destruct (is_bot w) eqn:Bw.
+    { have Ew : w = bot by (apply is_bot_eq; rewrite Bw).
+      move: (wt_succ_inv WT). rewrite Ew. move=> wb. apply EqVal_Bot. }
+    have RPw : 1 <= rk w := rk_pos Bw.
+    apply (proj2 (SM w tnat (wt_succ_inv WT) EMw evN) RB').
+    cbn in Hrank |- *. lia.
+Qed.
 
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
