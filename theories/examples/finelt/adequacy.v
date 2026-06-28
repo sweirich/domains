@@ -864,10 +864,10 @@ Proof.
   asimpl. asimpl in valMA. asimpl in eqvalMA. asimpl in eqAB.
   split.
   - move=> RB Hrank. eapply Val_EqVal_fwd;
-      [ exact (valMA RB Hrank)
+      [ cbn in Hrank; lia | cbn in Hrank; lia | exact (valMA RB Hrank)
       | eapply EqVal_EqValTy; eapply (eqAB (S RB)); cbn in Hrank |- *; lia ].
   - move=> RB Hrank. eapply EqVal_EqVal_fwd;
-      [ exact (eqvalMA RB Hrank)
+      [ cbn in Hrank; lia | cbn in Hrank; lia | exact (eqvalMA RB Hrank)
       | eapply EqVal_EqValTy; eapply (eqAB (S RB)); cbn in Hrank |- *; lia ].
 Qed.
 
@@ -1046,7 +1046,10 @@ Proof.
       (* argument variation: [App sf' sa] vs [App sf' sa'] *)
       have Earg := pae' u_sel v_sel Sel WTu_sel N[σ] N[σ'] convNN' (eqvalN RBf HfN).
       (* combine by transitivity *)
-      have Ecomb := EqVal_trans Efun Earg.
+      have Hvsel : rk v_sel < RBf.
+      { have L := rk_Selection_val Sel. have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+        unfold RBf; lia. }
+      have Ecomb := EqVal_trans Hvsel Efun Earg.
       (* the edge codomain [app f u_sel] also evaluates [B[N..]] *)
       have evB_af : EvalRel B[N..] ρ (app f u_sel).
       { destruct (is_bot (app f u_sel)) eqn:Hbaf.
@@ -1415,7 +1418,7 @@ Proof.
   (* retype [Val P : A[σ]] to [A[σ']] via the *semantic* type-equality
      ([Val_EqVal_fwd]) — the Agda-faithful route (no syntactic-conv transport) *)
   have VPall' : forall RB0, max (rk u) (rk b) < RB0 -> Val RB0 Δ P A[σ'] WTu.
-  { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ exact (VPall RB0 Hr0) | ].
+  { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ cbn in Hr0; lia | cbn in Hr0; lia | exact (VPall RB0 Hr0) | ].
     eapply EqVal_EqValTy. eapply (eqA (S RB0)). cbn in Hr0 |- *; lia. }
   have EVall : forall RB0, max (rk u) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu.
   { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
@@ -1774,8 +1777,12 @@ Proof.
     have eqPi : EqVal (S (S RB)) Δ (Core.tpi A B)[σ] (Core.tpi A B)[σ'] Core.tuniv (wt_abs_ty WT).
     { eapply st_tpi_EqVal_edge; try eassumption.
       cbn in Hrank |- *; lia. }
+    have eqPiSym : EqValTy (S RB) Δ (Core.tpi A B)[σ'] (Core.tpi A B)[σ] (wt_abs_ty WT).
+    { eapply EqValTy_sym; [ | exact (EqVal_EqValTy eqPi) ]. cbn in Hrank |- *; lia. }
     have VN : Val (S RB) Δ (Core.abs A M)[σ'] (Core.tpi A B)[σ] WT
-      by (eapply Val_EqVal_fwd; [ exact VN0 | exact (EqValTy_sym (EqVal_EqValTy eqPi)) ]).
+      by (eapply Val_EqVal_fwd;
+          [ lia | lia
+          | exact VN0 | exact eqPiSym ]).
     rewrite Val_abs in VM. rewrite Val_abs in VN.
     move: VM => [VTd VPiM]. move: VN => [_ VPiN].
     split; [ exact VTd | ]. split; [ exact VPiM | ]. split; [ exact VPiN | ].
@@ -1792,7 +1799,7 @@ Proof.
     have [_ eqA] :=
       STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ b tuniv (wt_ty_tuniv WTu0) ERA_b evU.
     have VPall' : forall RB0, max (rk u0) (rk b) < RB0 -> Val RB0 Δ P A[σ'] WTu0.
-    { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ exact (VPall RB0 Hr0) | ].
+    { move=> RB0 Hr0. eapply Val_EqVal_fwd; [ cbn in Hr0; lia | cbn in Hr0; lia | exact (VPall RB0 Hr0) | ].
       eapply EqVal_EqValTy. eapply (eqA (S RB0)). cbn in Hr0 |- *; lia. }
     have EVall : forall RB0, max (rk u0) (rk b) < RB0 -> EqVal RB0 Δ P P A[σ] WTu0.
     { move=> RB0 Hr0. eapply Val_EqVal; exact (VPall RB0 Hr0). }
@@ -1887,7 +1894,7 @@ Proof.
   have eqMN := SC1 ρ m Δ σ TS FR VS CD u a WT EM EA.
   have eqAB := SC2 ρ m Δ σ TS FR VS CD a tuniv WTa EA evU.
   move=> RB Hrank. eapply EqVal_EqVal_fwd;
-    [ exact (eqMN RB Hrank)
+    [ cbn in Hrank; lia | cbn in Hrank; lia | exact (eqMN RB Hrank)
     | eapply EqVal_EqValTy; eapply (eqAB (S RB)); cbn in Hrank |- *; lia ].
 Qed.
 
@@ -1932,7 +1939,7 @@ Proof.
   move: (conv_EvalRel C1 FR) => [_ [_ [_ bwd]]].
   have EM : EvalRel M ρ u by (apply bwd; exact EN).
   have h := h_conv ρ m Δ σ TS FR VS CD u a WT EM EA.
-  move=> RB Hrank. eapply EqVal_sym. exact (h RB Hrank).
+  move=> RB Hrank. eapply EqVal_sym; [ cbn in Hrank; lia | exact (h RB Hrank) ].
 Qed.
 
 (* c_trans: M ≡ N : A, N ≡ P : A ⟹ M ≡ P : A *)
@@ -1950,7 +1957,7 @@ Proof.
   have EN : EvalRel N ρ u by (apply fwd; exact EM).
   have e1 := SC1 ρ m Δ σ TS FR VS CD u a WT EM EA.
   have e2 := SC2 ρ m Δ σ TS FR VS CD u a WT EN EA.
-  move=> RB Hrank. eapply EqVal_trans; [ exact (e1 RB Hrank) | exact (e2 RB Hrank) ].
+  move=> RB Hrank. eapply EqVal_trans; [ cbn in Hrank; lia | exact (e1 RB Hrank) | exact (e2 RB Hrank) ].
 Qed.
 
 (* c_app1: N ≡ N' : (tpi A B), M : A ⟹ app N M ≡ app N' M : B[M..] *)
