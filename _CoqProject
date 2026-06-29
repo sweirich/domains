@@ -58,6 +58,13 @@ theories/directed.v
 # theories/examples/st_lam.v
 # theories/examples/st_lam_fix.v
 
+theories/autosubst/core.v
+theories/autosubst/fintype.v
+theories/examples/syntax/syntax.v
+theories/examples/syntax/typing.v
+theories/examples/syntax/relations.v
+theories/examples/syntax/reduction.v
+
 theories/examples/finelt/utils.v
 theories/examples/finelt/findom.v
 theories/examples/finelt/types.v
@@ -68,9 +75,3 @@ theories/examples/finelt/typing_semantics.v
 theories/examples/finelt/raw_validity.v
 theories/examples/finelt/adequacy.v
 
-theories/autosubst/core.v
-theories/autosubst/fintype.v
-theories/examples/syntax/syntax.v
-theories/examples/syntax/fin_util.v
-theories/examples/syntax/typing.v
-theories/examples/syntax/relations.v

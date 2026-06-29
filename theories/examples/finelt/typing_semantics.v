@@ -47,6 +47,7 @@ Require Import eval_substitution.
 
 Import SyntaxNotations.
 Import SubstNotations.
+Import typing.Notations.
 
 Open Scope syntax_scope.
 
@@ -105,7 +106,7 @@ Qed.
 
 Hint Resolve fits_valid_env : valid typing.
 
-(* Fits-var (LemmaForTS.agda): the value at every variable is well-typed
+(* Fits-var: the value at every variable is well-typed
    at the lookup of its type. *)
 
 Lemma fits_var {n} (Γ : Ctx n)(ρ : Env n) :

@@ -1,5 +1,4 @@
-(* Fundamental theorem of the logical relation
- *)
+(* Fundamental theorem of the logical relation *)
 
 
 From Stdlib Require Import Relations List Program
@@ -14,10 +13,10 @@ Unset Printing Implicit Defensive.
 Require Import smpl.Smpl.
 Require Import utils.all.
 
-
 Require Import syntax.syntax.
 Require Import syntax.typing.
 Require Import syntax.relations.
+Require Import syntax.reduction.
 
 Require Import findom.
 Import Raw.
@@ -31,7 +30,7 @@ Require Import eval_substitution.
 Open Scope subst_scope.
 Import SubstNotations.
 Import SyntaxNotations.
-
+Import typing.Notations.
 
 
 
@@ -2668,16 +2667,8 @@ u--     EqVal2 H M[σ] N[σ] A[σ]   ≈  EqVal M[σ] N[σ] A[σ] (h : wt u a)
 ------------------------------------------------------------------------
 *)
 
-(* adequacySub2 (Adequacy2.agda, p.660 Theorem 2 part 4):
 
-       HasType G M A
-     → CoherentEnv ρ, ValidSub2 H G σ ρ, Fits G ρ,
-       WtSub H G σ, WfCtx H
-     → (u : FinEl) -> EvalRel M ρ u
-     → (a : FinEl) -> EvalRel A ρ a ->  FinMem u a
-     → Val2 H M[σ] A[σ] u a
-
-   Rocq: well-typed terms are semantically typed.                *)
+(* well-typed terms are semantically typed.  *)
 Fixpoint adequacySub {g} (Γ : Ctx g) (M A : Tm g) :
   typing Γ M A -> semantic_typing Γ M A
 with adequacyEqSub {g} (Γ : Ctx g) (M N A : Tm g) :

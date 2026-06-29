@@ -31,17 +31,6 @@ Require Import types.
    a selection is a *join* of edges, typed at the value's domain, which
    transports across both type- and value-graph refinement.
 
-   Agda → Coq dictionary:
-     FinEl                 elt
-     FinFun                list (elt * elt)
-     Bot / Sup u v         bot / lub u v
-     Comp u v              compatible u v
-     Coherent u            valid u
-     CoherentFun(Tail)     valid_fun
-     FinMem a b            wt a b           (semantic membership = typing)
-     EvalFun f u           app f u
-     LeCode / LeFunCode    le / le_fun
-     FinMem-Sup-element     wt_lub
    ============================================================ *)
 
 (* ------------------------------------------------------------
@@ -268,3 +257,19 @@ Proof.
         by (apply le_fun_mono_arg; [ exact Vg | exact Vu' | exact Vju | exact Lu' ]).
       eapply le_trans; [ exact Vv' | exact Vgu' | exact Vgu | exact HIH | exact step ].
 Qed.
+
+(* ---- rank bounds for the key-/value-joins of a [Selection] ---- *)
+Lemma rk_Selection_key f u v : Selection f u v -> rk u <= rk_fun f.
+Proof.
+  induction 1 as [ | [pu pv] g u v S IH | pu pv g u v Cu Cv S IH ]; cbn; try lia.
+  move: (rk_lub pu u) => ?; lia.
+Qed.
+
+Lemma rk_Selection_val f u v : Selection f u v -> rk v <= rk_fun f.
+Proof.
+  induction 1 as [ | [pu pv] g u v S IH | pu pv g u v Cu Cv S IH ]; cbn; try lia.
+  move: (rk_lub pv v) => ?; lia.
+Qed.
+
+Lemma rk_pos e : is_bot e = false -> 1 <= rk e.
+Proof. destruct e; cbn; first discriminate; lia. Qed.

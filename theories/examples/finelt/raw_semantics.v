@@ -21,13 +21,6 @@ Import Raw.
 
 (* ------------------------------------------------- *)
 
-(* analogue of RawSemantics.agda.  
-
-   Unlike the version in Figure 1 of the paper, this semantics 
-   does not use finitary projection for some reason.
-
-*)
-
 (* Part 1: Finite environments *)
 
 Definition Env n := fin n -> elt.

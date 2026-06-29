@@ -15,118 +15,7 @@ Require Import utils.all.
 Require Import syntax.syntax.
 Require Import syntax.typing.
 Require Import syntax.relations.
-
-
-
-Import SyntaxNotations.
-Import SubstNotations.
-
-Open Scope syntax_scope.
-
-(* single-step head reduction *)
-Inductive HeadRed1 (n : nat) : Tm n -> Tm n -> Prop := 
- | hr_beta A M N :
-    HeadRed1 (app (abs A M) N) M[N..]
- | hr_app  M1 M2 N :
-    HeadRed1 M1 M2 -> 
-    HeadRed1 (app M1 N) (app M2 N).
-
-(* reflexive-transitive closure *)
-Definition HeadRed (n : nat) : Tm n -> Tm n -> Prop := 
-  multi (@HeadRed1 n).
-
-Lemma ms_app {n:nat} (M1 M2 : Tm (S n)) N :
-   HeadRed M1 M2 -> HeadRed (app M1 N) (app M2 N).
-Proof.
-  intro h.
-  induction h; eauto. eapply ms_refl.
-  eapply ms_trans; eauto. eapply hr_app; eauto.
-Qed.
-
-Lemma HeadRed1_det (n:nat) (M N P : Tm n) : 
-  HeadRed1 M N -> HeadRed1 M P -> N = P.
-Proof.
-  move=> h1 h2.
-  induction M.
-  all: inversion h1; inversion h2; subst. 
-  - inversion H3. done.
-  - inversion H5.
-  - inversion H2.
-  - rewrite (@IHM1 M3 M5) ; eauto.
-Qed.
-
-Lemma HeadRed_tpi_det (n:nat) (M : Tm n) A1 B1 A2 B2 : 
-  HeadRed M (Core.tpi A1 B1) -> HeadRed M (Core.tpi A2 B2) ->
-  A1 = A2 /\ B1 = B2.
-Proof.
-  move=> h1. move:A2 B2.
-  dependent induction h1.
-  all: move=> A2 B2 h2. 
-  - inversion h2; subst. done. inversion H.
-  - inversion h2; subst. inversion H.
-    specialize (IHh1 _ _ ltac:(reflexivity) A2 B2).
-    have EQ: e2 = e3. eapply HeadRed1_det; eauto.
-    subst.
-    eauto.
-Qed.
-
-Lemma HeadRed_tpi_eq {n}( A1 : Tm n) B1 A2 B2 :
-   HeadRed (Core.tpi A1 B1) (Core.tpi A2 B2) -> 
-   A1 = A2 /\ B1 = B2.
-Proof. 
-  move=> R1.
-  have R2: HeadRed (Core.tpi A1 B1) (Core.tpi A1 B1).
-  { eapply ms_refl. }
-  eapply HeadRed_tpi_det; eauto.
-Qed.
-
-Lemma typing_app_inv n (Γ : Ctx n) M N A : 
- typing Γ (app M N) A -> 
-      exists A1 , exists A2, typing Γ M (tpi A1 A2) /\ typing Γ N A1 /\ conv Γ A2[N..] A tuniv.
-Proof. 
-  move=> h.
-  dependent induction h.
-  - specialize (IHh M N ltac:(eauto)).
-    destruct IHh as [A1 [A2 [TM [TN CC]]]].
-    exists A1. exists A2. repeat split; auto.
-    eapply c_trans; eauto.
-  - clear IHh1 IHh2 IHh3 IHh4.
-    exists A. exists B. repeat split; auto.
-    eapply c_refl; eauto.
-    eapply substitution_tm with (σ := N..) in h2. cbn in h2.
-    eapply h2.
-    eapply typing_subst_cons. asimpl. auto.
-    eapply typing_subst_id. eapply typing_ctx; eauto.
-    eapply typing_ctx; eauto.
-Qed.
-
-Lemma typing_abs_inv n (Γ : Ctx n) M A B: 
- typing Γ (abs A M) B -> 
-      exists B2, typing (Γ ++ A) M B2 /\ conv Γ (tpi A B2) B tuniv.
-Proof. 
-  move=>h.
-  dependent induction h.
-  - specialize (IHh M A ltac:(eauto)).
-    destruct IHh as [B2 [TM CC]].
-    exists B2. repeat split; auto.
-    eapply c_trans; eauto.
-  - clear IHh1 IHh2 IHh3.
-    exists B. repeat split; auto.
-    eapply c_refl; eauto.
-    eapply t_tpi; eauto.
-Qed.
-
-
-Lemma HeadRed1_conv {n} Γ (M N : Tm n) A :
-  HeadRed1 M N -> typing Γ M A -> conv Γ M N A.
-Proof.
-  move=> h. induction h.
-  - move=> T.
-    destruct (typing_app_inv T) as [A1 [A2 [T1 [T3 C1]]]].
-    destruct (typing_abs_inv T1) as [B2 [T2 C2]].
-    eapply c_conv. 2: eassumption.
-    eapply c_beta; eauto.
-Abort.    
+Require Import syntax.reduction.
 
 From Stdlib Require Import ProofIrrelevance.
 Require Import finelt.utils.
@@ -134,41 +23,37 @@ Require Import findom.
 Require Import types.
 Require Import selection.
 
+Import SyntaxNotations.
+Import SubstNotations.
+Import typing.Notations.
+
+Open Scope syntax_scope.
+
 Import Raw.
 
+(** * Logical relations between syntactic terms/types and well-typed finite elements. *)
 
-(* Logical relation, defined by recursion on rank.
+(* The main relations are: 
 
-   The relation is parameterized by a typing context Γ : Ctx n.
-   Terms M, N, A live at scope n; substitutions B[N..] close one
-   variable, producing terms at scope n in the same context Γ.
+      Val Γ M A (h: wt u a) : relating syntactically typeable terms to finite elements u 
+ 
+      EqVal Γ M N A (h: wt u a) : relating syntactically convertible terms M and N to finite elements u.
 
-   This is a coinductive definition. As u is "more defined" the
-   set of syntactic terms in the relation becomes smaller.
-   To begin, when u is bot, it is the total set.
+   This relation is defined by recursion on the rank of the finite elements
+   and their types. As u and a are "more defined" the set of syntactic
+   elements in the relation becomes smaller.  To begin, when u is bot, these relations
+   include all well-scoped terms M and A.  *)
 
-*)
 
+Module Rec.
 
 (* This module defines various helper operations on the logical
    relation. Each of these operations is parameterized by the
-   two main fixpoints (Val and EqVal) which are polymorphic in
-   the context size n and the typing context Γ.
-*)
-Module Rec.
-
-Record F := MkF {
-   Val   : forall {n} (Γ : Ctx n),
-              Tm n -> Tm n -> forall u a, wt u a -> Prop;
-   EqVal : forall {n} (Γ : Ctx n),
-              Tm n -> Tm n -> Tm n -> forall u a, wt u a -> Prop;
-}.
+   two main fixpoints (Val and EqVal) which has been instantiated at
+   a specific rank. *)
 
 Section Helpers.
       
-Variable 
-   RB    : nat.
-
 Variable 
    Val   : forall {n} (Γ : Ctx n),
               Tm n -> Tm n -> forall u a, wt u a -> Prop.
@@ -176,15 +61,8 @@ Variable
    EqVal : forall {n} (Γ : Ctx n),
               Tm n -> Tm n -> Tm n -> forall u a, wt u a -> Prop.
 
-
-(* TODO: could PiEdgeVal/PiEdgeEq use Selection instead of app?
-   would that make a difference to the rest of the development? *)
-
 (* Unary analog of [PiEdgeEq]: for any argument [N] in the relation at
-   the domain [A], the codomain [B[N..]] is in the relation (as a type).
-   Like [PiEdgeEq], the quantified argument is rank-bounded by [RKu] so
-   the (otherwise unbounded) domain occurrence of [Val] stays within the
-   well-founded [max]-rank measure of [ValF]/[EqValF]. *)
+   the domain [A], the codomain [B[N..]] is in the relation (as a type). *)
 (* The *type* edges, like the value edges below, quantify over a
    [Selection f u v] of the codomain (type) graph [f]: [u] is the key-join
    (typed at the domain [b]), [v] the value-join (typed at [tuniv], since
@@ -280,7 +158,7 @@ Definition ValTy {n} (Γ : Ctx n)
                /\ valid (tpi b g)
 
                (* domain (b) is in the relation *)
-               /\ Val  Γ A Core.tuniv (wt_tpi_dom h)
+               /\ Val Γ A Core.tuniv (wt_tpi_dom h)
 
                (* the codomain edge: related arguments give related results *)
                /\ PiEdgeVal Γ A B h
@@ -437,157 +315,102 @@ with EqVal (k : nat) {n} (Γ : Ctx n)
 Arguments Val : clear implicits.
 Arguments EqVal : clear implicits.
 
-(* Parameterised abbreviations for the [Rec.*] helpers, with the
-   [RB]-instances of [Val]/[EqVal] plugged in. *)
-Notation ValTy RB      := (Rec.ValTy (@Val RB) (@EqVal RB)).
-Notation EqValTy RB    := (Rec.EqValTy (@Val RB) (@EqVal RB)).
-Notation ValPi RB      := (Rec.ValPi (@Val RB) (@EqVal RB)).
-Notation EqValPi RB    := (Rec.EqValPi (@Val RB) (@EqVal RB)).
-Notation PiEdgeEq RB   := (Rec.PiEdgeEq (@EqVal RB)).
-Notation PiEdgeVal RB  := (Rec.PiEdgeVal (@Val RB)).
-Notation PiAppVal RB   := (Rec.PiAppVal (@Val RB)).
-Notation PiAppEq RB    := (Rec.PiAppEq (@EqVal RB)).
-Notation PiAppEqVal RB := (Rec.PiAppEqVal (@Val RB) (@EqVal RB)).
-Notation PiEdgeEqTy RB := (Rec.PiEdgeEqTy (@Val RB) (@EqVal RB)).
+(* Parameterised abbreviations for the [Rec.*] helpers *)
+Notation ValTy k      := (Rec.ValTy (@Val k) (@EqVal k)).
+Notation EqValTy k    := (Rec.EqValTy (@Val k) (@EqVal k)).
+Notation ValPi k      := (Rec.ValPi (@Val k) (@EqVal k)).
+Notation EqValPi k    := (Rec.EqValPi (@Val k) (@EqVal k)).
+Notation PiEdgeEq k   := (Rec.PiEdgeEq (@EqVal k)).
+Notation PiEdgeVal k  := (Rec.PiEdgeVal (@Val k)).
+Notation PiAppVal k   := (Rec.PiAppVal (@Val k)).
+Notation PiAppEq k    := (Rec.PiAppEq (@EqVal k)).
+Notation PiAppEqVal k := (Rec.PiAppEqVal (@Val k) (@EqVal k)).
+Notation PiEdgeEqTy k := (Rec.PiEdgeEqTy (@Val k) (@EqVal k)).
 
 Arguments Val _ {n} Γ M A {u} {a} h.
 Arguments EqVal _ {n} Γ M N A {u} {a} h.
-
-(* [Val]/[EqVal] only unfold via [Val_eq]/[EqVal_eq] below. *)
-(*
-Arguments Val : simpl never.
-Arguments EqVal : simpl never.
-*)
-(* ============================================================
-   Unfolding equations.
-
-   [Val]/[EqVal] are [ValF]/[EqValF], which are structural fixpoints on
-   the fuel [RB].  Unfolding [Val (S RB)] one step exposes the helpers
-   and recursive occurrences at fuel [RB] -- so these equations hold
-   *definitionally* ([reflexivity]); there is no fuel-irrelevance axiom.
-   ============================================================ *)
-
-Lemma Val_eq {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) RB :
-  Val (S RB) Γ M A h =
-  (match a as a0 return wt u a0 -> Prop with
-   | bot => fun _ => True
-   | tuniv => fun h => ValTy RB Γ M h
-   | tpi b f => fun h =>
-       (match u as u0 return wt u0 (tpi b f) -> Prop with
-        | abs g => fun h => ValTy RB Γ A (wt_abs_ty h)
-                          /\ ValPi RB Γ M A h
-        | _ => fun _ => True
-        end) h
-   | tnat => fun h =>
-       (match u as u0 return wt u0 tnat -> Prop with
-        | zero => fun _ => HeadRed M Core.zero
-        | succ v => fun h => exists M1, HeadRed M (Core.succ M1)
-                           /\ Val RB Γ M1 Core.tnat (wt_succ_inv h)
-        | _ => fun _ => True
-        end) h
-   | _ => fun _ => True
-   end) h.
-Proof. reflexivity. Qed.
-
-Lemma EqVal_eq {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB :
-  EqVal (S RB) Γ M N A h =
-  (match a as a0 return wt u a0 -> Prop with
-   | bot => fun _ => True
-   | tuniv => fun h => ValTy RB Γ M h
-                    /\ ValTy RB Γ N h
-                    /\ EqValTy RB Γ M N h
-   | tpi b f => fun h =>
-       (match u as u0 return wt u0 (tpi b f) -> Prop with
-        | abs g => fun h => ValTy RB Γ A (wt_abs_ty h)
-                          /\ ValPi RB Γ M A h
-                          /\ ValPi RB Γ N A h
-                          /\ EqValPi RB Γ M N A h
-        | _ => fun _ => True
-        end) h
-   | tnat => fun h =>
-       (match u as u0 return wt u0 tnat -> Prop with
-        | zero => fun _ => HeadRed M Core.zero /\ HeadRed N Core.zero
-        | succ v => fun h => exists M1, HeadRed M (Core.succ M1)
-                           /\ exists N1, HeadRed N (Core.succ N1)
-                           /\ EqVal RB Γ M1 N1 Core.tnat (wt_succ_inv h)
-        | _ => fun _ => True
-        end) h
-   | _ => fun _ => True
-   end) h.
-Proof. reflexivity. Qed.
 
 (* Per-constructor unfolding lemmas (the form actually used downstream).
    [Val]/[EqVal] at fuel [S RB] expose the helpers/recursive occurrences
    at fuel [RB] -- definitional, hence [reflexivity]. *)
 
-Lemma Val_tuniv {n} (Γ : Ctx n) M A u (h : wt u tuniv) RB :
-  Val (S RB) Γ M A h = ValTy RB Γ M h.
+Lemma Val_tuniv {n} (Γ : Ctx n) M A u (h : wt u tuniv) k :
+  Val (S k) Γ M A h = ValTy k Γ M h.
 Proof. reflexivity. Qed.
 
-Lemma Val_abs {n} (Γ : Ctx n) M A g b f (h : wt (abs g) (tpi b f)) RB :
-  Val (S RB) Γ M A h = (ValTy RB Γ A (wt_abs_ty h) /\ ValPi RB Γ M A h).
+Lemma Val_abs {n} (Γ : Ctx n) M A g b f (h : wt (abs g) (tpi b f)) k :
+  Val (S k) Γ M A h = (ValTy k Γ A (wt_abs_ty h) /\ ValPi k Γ M A h).
 Proof. reflexivity. Qed.
 
-Lemma Val_zero {n} (Γ : Ctx n) M A (h : wt zero tnat) RB :
-  Val (S RB) Γ M A h = HeadRed M Core.zero.
+Lemma Val_zero {n} (Γ : Ctx n) M A (h : wt zero tnat) k :
+  Val (S k) Γ M A h = HeadRed M Core.zero.
 Proof. reflexivity. Qed.
 
-Lemma Val_succ {n} (Γ : Ctx n) M A v (h : wt (succ v) tnat) RB :
-  Val (S RB) Γ M A h = (exists M1, HeadRed M (Core.succ M1) /\ Val RB Γ M1 Core.tnat (wt_succ_inv h)).
+Lemma Val_succ {n} (Γ : Ctx n) M A v (h : wt (succ v) tnat) k :
+  Val (S k) Γ M A h = (exists M1, HeadRed M (Core.succ M1) /\ Val k Γ M1 Core.tnat (wt_succ_inv h)).
 Proof. reflexivity. Qed.
 
-Lemma EqVal_tuniv {n} (Γ : Ctx n) M N A u (h : wt u tuniv) RB :
-  EqVal (S RB) Γ M N A h = (ValTy RB Γ M h /\ ValTy RB Γ N h /\ EqValTy RB Γ M N h).
+Lemma EqVal_tuniv {n} (Γ : Ctx n) M N A u (h : wt u tuniv) k :
+  EqVal (S k) Γ M N A h = (ValTy k Γ M h /\ ValTy k Γ N h /\ EqValTy k Γ M N h).
 Proof. reflexivity. Qed.
 
-Lemma EqVal_abs {n} (Γ : Ctx n) M N A g b f (h : wt (abs g) (tpi b f)) RB :
-  EqVal (S RB) Γ M N A h =
-  (ValTy RB Γ A (wt_abs_ty h) /\ ValPi RB Γ M A h /\ ValPi RB Γ N A h /\ EqValPi RB Γ M N A h).
+Lemma EqVal_abs {n} (Γ : Ctx n) M N A g b f (h : wt (abs g) (tpi b f)) k :
+  EqVal (S k) Γ M N A h =
+  (ValTy k Γ A (wt_abs_ty h) /\ ValPi k Γ M A h /\ ValPi k Γ N A h /\ EqValPi k Γ M N A h).
 Proof. reflexivity. Qed.
 
-Lemma EqVal_zero {n} (Γ : Ctx n) M N A (h : wt zero tnat) RB :
-  EqVal (S RB) Γ M N A h = (HeadRed M Core.zero /\ HeadRed N Core.zero).
+Lemma EqVal_zero {n} (Γ : Ctx n) M N A (h : wt zero tnat) k :
+  EqVal (S k) Γ M N A h = (HeadRed M Core.zero /\ HeadRed N Core.zero).
 Proof. reflexivity. Qed.
 
-Lemma EqVal_succ {n} (Γ : Ctx n) M N A v (h : wt (succ v) tnat) RB :
-  EqVal (S RB) Γ M N A h =
+Lemma EqVal_succ {n} (Γ : Ctx n) M N A v (h : wt (succ v) tnat) k :
+  EqVal (S k) Γ M N A h =
   (exists M1, HeadRed M (Core.succ M1) /\ exists N1, HeadRed N (Core.succ N1)
-            /\ EqVal RB Γ M1 N1 Core.tnat (wt_succ_inv h)).
+            /\ EqVal k Γ M1 N1 Core.tnat (wt_succ_inv h)).
 Proof. reflexivity. Qed.
 
 (* ============================================================
-   Val2-Bot, EqVal2-Bot: at u = bot, both relations are True.
+   Val2-Bot, EqVal2-Bot: at u = bot, both relations are total.
    ============================================================ *)
 
-Lemma Val_Bot {n} (Γ : Ctx n) (M A : Tm n) a (h : wt bot a) RB : Val RB Γ M A h.
+Lemma Val_Bot {n} (Γ : Ctx n) (M A : Tm n) a (h : wt bot a) k : Val k Γ M A h.
 Proof.
-  unfold Val. destruct RB as [|RB']; first exact I.
+  unfold Val. destruct k as [|k']; first exact I.
   revert h. destruct a; intro h; exact I.
 Qed.
 
-Lemma EqVal_Bot {n} (Γ : Ctx n) (M N A : Tm n) a (h : wt bot a) RB :
-  EqVal RB Γ M N A h.
+Lemma EqVal_Bot {n} (Γ : Ctx n) (M N A : Tm n) a (h : wt bot a) k :
+  EqVal k Γ M N A h.
 Proof.
-  unfold EqVal. destruct RB as [|RB']; first exact I.
+  unfold EqVal. destruct k as [|k']; first exact I.
   revert h. destruct a; intro h; repeat split; try exact I;
     dependent destruction h; exact I.
 Qed.
+
+(* ============================================================
+   wt judgement irrelevance
+   ============================================================ *)
 
 (* [Val]/[EqVal] depend on the typing derivation only up to proof
    irrelevance, so any two derivations of the same [wt u a] give the
    same relation.  Used to discharge the cases of [up_down_restrict]
    where the two element/type pairs coincide. *)
-Lemma Val_irr {n} (Γ : Ctx n) (M T : Tm n) u a (h h' : wt u a) RB :
-  Val RB Γ M T h -> Val RB Γ M T h'.
+Lemma Val_irr {n} (Γ : Ctx n) (M T : Tm n) u a (h h' : wt u a) k :
+  Val k Γ M T h -> Val k Γ M T h'.
 Proof. now rewrite (proof_irrelevance _ h h'). Qed.
 
-Lemma EqVal_irr {n} (Γ : Ctx n) (M N T : Tm n) u a (h h' : wt u a) RB :
-  EqVal RB Γ M N T h -> EqVal RB Γ M N T h'.
+Lemma EqVal_irr {n} (Γ : Ctx n) (M N T : Tm n) u a (h h' : wt u a) k :
+  EqVal k Γ M N T h -> EqVal k Γ M N T h'.
 Proof. now rewrite (proof_irrelevance _ h h'). Qed.
 
-Lemma ValTy_irr {n} (Γ : Ctx n) (M : Tm n) u (h h' : wt u tuniv) RB :
-  ValTy RB Γ M h -> ValTy RB Γ M h'.
+Lemma ValTy_irr {n} (Γ : Ctx n) (M : Tm n) u (h h' : wt u tuniv) k :
+  ValTy k Γ M h -> ValTy k Γ M h'.
 Proof. now rewrite (proof_irrelevance _ h h'). Qed.
+
+(* Proof-irrelevance for [wt]: needed to identify [Val]/[EqVal] proof
+   indices when the type/element are forced to coincide. *)
+Lemma wt_unique {u a} (h1 h2 : wt u a) : h1 = h2.
+Proof. apply proof_irrelevance. Qed.
 
 (* ============================================================
    Relations are trivial for bottom elements
@@ -597,19 +420,19 @@ Lemma is_bot_eq (a : elt) : is_bot a -> a = bot.
 Proof. by destruct a. Qed.
 
 (* At a [bot] (semantic) type the relations are trivially total. *)
-Lemma Val_isbot {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) RB :
-  is_bot a -> Val RB Γ M A h.
+Lemma Val_isbot {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a) k :
+  is_bot a -> Val k Γ M A h.
 Proof.
   move=> /is_bot_eq E. subst a.
-  unfold Val. destruct RB as [|RB']; first exact I.
+  unfold Val. destruct k as [|k']; first exact I.
   revert h. destruct u; intro h; exact I.
 Qed.
 
-Lemma EqVal_isbot {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB :
-  is_bot a -> EqVal RB Γ M N A h.
+Lemma EqVal_isbot {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) k :
+  is_bot a -> EqVal k Γ M N A h.
 Proof.
   move=> /is_bot_eq E. subst a.
-  unfold EqVal. destruct RB as [|RB']; first exact I.
+  unfold EqVal. destruct k as [|k']; first exact I.
   revert h. destruct u; intro h; exact I.
 Qed.
 
@@ -618,34 +441,34 @@ Qed.
    Val <-> ValTy  and  EqVal <-> EqValTy
    ============================================================ *)
 
-Lemma EqValTy_EqVal {n} (Γ : Ctx n) (A B : Tm n) a (h : wt a tuniv) RB :
-  EqValTy RB Γ A B h ->
-  EqVal (S RB) Γ A B Core.tuniv h.
+Lemma EqValTy_EqVal {n} (Γ : Ctx n) (A B : Tm n) a (h : wt a tuniv) k :
+  EqValTy k Γ A B h ->
+  EqVal (S k) Γ A B Core.tuniv h.
 Proof.
-  rewrite (EqVal_tuniv Γ A B Core.tuniv h RB).
+  rewrite (EqVal_tuniv Γ A B Core.tuniv h k).
   dependent destruction h; cbn [Rec.EqValTy] in * |- *; try done.
   move=> [hA [hB h1]]. eauto.
 Qed.
 
-Lemma EqVal_EqValTy {n} (Γ : Ctx n) (A B C : Tm n) a (h : wt a tuniv) RB :
-  EqVal (S RB) Γ A B C h ->
-  EqValTy RB Γ A B h.
+Lemma EqVal_EqValTy {n} (Γ : Ctx n) (A B C : Tm n) a (h : wt a tuniv) k :
+  EqVal (S k) Γ A B C h ->
+  EqValTy k Γ A B h.
 Proof.
-  rewrite (EqVal_tuniv Γ A B C h RB). by move=> [_ [_ ?]].
+  rewrite (EqVal_tuniv Γ A B C h k). by move=> [_ [_ ?]].
 Qed.
 
-Lemma ValTy_Val {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) RB :
-  ValTy RB Γ A h ->
-  Val (S RB) Γ A Core.tuniv h.
+Lemma ValTy_Val {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) k :
+  ValTy k Γ A h ->
+  Val (S k) Γ A Core.tuniv h.
 Proof.
-  rewrite (Val_tuniv Γ A Core.tuniv h RB). auto.
+  rewrite (Val_tuniv Γ A Core.tuniv h k). auto.
 Qed.
 
-Lemma Val_ValTy {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) RB :
-  Val (S RB) Γ A Core.tuniv h ->
-  ValTy RB Γ A h.
+Lemma Val_ValTy {n} (Γ : Ctx n) (A : Tm n) a (h : wt a tuniv) k :
+  Val (S k) Γ A Core.tuniv h ->
+  ValTy k Γ A h.
 Proof.
-  rewrite (Val_tuniv Γ A Core.tuniv h RB). auto.
+  rewrite (Val_tuniv Γ A Core.tuniv h k). auto.
 Qed.
                                  
 (* ============================================================
@@ -655,10 +478,10 @@ Qed.
 
 
 (* Diagonal embedding [Val -> EqVal]. *)
-Lemma Val_EqVal RB : forall {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a),
-  Val RB Γ M A h -> EqVal RB Γ M M A h.
+Lemma Val_EqVal k : forall {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a),
+  Val k Γ M A h -> EqVal k Γ M M A h.
 Proof.
-  induction RB as [|k IH].
+  induction k as [|k IH].
   all: intros n Γ M A u a h.
   - unfold EqVal. done.
   - dependent destruction h.
@@ -698,8 +521,8 @@ Qed.
 
 
 (* ValTy2-to-EqValTy2 *)
-Lemma ValTy_EqValTy {n} (Γ : Ctx n) (M : Tm n) u (h : wt u tuniv) RB :
-  ValTy RB Γ M h -> EqValTy RB Γ M M h.
+Lemma ValTy_EqValTy {n} (Γ : Ctx n) (M : Tm n) u (h : wt u tuniv) k :
+  ValTy k Γ M h -> EqValTy k Γ M M h.
 Proof.
   intros VT.
   eapply EqVal_EqValTy.
@@ -709,16 +532,16 @@ Qed.
 
 
 (* ============================================================
-   Level 1 — projecting first and second parts of EqVal
+   projecting first and second parts of EqVal
    EqVal_Val1, EqVal_Val2
    ============================================================ *)
 
 
-Fixpoint EqVal_Val1 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB
+Fixpoint EqVal_Val1 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) k
   {struct h} :
-  EqVal RB Γ M N A h -> Val RB Γ M A h.
+  EqVal k Γ M N A h -> Val k Γ M A h.
 Proof.
-  destruct RB as [|RB].
+  destruct k as [|k].
   { move=> _. unfold Val. exact I. }
   dependent destruction h.
   - move=> _. apply Val_Bot.
@@ -733,11 +556,11 @@ Proof.
 Qed.
 
 
-Fixpoint EqVal_Val2 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) RB
+Fixpoint EqVal_Val2 {n} (Γ : Ctx n) (M N A : Tm n) u a (h : wt u a) k
   {struct h} :
-  EqVal RB Γ M N A h -> Val RB Γ N A h.
+  EqVal k Γ M N A h -> Val k Γ N A h.
 Proof.
-  destruct RB as [|RB].
+  destruct k as [|k].
   { move=> _. unfold Val. exact I. }
   dependent destruction h.
   - move=> _. apply Val_Bot.
@@ -752,95 +575,18 @@ Proof.
 Qed.
 
 (* ============================================================
-   Level 1a — 
-   Head reduction/expansion
+   ValTy is closed under head expansion and reduction
    ============================================================ *)
 
-Lemma HeadRed_expand {n} (M M' : Tm n) A B :
-  HeadRed1 M M' ->
-  HeadRed M'  (Core.tpi A B) ->
-  HeadRed M (Core.tpi A B).
-Proof.
-  move=> R HR.
-  eapply ms_trans; eauto.
-Qed.
-
-Lemma HeadRed_contract {n} (M M' : Tm n) A B :
-  HeadRed1 M M' ->
-  HeadRed M  (Core.tpi A B) ->
-  HeadRed M' (Core.tpi A B).
-Proof.
-  move=> R HR.
-  inversion HR; subst.
-  - (* M = tpi A B is HeadRed1-normal, so [HeadRed1 (tpi A B) M'] is impossible *)
-    inversion R.
-  - (* M ->1 e2 ->* tpi A B; determinism gives e2 = M' *)
-    rewrite (HeadRed1_det R ltac:(eassumption)). assumption.
-Qed.
-
-(* multi-step contract of a [tpi]-target (HeadRed is deterministic) *)
-Lemma HeadRed_tpi_contract {n} (M M' A : Tm n) (B : Tm (S n)) :
-  HeadRed M M' -> HeadRed M (Core.tpi A B) -> HeadRed M' (Core.tpi A B).
-Proof.
-  move=> R. induction R.
-  - done.
-  - move=> HM. apply IHR. eapply HeadRed_contract; eauto.
-Qed.
-
-(* generic head-contraction to a HeadRed1-normal target (covers zero/succ) *)
-Lemma HeadRed_contract_to {n} (M M' N : Tm n) :
-  (forall P, ~ HeadRed1 N P) -> HeadRed1 M M' -> HeadRed M N -> HeadRed M' N.
-Proof.
-  move=> Hnf R HR. inversion HR; subst.
-  - exfalso; eapply Hnf; exact R.
-  - rewrite (HeadRed1_det R ltac:(eassumption)); assumption.
-Qed.
-
-Lemma HeadRed_contract_to_multi {n} (M M' N : Tm n) :
-  (forall P, ~ HeadRed1 N P) -> HeadRed M M' -> HeadRed M N -> HeadRed M' N.
-Proof.
-  move=> Hnf R. induction R.
-  - done.
-  - move=> HM. apply IHR. eapply HeadRed_contract_to; eauto.
-Qed.
-
-Lemma nf_zero {n} : forall (P : Tm n), ~ HeadRed1 Core.zero P.
-Proof. move=> P H; inversion H. Qed.
-
-Lemma nf_succ {n} (M : Tm n) : forall (P : Tm n), ~ HeadRed1 (Core.succ M) P.
-Proof. move=> P H; inversion H. Qed.
-
-(* determinism of head reduction to a [succ] normal form (mirrors HeadRed_tpi_det) *)
-Lemma HeadRed_succ_det {n} (M : Tm n) a b :
-  HeadRed M (Core.succ a) -> HeadRed M (Core.succ b) -> a = b.
-Proof.
-  move=> h1. move: b. dependent induction h1.
-  all: move=> b h2.
-  - inversion h2; subst. congruence. inversion H.
-  - inversion h2; subst. inversion H.
-    specialize (IHh1 _ ltac:(reflexivity) b).
-    have EQ : e2 = e3 by (eapply HeadRed1_det; eauto). subst. eauto.
-Qed.
-
-(* app-congruence for [HeadRed] at an arbitrary level (local [ms_app] is
-   needlessly specialised to [Tm (S n)]) *)
-Lemma HeadRed_app {n} (M1 M2 N : Tm n) :
-  HeadRed M1 M2 -> HeadRed (Core.app M1 N) (Core.app M2 N).
-Proof.
-  intro h. induction h.
-  - eapply ms_refl.
-  - eapply ms_trans; [ eapply hr_app; eassumption | exact IHh ].
-Qed.
-
-Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
-  HeadRed1 M' M -> ValTy RB Γ M h -> ValTy RB Γ M' h.
+Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
+  HeadRed1 M' M -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
   1,2,3: tauto.
   move=> [A0 [B0 [R0 [TA0 [TB0 [Vpi [VA [PEV PEE]]]]]]]].
   exists A0, B0.
-  split. { eapply HeadRed_expand; eauto. }
+  split. { eapply HeadRed1_tpi_expand; eauto. }
   split. exact TA0.
   split. exact TB0.
   split. exact Vpi.
@@ -850,8 +596,8 @@ Proof.
 Qed.
 
 (* ValTy2-headred-expand *)
-Lemma ValTy_HeadRed_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
-  HeadRed M' M -> ValTy RB Γ M h -> ValTy RB Γ M' h.
+Lemma ValTy_HeadRed_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
+  HeadRed M' M -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof.
   move=> R. induction R.
   - done.
@@ -859,15 +605,15 @@ Proof.
     eapply ValTy_HeadRed1_expand in H; eauto.
 Qed.
 
-Lemma ValTy_HeadRed1_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
-  HeadRed1 M M' -> ValTy RB Γ M h -> ValTy RB Γ M' h.
+Lemma ValTy_HeadRed1_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
+  HeadRed1 M M' -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
   1,2,3: tauto.
   move=> [A0 [B0 [R0 [TA0 [TB0 [Vpi [VA [PEV PEE]]]]]]]].
   exists A0, B0.
-  split. { eapply HeadRed_contract; eauto. }
+  split. { eapply HeadRed1_tpi_contract; eauto. }
   split. exact TA0.
   split. exact TB0.
   split. exact Vpi.
@@ -876,10 +622,9 @@ Proof.
   exact PEE.
 Qed.
 
-
 (* ValTy2-headred-contract *)
-Lemma ValTy_headred_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) RB :
-  HeadRed M M' -> ValTy RB Γ M h -> ValTy RB Γ M' h.
+Lemma ValTy_headred_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
+  HeadRed M M' -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof.
   move=> R. induction R.
   - done.
@@ -887,14 +632,264 @@ Proof.
 Qed.
 
 (* ============================================================
-   down/up
+   EqValTy is closed under head expansion and reduction
    ============================================================ *)
 
+(* EqValTy2-headred-expand *)
+Lemma EqValTy_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u 
+  (h : wt u tuniv) RB :
+  HeadRed M1' M1 -> HeadRed M2' M2 ->
+  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
+Proof.
+  move=> R1 R2.
+  dependent destruction h; cbn [Rec.EqValTy].
+  1,2,3: tauto.
+  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
+  split; [ eapply ValTy_HeadRed_expand; [ exact R1 | exact VM1 ] | ].
+  split; [ eapply ValTy_HeadRed_expand; [ exact R2 | exact VM2 ] | ].
+  exists A0, B0. split; [ eapply relations.ms_app; [ exact R1 | exact HM1 ] | ].
+  exists A0', B0'. split; [ eapply relations.ms_app; [ exact R2 | exact HM2 ] | exact REST ].
+Qed.
 
-(* Proof-irrelevance for [wt]: needed to identify [Val]/[EqVal] proof
-   indices when the type/element are forced to coincide. *)
-Lemma wt_unique {u a} (h1 h2 : wt u a) : h1 = h2.
-Proof. apply proof_irrelevance. Qed.
+(* EqValTy2-headred-contract *)
+Lemma EqValTy_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u
+  (h : wt u tuniv) RB :
+  HeadRed M1 M1' -> HeadRed M2 M2' ->
+  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
+Proof.
+  move=> R1 R2.
+  dependent destruction h; cbn [Rec.EqValTy].
+  1,2,3: tauto.
+  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
+  split; [ eapply ValTy_headred_contract; [ exact R1 | exact VM1 ] | ].
+  split; [ eapply ValTy_headred_contract; [ exact R2 | exact VM2 ] | ].
+  exists A0, B0. split; [ eapply HeadRed_tpi_contract; [ exact R1 | exact HM1 ] | ].
+  exists A0', B0'. split; [ eapply HeadRed_tpi_contract; [ exact R2 | exact HM2 ] | exact REST ].
+Qed.
+
+(* ============================================================
+   Val/EqVal closed under head expansion/contraction
+   ============================================================ *)
+
+(* ---------------------------------------------------------------------
+   TERMINATION METRIC: the fuel [k].  The reduced term
+   occurs in [Val k]/[EqVal k] only through (i) the [HeadRed _ <normal>]
+   clauses (closed by [ms_trans]/[HeadRed_expand] for expand and
+   [HeadRed_contract] for contract) and (ii) the [app M P] occurrences in
+   the [ValPi]/[EqValPi] edges of the [a=tpi,u=abs] case, which are at the
+   inner [@Val k']/[@EqVal k'] (one fuel less) and are discharged by the
+   fuel-[k] [IH] after an [ms_app] step.  So the four facts are bundled and
+   proven by [induction k]. 
+   --------------------------------------------------------------------- *)
+
+Definition HeadRedVE (k : nat) : Prop :=
+  (forall n (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
+      HeadRed M0 M -> Val k Γ M T h -> Val k Γ M0 T h)
+  /\ (forall n (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a),
+      HeadRed M0 M -> HeadRed N0 N -> EqVal k Γ M N T h -> EqVal k Γ M0 N0 T h)
+  /\ (forall n (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
+      HeadRed M M0 -> Val k Γ M T h -> Val k Γ M0 T h)
+  /\ (forall n (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a),
+      HeadRed M M0 -> HeadRed N N0 -> EqVal k Γ M N T h -> EqVal k Γ M0 N0 T h).
+
+Lemma headred_VE_all : forall k, HeadRedVE k.
+Proof.
+  induction k as [|k IH].
+  - (* fuel 0: [Val 0]/[EqVal 0] are [True] *)
+    unfold HeadRedVE. repeat split; intros; exact I.
+  - move: IH => [IHVe [IHEe [IHVc IHEc]]].
+    (* [ValPi]/[EqValPi] transport at fuel [k], used in the [wt_abs] cases.
+       The reduced function head appears only in [app M P], moved by the
+       app-congruence [ms_app] and the fuel-[k] IH. *)
+    have ValPiExp : forall m (Δ : Ctx m) (P P0 S : Tm m) gg bb ff
+        (hh : wt (abs gg) (tpi bb ff)),
+        HeadRed P0 P -> ValPi k Δ P S hh -> ValPi k Δ P0 S hh.
+    { move=> m Δ P P0 S gg bb ff hh HR [A0 [B0 [HRT [PAV PAE]]]].
+      exists A0, B0. split; [ exact HRT | ]. split.
+      - move=> uu vv Sel WT Q TQ VQ.
+        eapply IHVe; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
+      - move=> uu vv Sel WT N1 N2 CN EV.
+        eapply IHEe; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
+                     | exact (PAE uu vv Sel WT N1 N2 CN EV) ]. }
+    have ValPiCon : forall m (Δ : Ctx m) (P P0 S : Tm m) gg bb ff
+        (hh : wt (abs gg) (tpi bb ff)),
+        HeadRed P P0 -> ValPi k Δ P S hh -> ValPi k Δ P0 S hh.
+    { move=> m Δ P P0 S gg bb ff hh HR [A0 [B0 [HRT [PAV PAE]]]].
+      exists A0, B0. split; [ exact HRT | ]. split.
+      - move=> uu vv Sel WT Q TQ VQ.
+        eapply IHVc; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
+      - move=> uu vv Sel WT N1 N2 CN EV.
+        eapply IHEc; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
+                     | exact (PAE uu vv Sel WT N1 N2 CN EV) ]. }
+    have EqValPiExp : forall m (Δ : Ctx m) (P P0 Q Q0 S : Tm m) gg bb ff
+        (hh : wt (abs gg) (tpi bb ff)),
+        HeadRed P0 P -> HeadRed Q0 Q ->
+        EqValPi k Δ P Q S hh -> EqValPi k Δ P0 Q0 S hh.
+    { move=> m Δ P P0 Q Q0 S gg bb ff hh HRP HRQ [A0 [B0 [HRT PAEV]]].
+      exists A0, B0. split; [ exact HRT | ].
+      move=> uu vv Sel WT R0 TR VR.
+      eapply IHEe; [ apply HeadRed_app; exact HRP | apply HeadRed_app; exact HRQ
+                   | exact (PAEV uu vv Sel WT R0 TR VR) ]. }
+    have EqValPiCon : forall m (Δ : Ctx m) (P P0 Q Q0 S : Tm m) gg bb ff
+        (hh : wt (abs gg) (tpi bb ff)),
+        HeadRed P P0 -> HeadRed Q Q0 ->
+        EqValPi k Δ P Q S hh -> EqValPi k Δ P0 Q0 S hh.
+    { move=> m Δ P P0 Q Q0 S gg bb ff hh HRP HRQ [A0 [B0 [HRT PAEV]]].
+      exists A0, B0. split; [ exact HRT | ].
+      move=> uu vv Sel WT R0 TR VR.
+      eapply IHEc; [ apply HeadRed_app; exact HRP | apply HeadRed_app; exact HRQ
+                   | exact (PAEV uu vv Sel WT R0 TR VR) ]. }
+    unfold HeadRedVE. repeat split.
+    + (* Val expand *)
+      intros n Γ M M0 T u a h R. dependent destruction h.
+      * move=> _; apply Val_Bot.
+      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * rewrite !Val_zero. move=> HR0. eapply relations.ms_app; [ exact R | exact HR0 ].
+      * rewrite !Val_succ. move=> [M1 [HR0 HV]].
+        exists M1. split; [ eapply relations.ms_app; [ exact R | exact HR0 ] | exact HV ].
+      * rewrite !Val_tuniv. eapply ValTy_HeadRed_expand; exact R.
+      * rewrite !Val_abs. move=> [VTd VPi].
+        split; [ exact VTd | eapply ValPiExp; [ exact R | exact VPi ] ].
+    + (* EqVal expand *)
+      intros n Γ M M0 N N0 T u a h RM RN. dependent destruction h.
+      * move=> _; apply EqVal_Bot.
+      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * rewrite !EqVal_zero. move=> [HM HN].
+        split; [ eapply relations.ms_app; [ exact RM | exact HM ]
+               | eapply relations.ms_app; [ exact RN | exact HN ] ].
+      * rewrite !EqVal_succ. move=> [M1 [HM [N1 [HN HE]]]].
+        exists M1. split; [ eapply relations.ms_app; [ exact RM | exact HM ] | ].
+        exists N1. split; [ eapply relations.ms_app; [ exact RN | exact HN ] | exact HE ].
+      * rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
+        split; [ eapply ValTy_HeadRed_expand; [ exact RM | exact VTM ] | ].
+        split; [ eapply ValTy_HeadRed_expand; [ exact RN | exact VTN ] | ].
+        eapply EqValTy_headred_expand; [ exact RM | exact RN | exact ET ].
+      * rewrite !EqVal_abs. move=> [VTd [VPiM [VPiN EPi]]].
+        split; [ exact VTd | ].
+        split; [ eapply ValPiExp; [ exact RM | exact VPiM ] | ].
+        split; [ eapply ValPiExp; [ exact RN | exact VPiN ] | ].
+        eapply EqValPiExp; [ exact RM | exact RN | exact EPi ].
+    + (* Val contract *)
+      intros n Γ M M0 T u a h R. dependent destruction h.
+      * move=> _; apply Val_Bot.
+      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * rewrite !Val_zero. move=> HR0.
+        eapply HeadRed_contract_to_multi; [ apply nf_zero | exact R | exact HR0 ].
+      * rewrite !Val_succ. move=> [M1 [HR0 HV]].
+        exists M1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact R | exact HR0 ] | exact HV ].
+      * rewrite !Val_tuniv. eapply ValTy_headred_contract; exact R.
+      * rewrite !Val_abs. move=> [VTd VPi].
+        split; [ exact VTd | eapply ValPiCon; [ exact R | exact VPi ] ].
+    + (* EqVal contract *)
+      intros n Γ M M0 N N0 T u a h RM RN. dependent destruction h.
+      * move=> _; apply EqVal_Bot.
+      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * rewrite !EqVal_zero. move=> [HM HN].
+        split; [ eapply HeadRed_contract_to_multi; [ apply nf_zero | exact RM | exact HM ]
+               | eapply HeadRed_contract_to_multi; [ apply nf_zero | exact RN | exact HN ] ].
+      * rewrite !EqVal_succ. move=> [M1 [HM [N1 [HN HE]]]].
+        exists M1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact RM | exact HM ] | ].
+        exists N1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact RN | exact HN ] | exact HE ].
+      * rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
+        split; [ eapply ValTy_headred_contract; [ exact RM | exact VTM ] | ].
+        split; [ eapply ValTy_headred_contract; [ exact RN | exact VTN ] | ].
+        eapply EqValTy_headred_contract; [ exact RM | exact RN | exact ET ].
+      * rewrite !EqVal_abs. move=> [VTd [VPiM [VPiN EPi]]].
+        split; [ exact VTd | ].
+        split; [ eapply ValPiCon; [ exact RM | exact VPiM ] | ].
+        split; [ eapply ValPiCon; [ exact RN | exact VPiN ] | ].
+        eapply EqValPiCon; [ exact RM | exact RN | exact EPi ].
+Qed.
+
+(* Val2-beta-expand *)
+Lemma Val_beta_expand k : forall {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
+  HeadRed M0 M -> Val k Γ M T h -> Val k Γ M0 T h.
+Proof. exact (proj1 (headred_VE_all k)). Qed.
+
+(* EqVal2-headred-expand *)
+Lemma EqVal_headred_expand {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a) k :
+  HeadRed M0 M -> HeadRed N0 N ->
+  EqVal k Γ M N T h -> EqVal k Γ M0 N0 T h.
+Proof. exact (proj1 (proj2 (headred_VE_all k)) n Γ M M0 N N0 T u a h). Qed.
+
+
+(* Val2-headred-contract *)
+Lemma Val_headred_contract {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a) k :
+  HeadRed M M0 -> Val k Γ M T h -> Val k Γ M0 T h.
+Proof. exact (proj1 (proj2 (proj2 (headred_VE_all k))) n Γ M M0 T u a h). Qed.
+
+(* EqVal2-headred-contract *)
+Lemma EqVal_headred_contract {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a) k :
+  HeadRed M M0 -> HeadRed N N0 ->
+  EqVal k Γ M N T h -> EqVal k Γ M0 N0 T h.
+Proof. exact (proj2 (proj2 (proj2 (headred_VE_all k))) n Γ M M0 N N0 T u a h). Qed.
+
+
+(* ValPi2-headred-expand *)
+Lemma ValPi_headred_expand {n} (Γ : Ctx n) (M M' T : Tm n) b f g
+  (h : wt (abs g) (tpi b f)) k :
+  HeadRed M' M -> ValPi k Γ M T h -> ValPi k Γ M' T h.
+Proof.
+  move=> HR [A0 [B0 [HRT [PAV PAE]]]].
+  exists A0, B0. split; [ exact HRT | ]. split.
+  - move=> uu vv Sel WT Q TQ VQ.
+    eapply Val_beta_expand; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
+  - move=> uu vv Sel WT N1 N2 CN EV.
+    eapply EqVal_headred_expand; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
+                                 | exact (PAE uu vv Sel WT N1 N2 CN EV) ].
+Qed.
+
+(* EqValPi2-headred-expand *)
+Lemma EqValPi_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
+  (h : wt (abs g) (tpi b f)) k :
+  HeadRed M1' M1 -> HeadRed M2' M2 ->
+  EqValPi k Γ M1 M2 T h -> EqValPi k Γ M1' M2' T h.
+Proof.
+  move=> HR1 HR2 [A0 [B0 [HRT PAEV]]].
+  exists A0, B0. split; [ exact HRT | ].
+  move=> uu vv Sel WT Q TQ VQ.
+  eapply EqVal_headred_expand; [ apply HeadRed_app; exact HR1 | apply HeadRed_app; exact HR2
+                               | exact (PAEV uu vv Sel WT Q TQ VQ) ].
+Qed.
+
+(* ValPi2-headred-contract *)
+Lemma ValPi_headred_contract {n} (Γ : Ctx n) (M M' T : Tm n) b f g
+  (h : wt (abs g) (tpi b f)) k :
+  HeadRed M M' -> ValPi k Γ M T h -> ValPi k Γ M' T h.
+Proof.
+  move=> HR [A0 [B0 [HRT [PAV PAE]]]].
+  exists A0, B0. split; [ exact HRT | ]. split.
+  - move=> uu vv Sel WT Q TQ VQ.
+    eapply Val_headred_contract; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
+  - move=> uu vv Sel WT N1 N2 CN EV.
+    eapply EqVal_headred_contract; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
+                                   | exact (PAE uu vv Sel WT N1 N2 CN EV) ].
+Qed.
+
+(* EqValPi2-headred-contract *)
+Lemma EqValPi_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
+  (h : wt (abs g) (tpi b f)) k :
+  HeadRed M1 M1' -> HeadRed M2 M2' ->
+  EqValPi k Γ M1 M2 T h -> EqValPi k Γ M1' M2' T h.
+Proof.
+  move=> HR1 HR2 [A0 [B0 [HRT PAEV]]].
+  exists A0, B0. split; [ exact HRT | ].
+  move=> uu vv Sel WT Q TQ VQ.
+  eapply EqVal_headred_contract; [ apply HeadRed_app; exact HR1 | apply HeadRed_app; exact HR2
+                                 | exact (PAEV uu vv Sel WT Q TQ VQ) ].
+Qed.
+
+
+
+
+
+(* ============================================================
+   downVal/upVal/downEqVal/upEqVal/restrictVal/restrictEqVal
+   ============================================================ *)
 
 (* ------------------------------------------------------------------
    Monotonicity of [Val]/[EqVal] in the type and the element
@@ -902,13 +897,12 @@ Proof. apply proof_irrelevance. Qed.
    ([app g u], whose rank is smaller), so we prove them together by
    well-founded recursion on the rank measure, bundled into one
    strong-induction statement [up_down_restrict].  The named lemmas
-   [upVal] … [restrictEqVal] are derived as corollaries (so their
-   signatures, used by adequacy.v, are preserved).
+   [upVal] … [restrictEqVal] are derived as corollaries.
    ------------------------------------------------------------------ *)
 
 (* The six monotonicity statements, bundled, at induction level [k] and
-   relation bound [RB].  [Val]/[EqVal] are taken at [RB]; the rank
-   premise ([... <= k]) drives the strong induction, the [... < RB]
+   relation bound [k].  [Val]/[EqVal] are taken at [k]; the rank
+   premise ([... <= k]) drives the strong induction, the [... < k]
    premise keeps the relation's fuel above all the ranks in play. *)
 Definition UDR (k : nat) : Prop :=
   (forall n (Γ : Ctx n) (M T : Tm n) u a0 a1
@@ -1533,46 +1527,61 @@ Proof.
   Unshelve. all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot.
 Qed.
 
-(* ============================================================
-   Fuel stability (above-rank) — Coq analogue of Agda's
-   [Validity/Stability.agda] vlU/vlD/vtyU/vtyD/evlU/evlD/evtyU/evtyD.
+Lemma upVal k {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
+  le a0 a1 -> Val k Γ M T h0 -> Val k Γ T Core.tuniv hUa1 -> Val k Γ M T h1.
+Proof. exact (proj1 (up_down_restrict k) n Γ M T u a0 a1 h0 h1 hUa0 hUa1). Qed.
+
+Lemma upEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
+  le a0 a1 -> EqVal k Γ M N T h0 -> Val k Γ T Core.tuniv hUa1 -> EqVal k Γ M N T h1.
+Proof. exact (proj1 (proj2 (up_down_restrict k)) n Γ M N T u a0 a1 h0 h1 hUa0 hUa1). Qed.
+
+Lemma downVal k {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) :
+  le a0 a1 -> Val k Γ M T h1 -> Val k Γ M T h0.
+Proof. exact (proj1 (proj2 (proj2 (up_down_restrict k))) n Γ M T u a0 a1 h0 h1). Qed.
+
+Lemma downEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
+  (h0 : wt u a0) (h1 : wt u a1) :
+  le a0 a1 -> EqVal k Γ M N T h1 -> EqVal k Γ M N T h0.
+Proof. exact (proj1 (proj2 (proj2 (proj2 (up_down_restrict k)))) n Γ M N T u a0 a1 h0 h1). Qed.
+
+Lemma restrictVal k {n} (Γ : Ctx n) (M T : Tm n) u u' a
+  (h0 : wt u' a) (h1 : wt u a) :
+  le u' u -> Val k Γ M T h1 -> Val k Γ M T h0.
+Proof. exact (proj1 (proj2 (proj2 (proj2 (proj2 (up_down_restrict k))))) n Γ M T u u' a h0 h1). Qed.
+
+Lemma restrictEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u u' a
+  (h0 : wt u' a) (h1 : wt u a) :
+  le u' u -> EqVal k Γ M N T h1 -> EqVal k Γ M N T h0.
+Proof. exact (proj2 (proj2 (proj2 (proj2 (proj2 (up_down_restrict k))))) n Γ M N T u u' a h0 h1). Qed.
+
+
+(* ============================================================ *)
+(* ============================================================ *)
+(** * Fuel stability (above-rank) *)
+(* ============================================================ *)
+(* Analogue of Agda's [Validity/Stability.agda] 
+   vlU/vlD/vtyU/vtyD/evlU/evlD/evtyU/evtyD.
 
    Above the ranks of the codes, the fuel-indexed [Val]/[EqVal] are
    independent of the fuel: increasing the fuel does not change the
    relation, because every recursive occurrence in one unfolding step
    lands on a code of strictly smaller rank, which is already saturated
-   at the available fuel.  The per-edge monotonicity (the genuine
-   recursion, parallel to [upValPi]/[downValPi]) is isolated into the
-   four [fuel_*] helpers below; the top-level [Val]/[EqVal] fuel lemmas
-   are assembled from them by case analysis on the [wt] witness.
+   at the available fuel.  
 
    The bound is [rk u <= k] / [rk a <= k] (= Agda's [Le (suc (RANK)) (S k)]).
    ============================================================ *)
 
-(* ---- rank bounds for the key-/value-joins of a [Selection] ---- *)
-Lemma rk_Selection_key f u v : Selection f u v -> rk u <= rk_fun f.
-Proof.
-  induction 1 as [ | [pu pv] g u v S IH | pu pv g u v Cu Cv S IH ]; cbn; try lia.
-  move: (rk_lub pu u) => ?; lia.
-Qed.
-
-Lemma rk_Selection_val f u v : Selection f u v -> rk v <= rk_fun f.
-Proof.
-  induction 1 as [ | [pu pv] g u v S IH | pu pv g u v Cu Cv S IH ]; cbn; try lia.
-  move: (rk_lub pv v) => ?; lia.
-Qed.
-
-Lemma rk_pos e : is_bot e = false -> 1 <= rk e.
-Proof. destruct e; cbn; first discriminate; lia. Qed.
-
 (* ---- statement shapes for the eight bundled fuel-stability facts ----
+
    The four top-level facts (FU/FD/FEU/FED) and the four per-edge helper
    facts (HVT/HET/HVP/HEP), each at a fixed fuel [k].  [FuelStable k]
-   bundles them so they can be proven by a single induction on [k]
-   (mirrors [UDR]/[up_down_restrict]).  [HVP]/[HEP] bound BOTH the value
-   rank [rk (abs g)] and the type rank [rk (tpi b f)] — a lambda's value
-   graph can outrank its type (e.g. [succ zero : tnat]), so the type
-   bound alone is insufficient. *)
+   bundles them so they can be proven by a single induction on [k].
+   [HVP]/[HEP] bound BOTH the value rank [rk (abs g)] and the 
+   type rank [rk (tpi b f)] — a lambda's value  graph can outrank 
+   its type (e.g. [succ zero : tnat]), so the type bound alone is insufficient. *)
 Definition FU (k : nat) : Prop :=
   forall n (Γ : Ctx n) (M T : Tm n) u a (h : wt u a),
     rk u < k -> rk a < k -> Val k Γ M T h -> Val (S k) Γ M T h.
@@ -1682,7 +1691,7 @@ Qed.
 
 (* ============================================================
    The eight fuel-stability facts, proven together by one induction
-   on the fuel [k] (mirrors [UDR]/[up_down_restrict]).
+   on the fuel [k].
 
    Dependency within a level: each per-edge helper at [S k] uses only
    the top-level facts at [S k]; each top-level fact at [S k] uses only
@@ -1935,194 +1944,53 @@ Definition fuel_ValPi   k : HVP k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (p
 Definition fuel_EqValPi k : HEP k := proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))).
 
 
-Lemma upVal k {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
-  le a0 a1 -> Val k Γ M T h0 -> Val k Γ T Core.tuniv hUa1 -> Val k Γ M T h1.
-Proof. exact (proj1 (up_down_restrict k) n Γ M T u a0 a1 h0 h1 hUa0 hUa1). Qed.
-
-Lemma upEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
-  le a0 a1 -> EqVal k Γ M N T h0 -> Val k Γ T Core.tuniv hUa1 -> EqVal k Γ M N T h1.
-Proof. exact (proj1 (proj2 (up_down_restrict k)) n Γ M N T u a0 a1 h0 h1 hUa0 hUa1). Qed.
-
-Lemma downVal k {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1) :
-  le a0 a1 -> Val k Γ M T h1 -> Val k Γ M T h0.
-Proof. exact (proj1 (proj2 (proj2 (up_down_restrict k))) n Γ M T u a0 a1 h0 h1). Qed.
-
-Lemma downEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u a0 a1
-  (h0 : wt u a0) (h1 : wt u a1) :
-  le a0 a1 -> EqVal k Γ M N T h1 -> EqVal k Γ M N T h0.
-Proof. exact (proj1 (proj2 (proj2 (proj2 (up_down_restrict k)))) n Γ M N T u a0 a1 h0 h1). Qed.
-
-Lemma restrictVal k {n} (Γ : Ctx n) (M T : Tm n) u u' a
-  (h0 : wt u' a) (h1 : wt u a) :
-  le u' u -> Val k Γ M T h1 -> Val k Γ M T h0.
-Proof. exact (proj1 (proj2 (proj2 (proj2 (proj2 (up_down_restrict k))))) n Γ M T u u' a h0 h1). Qed.
-
-Lemma restrictEqVal k {n} (Γ : Ctx n) (M N T : Tm n) u u' a
-  (h0 : wt u' a) (h1 : wt u a) :
-  le u' u -> EqVal k Γ M N T h1 -> EqVal k Γ M N T h0.
-Proof. exact (proj2 (proj2 (proj2 (proj2 (proj2 (up_down_restrict k))))) n Γ M N T u u' a h0 h1). Qed.
-
-(* ----------------------------------------------------- *)
-
-(* ValTy2-Sup: if a1 and a2 are universe-members and lub a1 a2 = Some a,
-   ValTy at a1 and a2 lifts to ValTy at the lub. *)
-Lemma ValTy_Sup RB : forall {n} (Γ : Ctx n) (T : Tm n) a1 a2 a
-  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv),
-  lub a1 a2 = a ->
-  ValTy RB Γ T h1 -> ValTy RB Γ T h2 -> ValTy RB Γ T h.
-Proof.
-Abort.
-
-(* EqValTy2-Sup *)
-Lemma EqValTy_Sup {n} (Γ : Ctx n) (M N : Tm n) a1 a2 a
-  (h1 : wt a1 tuniv) (h2 : wt a2 tuniv) (h : wt a tuniv) RB :
-  lub a1 a2 = a ->
-  EqValTy RB Γ M N h1 -> EqValTy RB Γ M N h2 -> EqValTy RB Γ M N h.
-Proof.
-Abort.
+(* ============================================================ *)
+(** * PER kernel *)
+(* symmetry and transitivity for EqVal and EqValTy
+   type conversion for Val and EqVal
+   ============================================================ *)
 
 
-(* =====================================================================
-   PLAN — proving the admitted infrastructure used downstream.
-
-   Downstream (adequacy.v) actually uses only four of the admits below:
-       Val_EqVal_fwd        (9x)   EqVal_headred_expand (4x)
-       Val_beta_expand      (2x)   EqVal_headred_contract (1x)
-   but each pulls in the rest of its SCC as helpers, so all 13 admits in
-   this file are in scope.  They split into four layers; lower layers are
-   already proven and serve as templates.
-
-   ---------------------------------------------------------------------
-   LAYER 0 (foundation) — the only genuinely missing primitive.
-
-     HeadRed_contract : HeadRed1 M M' -> HeadRed M (tpi A B)
-                                      -> HeadRed M' (tpi A B).
-   Proof: HeadRed = multi HeadRed1.  [tpi A B] is HeadRed1-normal (only
-   [app (abs ..) ..] redexes step, via hr_beta/hr_app).  Invert the multi
-   chain [M ->* tpi A B]: it cannot be 0 steps (then [M = tpi], and
-   [HeadRed1 (tpi..) M'] is impossible); so [M ->1 M'' ->* tpi], and
-   [HeadRed1_det] (already proven, l.46) gives [M'' = M'], whence
-   [M' ->* tpi].  (Generalise the [tpi] target to "any HeadRed1-normal
-   form" so it also serves the [zero]/[succ] clauses if needed.)
-   The dual [HeadRed_expand] is already proven (l.758).
-
-   ---------------------------------------------------------------------
-   LAYER 1 (type-level, mostly done) — single-clause [ValTy].
-
-     ValTy_HeadRed_expand    : PROVEN (l.793), template.
-     ValTy_headred_contract  : copy of l.793 with HeadRed_contract.
-     EqValTy_headred_{expand,contract} : [EqValTy] mentions the reduced
-       terms only through [ValTy M], [ValTy N] and the two [HeadRed M/N
-       (tpi ..)] clauses (the [conv]/[EqVal dom]/[PiEdgeEqTy] parts do not
-       move).  So: destructure, transport the two [ValTy]s with
-       ValTy_HeadRed_{expand,contract}, and the two HeadReds with
-       HeadRed_{expand,contract}.  Not mutual with Val/EqVal.
-
-   ---------------------------------------------------------------------
-   LAYER 2 (value-level SCC) — Val/EqVal/ValPi/EqValPi headred.
-
-     Val_beta_expand, EqVal_headred_expand, ValPi_headred_expand,
-     EqValPi_headred_expand   (and the four *_contract).
-   The reduced term [M] occurs in [Val k Γ M A] only through:
-     - a=tuniv  : ValTy M            -> ValTy_HeadRed_* (Layer 1);
-     - a=tnat   : HeadRed M zero | exists M1, HeadRed M (succ M1) /\ ..
-                  -> HeadRed_* at a [zero]/[succ] normal form;
-     - a=tpi,u=abs g : ValTy A (fixed) /\ ValPi M A, where ValPi's
-                  PiAppVal/PiAppEq quantify [Val k (app M P) ..]; replacing
-                  [M] by [M0] turns [app M P] into [app M0 P], related by
-                  [ms_app] of [HeadRed M0 M], discharged by the *same SCC at
-                  fuel k*.
-   Hence: bundle the four (×{expand,contract}) into one [P RB] and induct
-   on [RB] exactly like [up_down_restrict] (l.1415): [dependent destruction]
-   the value typing, use [Val_irr]/cbn per [wt] case, and handle the
-   [tpi/abs] case with Pi-helpers modelled on [upValPi]/[downValPi]
-   (l.873/994), feeding the fuel-[k] IH to the [app M P] sub-obligations.
-   The partial proof of Val_beta_expand (l.2014) already has this shape.
-
-   ---------------------------------------------------------------------
-   LAYER 3 (PER + semantic type-transport) — the hardest, one mutual
-   Fixpoint:  Val_EqVal_fwd / EqVal_EqVal_fwd / EqVal_sym / EqVal_trans.
-
-     EqVal_sym, EqVal_trans : PER laws.  Induct on the value typing; at each
-       clause the syntactic [conv]s use c_sym/c_trans, the [EqVal] domain and
-       the [PiEdge] codomain recurse (smaller rank), the [HeadRed] clauses are
-       reused verbatim (sym) or bridged (trans, needs HeadRed determinism =
-       HeadRed_tpi_det, already proven l.58).
-     Val_EqVal_fwd : Val M : A  ->  EqValTy A B  ->  Val M : B.
-       a=tuniv: A,B are themselves types; [EqValTy A B] already *is* the
-         data (ValTy B is a conjunct) — return it.
-       a=tpi,u=abs g: Val M A = ValTy A /\ ValPi M A; produce ValTy B (conjunct
-         of EqValTy A B) /\ ValPi M B.  From [EqValTy A B]:
-           HeadRed A (tpi A0 B0), HeadRed B (tpi A0' B0'),
-           conv A0 A0', conv B0 B0', EqVal(dom A0≡A0'), PiEdgeEqTy A0 B0 B0'.
-         Rebuild ValPi M B at [HeadRed B (tpi A0' B0')]: each argument
-         [P : A0'] is moved to [P : A0] (domain transport, recursive fwd on
-         the proven [EqVal A0 A0' = EqValTy] via EqVal_EqValTy), the function
-         result [app M P : B0[P..]] is moved to [B0'[P..]] using PiEdgeEqTy
-         (which yields [EqValTy B0[P..] B0'[P..]]) and the recursive fwd.
-       Mutual with EqVal_EqVal_fwd (same scheme, two terms).  Recursion is on
-       [h] (value typing) / rank, matching the Fixpoint's [{struct h}].
-
-   ORDER: Layer 0 -> 1 -> 2 -> 3.  Layers 0-2 are mechanical given the proven
-   templates (ValTy_HeadRed_expand, up_down_restrict, HeadRed1_det); Layer 3
-   is the substantive conversion-adequacy argument.
-   ===================================================================== *)
-
-(* ----------------------------------------------------- *)
-
-(* ---------------------------------------------------------------------
-   LAYER 3 template.  The original [{struct h}] mutual Fixpoint does not
-   pass the guard checker (the codomain/domain recursive calls are not on
-   subterms of [h]).  TERMINATION METRIC: the fuel [RB].  Every recursive
-   appeal in the [tpi]/[abs] case lands on the inner [@Val RB']/[@EqVal RB']
-   that the relation unfolds to (one fuel less), so the four facts are
-   bundled into [FwdPER RB] and proven by structural [induction] on [RB];
-   the [tpi]/[abs] case feeds the fuel-[RB] [IH].
-   --------------------------------------------------------------------- *)
-
-(* The conversion-adequacy / PER kernel, bundled for one induction on [RB].
+(* The conversion-adequacy / PER kernel, bundled for one induction on [k].
    Mirrors Agda [FwdPack] ([Validity/Props.agda]): [EqValTy_sym] / [fwd] / [efwd]
    are mutually needed at each stage but the cycle is broken because each abs/tpi
-   case at [S RB] uses the *predecessor* facts at [RB] (the domain has lower rank,
+   case at [S k] uses the *predecessor* facts at [k] (the domain has lower rank,
    so its edge data drops a fuel level).  Coq's global fuel reintroduces a
    rank-boundary off-by-one that Agda's rank-relative [Stage] avoids; we sidestep
    it by *sequencing* the step like [fuel_stable]: establish [fwd]/[EqValTy_sym]
-   at [S RB] first, then let the [EqVal]-PER [tpi] cases (whose content sits at
-   the lower fuel [RB]) bounce through the just-built [S RB] facts via
+   at [S k] first, then let the [EqVal]-PER [tpi] cases (whose content sits at
+   the lower fuel [k]) bounce through the just-built [S k] facts via
    [fuel_EqValTy] up/down. *)
-Definition FwdPER (RB : nat) : Prop :=
+Definition FwdPER (k : nat) : Prop :=
   (forall n (Γ : Ctx n) (M A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
-      rk u < RB -> rk a < RB ->
-      Val RB Γ M A h -> EqValTy RB Γ A B h' -> Val RB Γ M B h)
+      rk u < k -> rk a < k ->
+      Val k Γ M A h -> EqValTy k Γ A B h' -> Val k Γ M B h)
   /\ (forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
-      rk u < RB -> rk a < RB ->
-      EqVal RB Γ M N A h -> EqValTy RB Γ A B h' -> EqVal RB Γ M N B h)
+      rk u < k -> rk a < k ->
+      EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h)
   /\ (forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-      rk u < RB ->
-      EqVal RB Γ M1 M2 A h -> EqVal RB Γ M2 M1 A h)
+      rk u < k ->
+      EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
   /\ (forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-      rk u < RB ->
-      EqVal RB Γ M1 M2 A h -> EqVal RB Γ M2 M3 A h -> EqVal RB Γ M1 M3 A h)
+      rk u < k ->
+      EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
   /\ (forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
-      rk u < RB ->
-      EqValTy RB Γ M N h -> EqValTy RB Γ N M h)
+      rk u < k ->
+      EqValTy k Γ M N h -> EqValTy k Γ N M h)
   /\ (forall n (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv),
-      rk u < RB ->
-      EqValTy RB Γ A B h -> EqValTy RB Γ B C h -> EqValTy RB Γ A C h).
+      rk u < k ->
+      EqValTy k Γ A B h -> EqValTy k Γ B C h -> EqValTy k Γ A C h).
 
-Lemma fwd_per_all : forall RB, FwdPER RB.
+Lemma fwd_per_all : forall k, FwdPER k.
 Proof.
-  induction RB as [|RB IH].
+  induction k as [|k IH].
   - (* fuel 0: every conjunct's [rk _ < 0] guard is absurd *)
     unfold FwdPER. repeat split; intros; lia.
   - move: IH => [IHfwd [IHEfwd [IHsym [IHtrans [IHTsym IHTtrans]]]]].
-    (* ---- fwd (Val), established first: uses only the [RB] IH ---- *)
+    (* ---- fwd (Val), established first: uses only the [k] IH ---- *)
     have FWD : forall n (Γ : Ctx n) (M A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
-        rk u < S RB -> rk a < S RB ->
-        Val (S RB) Γ M A h -> EqValTy (S RB) Γ A B h' -> Val (S RB) Γ M B h.
+        rk u < S k -> rk a < S k ->
+        Val (S k) Γ M A h -> EqValTy (S k) Γ A B h' -> Val (S k) Γ M B h.
     { intros n Γ M A B u a h. dependent destruction h; move=> h' Hu Ha HV HE.
       - apply Val_Bot.
       - exact HV.
@@ -2139,27 +2007,27 @@ Proof.
         rewrite Val_abs in HV. rewrite Val_abs.
         move: HV => [_ VPiMA].
         cbn [Rec.EqValTy] in HE.
-        move: HE => [VTyAS [VTyBS [Ad [Bd [HRA [Ae [Be [HRB [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
+        move: HE => [VTyAS [VTyBS [Ad [Bd [HRA [Ae [Be [Hk [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
         move: VPiMA => [Ada [Bda [HRAa [PAV PAE]]]].
         have [eqAd eqBd] := HeadRed_tpi_det HRAa HRA. subst Ada Bda.
         have rkle2 := proj1 (Nat.lt_succ_r _ _) Ha.
-        have EtAe : EqValTy RB Γ Ae Ad (wt_tpi_dom h').
+        have EtAe : EqValTy k Γ Ae Ad (wt_tpi_dom h').
         { eapply IHTsym; [ cbn in Ha; lia | exact (EqVal_EqValTy Edom) ]. }
         have VFg : valid_fun g by eauto with valid.
         split.
-        + eapply ValTy_irr. exact (proj2 (@fuel_ValTy RB _ Γ B _ h' rkle2) VTyBS).
-        + cbn [Rec.ValPi]. exists Ae, Be. split; [ exact HRB | split ].
+        + eapply ValTy_irr. exact (proj2 (@fuel_ValTy k _ Γ B _ h' rkle2) VTyBS).
+        + cbn [Rec.ValPi]. exists Ae, Be. split; [ exact Hk | split ].
           * cbn [Rec.PiAppVal]. move=> u' v' Sel WTu' P TyP VP.
-            move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk Hkv.
+            move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk' Hkv.
             have Vu' : valid u' := wt_valid_tm WTu'.
-            have VP0 : Val RB Γ P Ad WTu'.
+            have VP0 : Val k Γ P Ad WTu'.
             { eapply IHfwd; [ cbn in Hu; lia | cbn in Ha; lia | exact VP | exact EtAe ]. }
             have TyP0 : typing Γ P Ad by (eapply t_conv; [ exact TyP | eapply c_sym; exact cvA ]).
             have Vres := PAV u' v' Sel WTu' P TyP0 VP0.
             have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow VFg Vu'.
             have WTuf := wt_Selection (wt_tpi_dom h') VFg (wt_tpi_keys h') Selg.
-            have VPuf : Val RB Γ P Ad WTuf := restrictVal WTuf Leuf VP0.
-            have VPufS : Val (S RB) Γ P Ad WTuf.
+            have VPuf : Val k Γ P Ad WTuf := restrictVal WTuf Leuf VP0.
+            have VPufS : Val (S k) Γ P Ad WTuf.
             { apply Val_fuel_up;
                 [ move: (rk_Selection_key Selg) => Hkf; cbn in Ha; lia
                 | cbn in Ha; lia | exact VPuf ]. }
@@ -2170,17 +2038,17 @@ Proof.
               | move: (rk_app g u') => Hca; cbn in Ha; lia
               | exact Vres | exact (EqVal_EqValTy Eedge) ].
           * cbn [Rec.PiAppEq]. move=> u' v' Sel WTu' N1 N2 Cv EV.
-            move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk Hkv.
+            move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk' Hkv.
             have Vu' : valid u' := wt_valid_tm WTu'.
-            have EV0 : EqVal RB Γ N1 N2 Ad WTu'.
+            have EV0 : EqVal k Γ N1 N2 Ad WTu'.
             { eapply IHEfwd; [ cbn in Hu; lia | cbn in Ha; lia | exact EV | exact EtAe ]. }
             have Cv0 : conv Γ N1 N2 Ad by (eapply c_conv; [ exact Cv | eapply c_sym; exact cvA ]).
             have TyN1 : typing Γ N1 Ad := proj1 (conv_typing Cv0).
             have Eres := PAE u' v' Sel WTu' N1 N2 Cv0 EV0.
             have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow VFg Vu'.
             have WTuf := wt_Selection (wt_tpi_dom h') VFg (wt_tpi_keys h') Selg.
-            have Vn1uf : Val RB Γ N1 Ad WTuf := restrictVal WTuf Leuf (EqVal_Val1 EV0).
-            have Vn1ufS : Val (S RB) Γ N1 Ad WTuf.
+            have Vn1uf : Val k Γ N1 Ad WTuf := restrictVal WTuf Leuf (EqVal_Val1 EV0).
+            have Vn1ufS : Val (S k) Γ N1 Ad WTuf.
             { apply Val_fuel_up;
                 [ move: (rk_Selection_key Selg) => Hkf; cbn in Ha; lia
                 | cbn in Ha; lia | exact Vn1uf ]. }
@@ -2192,8 +2060,8 @@ Proof.
               | exact Eres | exact (EqVal_EqValTy Eedge) ]. }
     (* ---- efwd (EqVal), same shape ---- *)
     have EFWD : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
-        rk u < S RB -> rk a < S RB ->
-        EqVal (S RB) Γ M N A h -> EqValTy (S RB) Γ A B h' -> EqVal (S RB) Γ M N B h.
+        rk u < S k -> rk a < S k ->
+        EqVal (S k) Γ M N A h -> EqValTy (S k) Γ A B h' -> EqVal (S k) Γ M N B h.
     { intros n Γ M N A B u a h. dependent destruction h; move=> h' Hu Ha HV HE.
       - apply EqVal_Bot.
       - exact HV.
@@ -2205,8 +2073,8 @@ Proof.
            PiAppEqVal edge (same [selectionBelow] codomain dance as FWD) *)
         rewrite EqVal_abs in HV. rewrite EqVal_abs.
         move: HV => [VTyA [VPiM [VPiN EqPiMN]]].
-        have VMA : Val (S RB) Γ M A (wt_abs w w0 i h) := conj VTyA VPiM.
-        have VNA : Val (S RB) Γ N A (wt_abs w w0 i h) := conj VTyA VPiN.
+        have VMA : Val (S k) Γ M A (wt_abs w w0 i h) := conj VTyA VPiM.
+        have VNA : Val (S k) Γ N A (wt_abs w w0 i h) := conj VTyA VPiN.
         have VMB := FWD _ Γ M A B _ _ (wt_abs w w0 i h) h' Hu Ha VMA HE.
         have VNB := FWD _ Γ N A B _ _ (wt_abs w w0 i h) h' Hu Ha VNA HE.
         move: VMB => [VTyB VPiMB]. move: VNB => [_ VPiNB].
@@ -2214,23 +2082,23 @@ Proof.
         cbn [Rec.EqValPi] in EqPiMN |- *.
         move: EqPiMN => [Ad [Bd [HRA PAEV]]].
         cbn [Rec.EqValTy] in HE.
-        move: HE => [VTyAS [VTyBS [Ad2 [Bd2 [HRA2 [Ae [Be [HRB [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
+        move: HE => [VTyAS [VTyBS [Ad2 [Bd2 [HRA2 [Ae [Be [Hk [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
         have [eqAd eqBd] := HeadRed_tpi_det HRA HRA2. subst Ad2 Bd2.
-        have EtAe : EqValTy RB Γ Ae Ad (wt_tpi_dom h').
+        have EtAe : EqValTy k Γ Ae Ad (wt_tpi_dom h').
         { eapply IHTsym; [ cbn in Ha; lia | exact (EqVal_EqValTy Edom) ]. }
         have VFg : valid_fun g by eauto with valid.
-        exists Ae, Be. split; [ exact HRB | ].
+        exists Ae, Be. split; [ exact Hk | ].
         cbn [Rec.PiAppEqVal]. move=> u' v' Sel WTu' P TyP VP.
-        move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk Hkv.
+        move: (rk_Selection_key Sel) (rk_Selection_val Sel) => Hk' Hkv.
         have Vu' : valid u' := wt_valid_tm WTu'.
-        have VP0 : Val RB Γ P Ad WTu'.
+        have VP0 : Val k Γ P Ad WTu'.
         { eapply IHfwd; [ cbn in Hu; lia | cbn in Ha; lia | exact VP | exact EtAe ]. }
         have TyP0 : typing Γ P Ad by (eapply t_conv; [ exact TyP | eapply c_sym; exact cvA ]).
         have Eres := PAEV u' v' Sel WTu' P TyP0 VP0.
         have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow VFg Vu'.
         have WTuf := wt_Selection (wt_tpi_dom h') VFg (wt_tpi_keys h') Selg.
-        have VPuf : Val RB Γ P Ad WTuf := restrictVal WTuf Leuf VP0.
-        have VPufS : Val (S RB) Γ P Ad WTuf.
+        have VPuf : Val k Γ P Ad WTuf := restrictVal WTuf Leuf VP0.
+        have VPufS : Val (S k) Γ P Ad WTuf.
         { apply Val_fuel_up;
             [ move: (rk_Selection_key Selg) => Hkf; cbn in Ha; lia
             | cbn in Ha; lia | exact VPuf ]. }
@@ -2239,22 +2107,22 @@ Proof.
         eapply IHEfwd;
           [ cbn in Hu; lia | move: (rk_app g u') => Hca; cbn in Ha; lia
           | exact Eres | exact (EqVal_EqValTy Eedge) ]. }
-    (* ---- EqValTy_sym at [S RB]: tpi case uses FWD (just built) + the [RB] IH ---- *)
+    (* ---- EqValTy_sym at [S k]: tpi case uses FWD (just built) + the [k] IH ---- *)
     have ETSYM : forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
-        rk u < S RB -> EqValTy (S RB) Γ M N h -> EqValTy (S RB) Γ N M h.
+        rk u < S k -> EqValTy (S k) Γ M N h -> EqValTy (S k) Γ N M h.
     { intros n Γ M N u h. dependent destruction h; move=> Hu HE;
         try (cbn [Rec.EqValTy] in HE |- *; exact HE).
       (* tpi: conv-sym + ctx-conv + domain-flip + PiEdgeEqTy-sym (mirrors Agda
          [Esym PiCode], [Validity/Props.agda]) *)
       have flipU : forall (X Y : Tm n) v (hv : wt v tuniv),
-          rk v < RB -> EqVal (S RB) Γ X Y Core.tuniv hv -> EqVal (S RB) Γ Y X Core.tuniv hv.
+          rk v < k -> EqVal (S k) Γ X Y Core.tuniv hv -> EqVal (S k) Γ Y X Core.tuniv hv.
       { move=> X Y v hv Hv E. rewrite EqVal_tuniv in E. rewrite EqVal_tuniv.
         move: E => [VX [VY Et]]. split; [ exact VY | split; [ exact VX | ] ].
         apply IHTsym; [ exact Hv | exact Et ]. }
       cbn [Rec.EqValTy] in HE |- *.
       move: HE => [VM [VN [A0 [B0 [HRM [A0' [B0' [HRN [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
       cbn in Hu.
-      have Hark : rk a < RB by lia.
+      have Hark : rk a < k by lia.
       have Edom' := flipU A0 A0' _ _ Hark Edom.
       have EtA'0 := EqVal_EqValTy Edom'.
       split; [ exact VN | split; [ exact VM | ] ].
@@ -2266,9 +2134,9 @@ Proof.
       split; [ exact Edom' | ].
       cbn [Rec.PiEdgeEqTy].
       move=> u' v' Sel WTu' P TyP VP.
-      have Hu'rk : rk u' < RB by (move: (rk_Selection_key Sel) => Hk; lia).
+      have Hu'rk : rk u' < k by (move: (rk_Selection_key Sel) => Hk; lia).
       have TyP0 : typing Γ P A0 by (eapply t_conv; [ exact TyP | eapply c_sym; exact cvA ]).
-      have VP0 : Val (S RB) Γ P A0 WTu'.
+      have VP0 : Val (S k) Γ P A0 WTu'.
       { apply Val_fuel_up; [ exact Hu'rk | exact Hark | ].
         eapply IHfwd;
           [ exact Hu'rk | exact Hark
@@ -2276,26 +2144,26 @@ Proof.
           | exact EtA'0 ]. }
       have Eres := PEEty u' v' Sel WTu' P TyP0 VP0.
       eapply flipU; [ move: (rk_Selection_val Sel) => Hr; lia | exact Eres ]. }
-    (* ---- EqValTy_trans at [S RB] ---- *)
+    (* ---- EqValTy_trans at [S k] ---- *)
     have ETTRANS : forall n (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv),
-        rk u < S RB -> EqValTy (S RB) Γ A B h -> EqValTy (S RB) Γ B C h -> EqValTy (S RB) Γ A C h.
+        rk u < S k -> EqValTy (S k) Γ A B h -> EqValTy (S k) Γ B C h -> EqValTy (S k) Γ A C h.
     { intros n Γ A B C u h. dependent destruction h; move=> Hu HAB HBC;
         try (cbn [Rec.EqValTy] in HAB, HBC |- *; exact HAB).
       (* tpi: conv-trans + ctx-conv + domain/codomain EqVal-trans (all edges over
          the type graph, so no value/type-graph mismatch) *)
       have transU : forall (X Y Z : Tm n) v (hv : wt v tuniv),
-          rk v < RB -> EqVal (S RB) Γ X Y Core.tuniv hv -> EqVal (S RB) Γ Y Z Core.tuniv hv ->
-          EqVal (S RB) Γ X Z Core.tuniv hv.
+          rk v < k -> EqVal (S k) Γ X Y Core.tuniv hv -> EqVal (S k) Γ Y Z Core.tuniv hv ->
+          EqVal (S k) Γ X Z Core.tuniv hv.
       { move=> X Y Z v hv Hv E1 E2. rewrite EqVal_tuniv in E1, E2. rewrite EqVal_tuniv.
         move: E1 => [VX [VY Et1]]. move: E2 => [_ [VZ Et2]].
         split; [ exact VX | split; [ exact VZ | ] ].
         eapply IHTtrans; [ exact Hv | exact Et1 | exact Et2 ]. }
       cbn [Rec.EqValTy] in HAB, HBC |- *.
-      move: HAB => [VTyA [VTyB [A0 [B0 [HRA [A0m [B0m [HRB [cvAB [cvBB [vldAB [EdomAB PEEtyAB]]]]]]]]]]]].
-      move: HBC => [_ [VTyC [A0n [B0n [HRBn [A0c [B0c [HRC [cvBC [cvCC [vldBC [EdomBC PEEtyBC]]]]]]]]]]]].
-      have [eqA0m eqB0m] := HeadRed_tpi_det HRBn HRB. subst A0n B0n.
-      cbn in Hu. have Hark : rk a < RB by lia.
-      have EtAm : EqValTy RB Γ A0 A0m h := EqVal_EqValTy EdomAB.
+      move: HAB => [VTyA [VTyB [A0 [B0 [HRA [A0m [B0m [Hk [cvAB [cvBB [vldAB [EdomAB PEEtyAB]]]]]]]]]]]].
+      move: HBC => [_ [VTyC [A0n [B0n [Hkn [A0c [B0c [HRC [cvBC [cvCC [vldBC [EdomBC PEEtyBC]]]]]]]]]]]].
+      have [eqA0m eqB0m] := HeadRed_tpi_det Hkn Hk. subst A0n B0n.
+      cbn in Hu. have Hark : rk a < k by lia.
+      have EtAm : EqValTy k Γ A0 A0m h := EqVal_EqValTy EdomAB.
       split; [ exact VTyA | split; [ exact VTyC | ] ].
       exists A0, B0. split; [ exact HRA | ].
       exists A0c, B0c. split; [ exact HRC | ].
@@ -2305,21 +2173,21 @@ Proof.
       split; [ eapply transU; [ exact Hark | exact EdomAB | exact EdomBC ] | ].
       cbn [Rec.PiEdgeEqTy].
       move=> u' v' Sel WTu' P TyP VP.
-      have Hu'rk : rk u' < RB by (move: (rk_Selection_key Sel) => Hk; lia).
-      have Vrk : rk v' < RB by (move: (rk_Selection_val Sel) => Hk; lia).
-      have VPm : Val RB Γ P A0m WTu'.
+      have Hu'rk : rk u' < k by (move: (rk_Selection_key Sel) => Hk'; lia).
+      have Vrk : rk v' < k by (move: (rk_Selection_val Sel) => Hk'; lia).
+      have VPm : Val k Γ P A0m WTu'.
       { eapply IHfwd;
           [ exact Hu'rk | exact Hark
           | apply Val_fuel_down; [ exact Hu'rk | exact Hark | exact VP ]
           | exact EtAm ]. }
-      have VPmS : Val (S RB) Γ P A0m WTu' by (apply Val_fuel_up; [ exact Hu'rk | exact Hark | exact VPm ]).
+      have VPmS : Val (S k) Γ P A0m WTu' by (apply Val_fuel_up; [ exact Hu'rk | exact Hark | exact VPm ]).
       have TyPm : typing Γ P A0m by (eapply t_conv; [ exact TyP | exact cvAB ]).
       have EresAB := PEEtyAB u' v' Sel WTu' P TyP VP.
       have EresBC := PEEtyBC u' v' Sel WTu' P TyPm VPmS.
       eapply transU; [ exact Vrk | exact EresAB | exact EresBC ]. }
-    (* ---- EqVal_sym (PER): tpi bounces its [RB] content through ETSYM (S RB) ---- *)
+    (* ---- EqVal_sym (PER): tpi bounces its [k] content through ETSYM (S k) ---- *)
     have SYM : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-        rk u < S RB -> EqVal (S RB) Γ M1 M2 A h -> EqVal (S RB) Γ M2 M1 A h.
+        rk u < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M1 A h.
     { intros n Γ M1 M2 A u a h. dependent destruction h; move=> Hu HV.
       - apply EqVal_Bot.
       - rewrite EqVal_tuniv. move: HV => _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
@@ -2328,14 +2196,14 @@ Proof.
       - rewrite EqVal_succ in HV. move: HV => [a1 [Ha1 [a2 [Ha2 HE]]]].
         rewrite EqVal_succ. exists a2. split; [ exact Ha2 | ].
         exists a1. split; [ exact Ha1 | eapply IHsym; [ cbn in Hu; lia | exact HE ] ].
-      - (* tpi: bounce EqValTy [RB] content up through ETSYM (S RB) and back *)
+      - (* tpi: bounce EqValTy [k] content up through ETSYM (S k) and back *)
         rewrite EqVal_tuniv in HV. rewrite EqVal_tuniv.
         move: HV => [VM1 [VM2 ET]].
         split; [ exact VM2 | split; [ exact VM1 | ] ].
         have rkle := proj1 (Nat.lt_succ_r _ _) Hu.
-        apply (proj2 (@fuel_EqValTy RB _ Γ M2 M1 _ (wt_tpi h w w0 i) rkle)).
+        apply (proj2 (@fuel_EqValTy k _ Γ M2 M1 _ (wt_tpi h w w0 i) rkle)).
         apply ETSYM; [ exact Hu | ].
-        exact (proj1 (@fuel_EqValTy RB _ Γ M1 M2 _ (wt_tpi h w w0 i) rkle) ET).
+        exact (proj1 (@fuel_EqValTy k _ Γ M1 M2 _ (wt_tpi h w w0 i) rkle) ET).
       - rewrite EqVal_abs in HV. rewrite EqVal_abs.
         move: HV => [VTd [VPiM1 [VPiM2 [A0 [B0 [HRT PAEV]]]]]].
         split; [ exact VTd | ]. split; [ exact VPiM2 | ]. split; [ exact VPiM1 | ].
@@ -2344,9 +2212,9 @@ Proof.
         eapply IHsym;
           [ move: (rk_Selection_val Sel) => Hv; cbn in Hu; lia
           | exact (PAEV uu vv Sel WT P TP VP) ]. }
-    (* ---- EqVal_trans (PER): tpi bounces through ETTRANS (S RB) ---- *)
+    (* ---- EqVal_trans (PER): tpi bounces through ETTRANS (S k) ---- *)
     have TRANS : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-        rk u < S RB -> EqVal (S RB) Γ M1 M2 A h -> EqVal (S RB) Γ M2 M3 A h -> EqVal (S RB) Γ M1 M3 A h.
+        rk u < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M3 A h -> EqVal (S k) Γ M1 M3 A h.
     { intros n Γ M1 M2 M3 A u a h. dependent destruction h; move=> Hu HV HW.
       - apply EqVal_Bot.
       - rewrite EqVal_tuniv. move: HV HW => _ _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
@@ -2359,16 +2227,16 @@ Proof.
         have E := HeadRed_succ_det Ha2 Ha2'. subst a2'.
         exists a1. split; [ exact Ha1 | ]. exists a3. split; [ exact Ha3 | ].
         eapply IHtrans; [ cbn in Hu; lia | exact HE12 | exact HE23 ].
-      - (* tpi: bounce both EqValTy [RB] components up through ETTRANS (S RB) *)
+      - (* tpi: bounce both EqValTy [k] components up through ETTRANS (S k) *)
         rewrite EqVal_tuniv in HV HW. rewrite EqVal_tuniv.
         move: HV => [VM1 [VM2 ET12]]. move: HW => [_ [VM3 ET23]].
         split; [ exact VM1 | split; [ exact VM3 | ] ].
         have rkle := proj1 (Nat.lt_succ_r _ _) Hu.
-        apply (proj2 (@fuel_EqValTy RB _ Γ M1 M3 _ (wt_tpi h w w0 i) rkle)).
+        apply (proj2 (@fuel_EqValTy k _ Γ M1 M3 _ (wt_tpi h w w0 i) rkle)).
         eapply ETTRANS;
           [ exact Hu
-          | exact (proj1 (@fuel_EqValTy RB _ Γ M1 M2 _ (wt_tpi h w w0 i) rkle) ET12)
-          | exact (proj1 (@fuel_EqValTy RB _ Γ M2 M3 _ (wt_tpi h w w0 i) rkle) ET23) ].
+          | exact (proj1 (@fuel_EqValTy k _ Γ M1 M2 _ (wt_tpi h w w0 i) rkle) ET12)
+          | exact (proj1 (@fuel_EqValTy k _ Γ M2 M3 _ (wt_tpi h w w0 i) rkle) ET23) ].
       - rewrite EqVal_abs in HV HW. rewrite EqVal_abs.
         move: HV => [VTd [VPiM1 [_ [A0 [B0 [HRT12 PAEV12]]]]]].
         move: HW => [_ [_ [VPiM3 [A0' [B0' [HRT23 PAEV23]]]]]].
@@ -2383,321 +2251,41 @@ Proof.
       [ exact FWD | exact EFWD | exact SYM | exact TRANS | exact ETSYM | exact ETTRANS ].
 Qed.
 
-(* downstream-facing projections (unchanged signatures) *)
+(* downstream-facing projections *)
+(* conversion for Val *) 
 Lemma Val_EqVal_fwd {n} (Γ : Ctx n) (M A : Tm n) u a
-  (h : wt u a) (B : Tm n) (h' : wt a tuniv) RB :
-  rk u < RB -> rk a < RB ->
-  Val RB Γ M A h -> EqValTy RB Γ A B h' -> Val RB Γ M B h.
-Proof. exact (proj1 (fwd_per_all RB) n Γ M A B u a h h'). Qed.
+  (h : wt u a) (B : Tm n) (h' : wt a tuniv) k :
+  rk u < k -> rk a < k ->
+  Val k Γ M A h -> EqValTy k Γ A B h' -> Val k Γ M B h.
+Proof. exact (proj1 (fwd_per_all k) n Γ M A B u a h h'). Qed.
 
+(* conversion for EqVal *)
 Lemma EqVal_EqVal_fwd {n} (Γ : Ctx n) (M N A : Tm n) u a
-  (h : wt u a) (B : Tm n) (h' : wt a tuniv) RB :
-  rk u < RB -> rk a < RB ->
-  EqVal RB Γ M N A h -> EqValTy RB Γ A B h' -> EqVal RB Γ M N B h.
-Proof. exact (proj1 (proj2 (fwd_per_all RB)) n Γ M N A B u a h h'). Qed.
+  (h : wt u a) (B : Tm n) (h' : wt a tuniv) k :
+  rk u < k -> rk a < k ->
+  EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h.
+Proof. exact (proj1 (proj2 (fwd_per_all k)) n Γ M N A B u a h h'). Qed.
 
-Lemma EqVal_sym {n} (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a) RB :
-  rk u < RB ->
-  EqVal RB Γ M1 M2 A h -> EqVal RB Γ M2 M1 A h.
-Proof. exact (proj1 (proj2 (proj2 (fwd_per_all RB))) n Γ M1 M2 A u a h). Qed.
+Lemma EqVal_sym {n} (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a) k :
+  rk u < k ->
+  EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h.
+Proof. exact (proj1 (proj2 (proj2 (fwd_per_all k))) n Γ M1 M2 A u a h). Qed.
 
-Lemma EqVal_trans {n} (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a) RB :
-  rk u < RB ->
-  EqVal RB Γ M1 M2 A h -> EqVal RB Γ M2 M3 A h -> EqVal RB Γ M1 M3 A h.
-Proof. exact (proj1 (proj2 (proj2 (proj2 (fwd_per_all RB)))) n Γ M1 M2 M3 A u a h). Qed.
+Lemma EqVal_trans {n} (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a) k :
+  rk u < k ->
+  EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h.
+Proof. exact (proj1 (proj2 (proj2 (proj2 (fwd_per_all k)))) n Γ M1 M2 M3 A u a h). Qed.
 
 (* EqValTy2-sym *)
-Lemma EqValTy_sym {n} (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv) RB :
-  rk u < RB ->
-  EqValTy RB Γ M N h -> EqValTy RB Γ N M h.
-Proof. exact (proj1 (proj2 (proj2 (proj2 (proj2 (fwd_per_all RB))))) n Γ M N u h). Qed.
+Lemma EqValTy_sym {n} (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv) k :
+  rk u < k ->
+  EqValTy k Γ M N h -> EqValTy k Γ N M h.
+Proof. exact (proj1 (proj2 (proj2 (proj2 (proj2 (fwd_per_all k))))) n Γ M N u h). Qed.
 
 (* EqValTy2-trans *)
-Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) RB :
-  rk u < RB ->
-  EqValTy RB Γ A B h -> EqValTy RB Γ B C h -> EqValTy RB Γ A C h.
-Proof. exact (proj2 (proj2 (proj2 (proj2 (proj2 (fwd_per_all RB))))) n Γ A B C u h). Qed.
-
-(* ============================================================
-   Translations of theorem statements from Validity2.agda
-   ------------------------------------------------------------
-
-   Translation conventions (Agda → Rocq):
-     FinMem u a              ≈  wt u a
-     FinMem b UCode          ≈  wt b tuniv         (some i)
-     Coherent u              ≈  valid u                (implicit in wt)
-     CoherentFun g           ≈  valid_fun g            (implicit in wt (abs g) ..)
-     CoherentFunTail f       ≈  valid_fun f            (implicit in wt (tpi _ f) ..)
-     FinMemFun g b f         ≈  wt (abs g) (tpi b f)
-     FinMemAllU f b          ≈  wt (tpi b f) tuniv (codomains in U_i)
-     LeCode u v              ≈  le u v
-     LeFunCode f g           ≈  le_fun f g
-     Comp u v                ≈  compatible u v
-     Sup u v = w             ≈  lub u v = Some w
-     Selection f u v         ≈  In (u, v) f
-     EvalFun f u = v         ≈  app f u = v
-     subst1 B N              ≈  B[N..]
-     HasType / ConvTm        ≈  typing / conv
-     HeadRed                 ≈  HeadRed (multi reduction)
-
-*)
-
-(* ============================================================
-   Level 2 — depends on Level 1
-   ============================================================ *)
-
-(* EqValTy2-headred-expand *)
-Lemma EqValTy_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u 
-  (h : wt u tuniv) RB :
-  HeadRed M1' M1 -> HeadRed M2' M2 ->
-  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
-Proof.
-  move=> R1 R2.
-  dependent destruction h; cbn [Rec.EqValTy].
-  1,2,3: tauto.
-  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
-  split; [ eapply ValTy_HeadRed_expand; [ exact R1 | exact VM1 ] | ].
-  split; [ eapply ValTy_HeadRed_expand; [ exact R2 | exact VM2 ] | ].
-  exists A0, B0. split; [ eapply relations.ms_app; [ exact R1 | exact HM1 ] | ].
-  exists A0', B0'. split; [ eapply relations.ms_app; [ exact R2 | exact HM2 ] | exact REST ].
-Qed.
-
-(* EqValTy2-headred-contract *)
-Lemma EqValTy_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u
-  (h : wt u tuniv) RB :
-  HeadRed M1 M1' -> HeadRed M2 M2' ->
-  EqValTy RB Γ M1 M2 h -> EqValTy RB Γ M1' M2' h.
-Proof.
-  move=> R1 R2.
-  dependent destruction h; cbn [Rec.EqValTy].
-  1,2,3: tauto.
-  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
-  split; [ eapply ValTy_headred_contract; [ exact R1 | exact VM1 ] | ].
-  split; [ eapply ValTy_headred_contract; [ exact R2 | exact VM2 ] | ].
-  exists A0, B0. split; [ eapply HeadRed_tpi_contract; [ exact R1 | exact HM1 ] | ].
-  exists A0', B0'. split; [ eapply HeadRed_tpi_contract; [ exact R2 | exact HM2 ] | exact REST ].
-Qed.
-
-
-(* ============================================================
-   Level 3 — 4-way SCC for HeadRed expand on Val/EqVal/ValPi/EqValPi
-   ============================================================ *)
-
-(* ---------------------------------------------------------------------
-   LAYER 2 template.  TERMINATION METRIC: the fuel [RB].  The reduced term
-   occurs in [Val RB]/[EqVal RB] only through (i) the [HeadRed _ <normal>]
-   clauses (closed by [ms_trans]/[HeadRed_expand] for expand and
-   [HeadRed_contract] for contract) and (ii) the [app M P] occurrences in
-   the [ValPi]/[EqValPi] edges of the [a=tpi,u=abs] case, which are at the
-   inner [@Val RB']/[@EqVal RB'] (one fuel less) and are discharged by the
-   fuel-[RB] [IH] after an [ms_app] step.  So the four facts are bundled and
-   proven by [induction RB], mirroring [up_down_restrict].  [ValPi]/[EqValPi]
-   headred are not separate conjuncts: they are exactly the [abs]-case work,
-   handled inline with [IH].
-   --------------------------------------------------------------------- *)
-
-Definition HeadRedVE (RB : nat) : Prop :=
-  (forall n (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
-      HeadRed M0 M -> Val RB Γ M T h -> Val RB Γ M0 T h)
-  /\ (forall n (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a),
-      HeadRed M0 M -> HeadRed N0 N -> EqVal RB Γ M N T h -> EqVal RB Γ M0 N0 T h)
-  /\ (forall n (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
-      HeadRed M M0 -> Val RB Γ M T h -> Val RB Γ M0 T h)
-  /\ (forall n (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a),
-      HeadRed M M0 -> HeadRed N N0 -> EqVal RB Γ M N T h -> EqVal RB Γ M0 N0 T h).
-
-Lemma headred_VE_all : forall RB, HeadRedVE RB.
-Proof.
-  induction RB as [|RB IH].
-  - (* fuel 0: [Val 0]/[EqVal 0] are [True] *)
-    unfold HeadRedVE. repeat split; intros; exact I.
-  - move: IH => [IHVe [IHEe [IHVc IHEc]]].
-    (* [ValPi]/[EqValPi] transport at fuel [RB], used in the [wt_abs] cases.
-       The reduced function head appears only in [app M P], moved by the
-       app-congruence [ms_app] and the fuel-[RB] IH. *)
-    have ValPiExp : forall m (Δ : Ctx m) (P P0 S : Tm m) gg bb ff
-        (hh : wt (abs gg) (tpi bb ff)),
-        HeadRed P0 P -> ValPi RB Δ P S hh -> ValPi RB Δ P0 S hh.
-    { move=> m Δ P P0 S gg bb ff hh HR [A0 [B0 [HRT [PAV PAE]]]].
-      exists A0, B0. split; [ exact HRT | ]. split.
-      - move=> uu vv Sel WT Q TQ VQ.
-        eapply IHVe; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
-      - move=> uu vv Sel WT N1 N2 CN EV.
-        eapply IHEe; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
-                     | exact (PAE uu vv Sel WT N1 N2 CN EV) ]. }
-    have ValPiCon : forall m (Δ : Ctx m) (P P0 S : Tm m) gg bb ff
-        (hh : wt (abs gg) (tpi bb ff)),
-        HeadRed P P0 -> ValPi RB Δ P S hh -> ValPi RB Δ P0 S hh.
-    { move=> m Δ P P0 S gg bb ff hh HR [A0 [B0 [HRT [PAV PAE]]]].
-      exists A0, B0. split; [ exact HRT | ]. split.
-      - move=> uu vv Sel WT Q TQ VQ.
-        eapply IHVc; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
-      - move=> uu vv Sel WT N1 N2 CN EV.
-        eapply IHEc; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
-                     | exact (PAE uu vv Sel WT N1 N2 CN EV) ]. }
-    have EqValPiExp : forall m (Δ : Ctx m) (P P0 Q Q0 S : Tm m) gg bb ff
-        (hh : wt (abs gg) (tpi bb ff)),
-        HeadRed P0 P -> HeadRed Q0 Q ->
-        EqValPi RB Δ P Q S hh -> EqValPi RB Δ P0 Q0 S hh.
-    { move=> m Δ P P0 Q Q0 S gg bb ff hh HRP HRQ [A0 [B0 [HRT PAEV]]].
-      exists A0, B0. split; [ exact HRT | ].
-      move=> uu vv Sel WT R0 TR VR.
-      eapply IHEe; [ apply HeadRed_app; exact HRP | apply HeadRed_app; exact HRQ
-                   | exact (PAEV uu vv Sel WT R0 TR VR) ]. }
-    have EqValPiCon : forall m (Δ : Ctx m) (P P0 Q Q0 S : Tm m) gg bb ff
-        (hh : wt (abs gg) (tpi bb ff)),
-        HeadRed P P0 -> HeadRed Q Q0 ->
-        EqValPi RB Δ P Q S hh -> EqValPi RB Δ P0 Q0 S hh.
-    { move=> m Δ P P0 Q Q0 S gg bb ff hh HRP HRQ [A0 [B0 [HRT PAEV]]].
-      exists A0, B0. split; [ exact HRT | ].
-      move=> uu vv Sel WT R0 TR VR.
-      eapply IHEc; [ apply HeadRed_app; exact HRP | apply HeadRed_app; exact HRQ
-                   | exact (PAEV uu vv Sel WT R0 TR VR) ]. }
-    unfold HeadRedVE. repeat split.
-    + (* Val expand *)
-      intros n Γ M M0 T u a h R. dependent destruction h.
-      * move=> _; apply Val_Bot.
-      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
-      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
-      * rewrite !Val_zero. move=> HR0. eapply relations.ms_app; [ exact R | exact HR0 ].
-      * rewrite !Val_succ. move=> [M1 [HR0 HV]].
-        exists M1. split; [ eapply relations.ms_app; [ exact R | exact HR0 ] | exact HV ].
-      * rewrite !Val_tuniv. eapply ValTy_HeadRed_expand; exact R.
-      * rewrite !Val_abs. move=> [VTd VPi].
-        split; [ exact VTd | eapply ValPiExp; [ exact R | exact VPi ] ].
-    + (* EqVal expand *)
-      intros n Γ M M0 N N0 T u a h RM RN. dependent destruction h.
-      * move=> _; apply EqVal_Bot.
-      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
-      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
-      * rewrite !EqVal_zero. move=> [HM HN].
-        split; [ eapply relations.ms_app; [ exact RM | exact HM ]
-               | eapply relations.ms_app; [ exact RN | exact HN ] ].
-      * rewrite !EqVal_succ. move=> [M1 [HM [N1 [HN HE]]]].
-        exists M1. split; [ eapply relations.ms_app; [ exact RM | exact HM ] | ].
-        exists N1. split; [ eapply relations.ms_app; [ exact RN | exact HN ] | exact HE ].
-      * rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
-        split; [ eapply ValTy_HeadRed_expand; [ exact RM | exact VTM ] | ].
-        split; [ eapply ValTy_HeadRed_expand; [ exact RN | exact VTN ] | ].
-        eapply EqValTy_headred_expand; [ exact RM | exact RN | exact ET ].
-      * rewrite !EqVal_abs. move=> [VTd [VPiM [VPiN EPi]]].
-        split; [ exact VTd | ].
-        split; [ eapply ValPiExp; [ exact RM | exact VPiM ] | ].
-        split; [ eapply ValPiExp; [ exact RN | exact VPiN ] | ].
-        eapply EqValPiExp; [ exact RM | exact RN | exact EPi ].
-    + (* Val contract *)
-      intros n Γ M M0 T u a h R. dependent destruction h.
-      * move=> _; apply Val_Bot.
-      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
-      * rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
-      * rewrite !Val_zero. move=> HR0.
-        eapply HeadRed_contract_to_multi; [ apply nf_zero | exact R | exact HR0 ].
-      * rewrite !Val_succ. move=> [M1 [HR0 HV]].
-        exists M1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact R | exact HR0 ] | exact HV ].
-      * rewrite !Val_tuniv. eapply ValTy_headred_contract; exact R.
-      * rewrite !Val_abs. move=> [VTd VPi].
-        split; [ exact VTd | eapply ValPiCon; [ exact R | exact VPi ] ].
-    + (* EqVal contract *)
-      intros n Γ M M0 N N0 T u a h RM RN. dependent destruction h.
-      * move=> _; apply EqVal_Bot.
-      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
-      * rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
-      * rewrite !EqVal_zero. move=> [HM HN].
-        split; [ eapply HeadRed_contract_to_multi; [ apply nf_zero | exact RM | exact HM ]
-               | eapply HeadRed_contract_to_multi; [ apply nf_zero | exact RN | exact HN ] ].
-      * rewrite !EqVal_succ. move=> [M1 [HM [N1 [HN HE]]]].
-        exists M1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact RM | exact HM ] | ].
-        exists N1. split; [ eapply HeadRed_contract_to_multi; [ apply nf_succ | exact RN | exact HN ] | exact HE ].
-      * rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
-        split; [ eapply ValTy_headred_contract; [ exact RM | exact VTM ] | ].
-        split; [ eapply ValTy_headred_contract; [ exact RN | exact VTN ] | ].
-        eapply EqValTy_headred_contract; [ exact RM | exact RN | exact ET ].
-      * rewrite !EqVal_abs. move=> [VTd [VPiM [VPiN EPi]]].
-        split; [ exact VTd | ].
-        split; [ eapply ValPiCon; [ exact RM | exact VPiM ] | ].
-        split; [ eapply ValPiCon; [ exact RN | exact VPiN ] | ].
-        eapply EqValPiCon; [ exact RM | exact RN | exact EPi ].
-Qed.
-
-(* Val2-beta-expand *)
-Lemma Val_beta_expand RB : forall {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
-  HeadRed M0 M -> Val RB Γ M T h -> Val RB Γ M0 T h.
-Proof. exact (proj1 (headred_VE_all RB)). Qed.
-
-(* EqVal2-headred-expand *)
-Lemma EqVal_headred_expand {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a) RB :
-  HeadRed M0 M -> HeadRed N0 N ->
-  EqVal RB Γ M N T h -> EqVal RB Γ M0 N0 T h.
-Proof. exact (proj1 (proj2 (headred_VE_all RB)) n Γ M M0 N N0 T u a h). Qed.
-
-(* ValPi2-headred-expand *)
-Lemma ValPi_headred_expand {n} (Γ : Ctx n) (M M' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) RB :
-  HeadRed M' M -> ValPi RB Γ M T h -> ValPi RB Γ M' T h.
-Proof.
-  move=> HR [A0 [B0 [HRT [PAV PAE]]]].
-  exists A0, B0. split; [ exact HRT | ]. split.
-  - move=> uu vv Sel WT Q TQ VQ.
-    eapply Val_beta_expand; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
-  - move=> uu vv Sel WT N1 N2 CN EV.
-    eapply EqVal_headred_expand; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
-                                 | exact (PAE uu vv Sel WT N1 N2 CN EV) ].
-Qed.
-
-(* EqValPi2-headred-expand *)
-Lemma EqValPi_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) RB :
-  HeadRed M1' M1 -> HeadRed M2' M2 ->
-  EqValPi RB Γ M1 M2 T h -> EqValPi RB Γ M1' M2' T h.
-Proof.
-  move=> HR1 HR2 [A0 [B0 [HRT PAEV]]].
-  exists A0, B0. split; [ exact HRT | ].
-  move=> uu vv Sel WT Q TQ VQ.
-  eapply EqVal_headred_expand; [ apply HeadRed_app; exact HR1 | apply HeadRed_app; exact HR2
-                               | exact (PAEV uu vv Sel WT Q TQ VQ) ].
-Qed.
-
-
-(* ============================================================
-   Level 4 — 4-way SCC for HeadRed contract
-   ============================================================ *)
-
-(* Val2-headred-contract *)
-Lemma Val_headred_contract {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a) RB :
-  HeadRed M M0 -> Val RB Γ M T h -> Val RB Γ M0 T h.
-Proof. exact (proj1 (proj2 (proj2 (headred_VE_all RB))) n Γ M M0 T u a h). Qed.
-
-(* EqVal2-headred-contract *)
-Lemma EqVal_headred_contract {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a) RB :
-  HeadRed M M0 -> HeadRed N N0 ->
-  EqVal RB Γ M N T h -> EqVal RB Γ M0 N0 T h.
-Proof. exact (proj2 (proj2 (proj2 (headred_VE_all RB))) n Γ M M0 N N0 T u a h). Qed.
-
-(* ValPi2-headred-contract *)
-Lemma ValPi_headred_contract {n} (Γ : Ctx n) (M M' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) RB :
-  HeadRed M M' -> ValPi RB Γ M T h -> ValPi RB Γ M' T h.
-Proof.
-  move=> HR [A0 [B0 [HRT [PAV PAE]]]].
-  exists A0, B0. split; [ exact HRT | ]. split.
-  - move=> uu vv Sel WT Q TQ VQ.
-    eapply Val_headred_contract; [ apply HeadRed_app; exact HR | exact (PAV uu vv Sel WT Q TQ VQ) ].
-  - move=> uu vv Sel WT N1 N2 CN EV.
-    eapply EqVal_headred_contract; [ apply HeadRed_app; exact HR | apply HeadRed_app; exact HR
-                                   | exact (PAE uu vv Sel WT N1 N2 CN EV) ].
-Qed.
-
-(* EqValPi2-headred-contract *)
-Lemma EqValPi_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' T : Tm n) b f g
-  (h : wt (abs g) (tpi b f)) RB :
-  HeadRed M1 M1' -> HeadRed M2 M2' ->
-  EqValPi RB Γ M1 M2 T h -> EqValPi RB Γ M1' M2' T h.
-Proof.
-  move=> HR1 HR2 [A0 [B0 [HRT PAEV]]].
-  exists A0, B0. split; [ exact HRT | ].
-  move=> uu vv Sel WT Q TQ VQ.
-  eapply EqVal_headred_contract; [ apply HeadRed_app; exact HR1 | apply HeadRed_app; exact HR2
-                                 | exact (PAEV uu vv Sel WT Q TQ VQ) ].
-Qed.
+Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) k :
+  rk u < k ->
+  EqValTy k Γ A B h -> EqValTy k Γ B C h -> EqValTy k Γ A C h.
+Proof. exact (proj2 (proj2 (proj2 (proj2 (proj2 (fwd_per_all k))))) n Γ A B C u h). Qed.
 
 
