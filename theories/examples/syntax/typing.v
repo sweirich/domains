@@ -1,11 +1,13 @@
 Require Import ssreflect.
 
-Require Import syntax.
-Require Export fintype.
-Require Export fin_util.
-
 From Stdlib Require Export Logic.FunctionalExtensionality.
 From Stdlib Require Import Program.Equality.
+
+Require Export autosubst.core.
+Require Export autosubst.fintype.
+Require Export syntax.fin_util.
+
+Require Import syntax.syntax.
 
 Lemma ext_fin {n A}{f g: fin n -> A} : 
   (forall x, f x = g x) -> f = g.
@@ -33,18 +35,35 @@ Open Scope syntax_scope.
 
 
 (* Single substitution commutes with [σ].*)
-Lemma subst1_subst_comm 
+Lemma subst1_subst_comm
   {n m} {B : Tm (S n)}{N : Tm n}{σ : fin n -> Tm m} :
-  B[N .: var][σ] = B[⇑ σ][N[σ] .: var].
+  B[N..][σ] = B[⇑ σ][N[σ]..].
 Proof.
-Admitted.
+  asimpl. done.
+Qed.
+
+
+Lemma subst1_ren_comm 
+  {n m} {B : Tm (S n)}{M : Tm n}{δ : fin n -> fin m} :
+  ⟨δ⟩ B[M..] = B⟨up_ren δ⟩[M⟨δ⟩..].
+Proof.
+  asimpl. done.
+Qed.
 
 (* subst_cons_eq: extending a substitution by a closed term commutes with the
-   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  Same autosubst var≠ids
-   gap as [subst1_subst_comm].  ADMITTED. *)
+   single-substitution form: [B[N .: σ] = B[⇑σ][N..]].  *)
 Lemma subst_cons_eq {n m} (B : Tm (S n)) (N : Tm m) (σ : fin n -> Tm m) :
   B[N .: σ] = B[⇑ σ][N .: var].
-Admitted.
+Proof. asimpl. done.
+Qed.
+
+(* Renaming composition: shifting then lifting a renaming equals renaming then
+   shifting ([↑ >> up_ren δ = δ >> ↑] applied to [N]).  Standard autosubst
+   [up_ren]/[↑] commutation, needed to align the eta-expanded body in the
+   [c_eta] case of [renaming_conv]; ADMITTED. *)
+Lemma ren_up_shift {n m} (δ : fin n -> fin m) (N : Tm n) :
+  (N⟨↑⟩)⟨up_ren δ⟩ = (N⟨δ⟩)⟨↑⟩.
+Proof. asimpl. done. Qed.
 
 (* ------------------------------------------------ *)
 
@@ -330,100 +349,113 @@ Create HintDb renaming.
 #[export] Hint Resolve typing_renaming_lift 
   typing_renaming_id typing_renaming_shift : renaming.
 
-
-Fixpoint renaming_typing {n} (Γ : Ctx n) a A {m} (Δ:Ctx m) δ : 
-  Γ |-e a ∈ A -> typing_renaming Δ δ Γ -> ctx Δ -> Δ |-e a⟨δ⟩ ∈ A⟨δ⟩
-with renaming_conv {n} (Γ : Ctx n) a b A {m} (Δ:Ctx m) δ : 
-  Γ |-e a ≡ b ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ A⟨δ⟩.
+Fixpoint renaming_typing {n} (Γ : Ctx n) a A {m} (Δ:Ctx m) δ 
+  (h : Γ |-e a ∈ A) {struct h} :
+         typing_renaming Δ δ Γ -> ctx Δ -> Δ |-e a⟨δ⟩ ∈ A⟨δ⟩
+with renaming_conv {n} (Γ : Ctx n) a b A {m} (Δ:Ctx m) δ 
+  (h : Γ |-e a ≡ b ∈ A) {struct h} :
+    typing_renaming Δ δ Γ ->  ctx Δ -> Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ A⟨δ⟩.
 Proof.
   (* typing *)
-  - have renaming_typing':
-      forall n (Γ : Ctx n) a A m (Δ:Ctx m) δ B,
-        Γ |-e a ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ ->
-           B = A⟨δ⟩ ->
-           Δ |-e a⟨δ⟩ ∈ B.
-    { intros until B. intros h tR cD ->. eapply renaming_typing; eauto. }
-    have renaming_conv' :
-      forall n (Γ : Ctx n) a b A m (Δ:Ctx m) δ B,
-        Γ |-e a ≡ b ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ ->
-           B = A⟨δ⟩ ->
-           Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ B.
-    { intros until B. intros h tR cD ->. eapply renaming_conv; eauto. }
-    intros h tR wtΔ.
+  - intros tR wtΔ.
     dependent destruction h; subst.
     all: try have EC: ctx (Δ ++ A ⟨δ⟩) by
-      eapply c_cons; eauto with renaming. 
-    all: try solve [asimpl; econstructor; eauto with renaming; cbn].
-
-    + (* var case *)
-      eapply t_var'; eauto.
-    + (* app *) 
-      cbn. asimpl.
-      eapply t_app' with (B:=B⟨up_ren δ⟩); eauto with renaming. 
-      asimpl.
-      auto.
-(*    + (* nrec *)
-      have EC: ctx (Δ ++ tnat).
-      { eapply c_cons; eauto with renaming.
-        eapply t_nat; eauto. }
-      eapply t_nrec; eauto with renaming.
-      eapply renaming_typing' in h1; eauto with renaming.
-      eapply typing_renaming_lift with (τ:=tnat) in tR; eauto.
-      eapply renaming_typing' in h2; eauto. asimpl. eauto.
-      eapply renaming_typing' in h3; eauto with renaming.
-      asimpl.
-      f_equal. f_equal.
-      unfold rho. asimpl.
-      eapply ext_fin. intros [k|]; asimpl; reflexivity. *)
-  (* conv *)
-  - have renaming_typing':
-      forall n (Γ : Ctx n) a A m (Δ:Ctx m) δ B,
-        Γ |-e a ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ ->
-           B = A⟨δ⟩ ->
-           Δ |-e a⟨δ⟩ ∈ B.
-    { intros until B. intros h tR cD ->. eapply renaming_typing; eauto. }
-    have renaming_conv' :
-      forall n (Γ : Ctx n) a b A m (Δ:Ctx m) δ B,
-        Γ |-e a ≡ b ∈ A -> typing_renaming Δ δ Γ ->  ctx Δ ->
-           B = A⟨δ⟩ ->
-           Δ |-e a⟨δ⟩ ≡ b⟨δ⟩ ∈ B.
-    { intros until B. intros h tR cD ->. eapply renaming_conv; eauto. }
-    intros h tR tΔ.
+      eapply c_cons; eauto;
+        eapply renaming_typing with (A:=tuniv); eauto.
+    + eapply t_var'; eauto with renaming.
+    + eapply t_conv; eauto with renaming.
+      eapply renaming_conv with (A:= tuniv); eauto with renaming.
+    + cbn. asimpl.
+      eapply t_abs; eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+    + cbn.
+      rewrite subst1_ren_comm.
+      eapply t_app; eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing in h3; eauto.
+    + cbn. eapply t_nat; eauto.
+    + cbn. eapply t_zero; eauto.
+    + cbn. eapply t_succ; eauto.
+      eapply renaming_typing with (A:=tnat); eauto with renaming.
+    + cbn. eapply t_tpi.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing in h2; eauto with renaming.
+    + cbn. eapply t_univ; eauto.
+  - intros tR wtΔ.
     dependent destruction h; subst.
-    all: try have EC: ctx (Δ ++ A⟨δ⟩)
-               by eapply c_cons; eauto with renaming.
-    all: try solve [asimpl; econstructor; 
-              eauto using renaming_typing' with renaming].
-    + (* c_app1 *)
-      cbn. asimpl.
-      eapply c_app1' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
-        eauto using renaming_typing' with renaming.
-      asimpl. reflexivity.
-    + (* c_app2 *)
-      cbn. asimpl.
-      eapply c_app2' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
-        eauto using renaming_typing' with renaming.
-      asimpl. reflexivity.
-    + (* c_beta *)
-      cbn. asimpl.
-      eapply c_beta' with (A:= A⟨δ⟩)(B := B⟨up_ren δ⟩);
-        try eapply renaming_typing'; eauto with renaming.
-      asimpl; auto.
-      asimpl; auto.
-    + (* c_eta *)
-      cbn. 
-      eapply c_eta with (A := A⟨δ⟩)(B := B⟨up_ren δ⟩);
-        try (eapply renaming_typing'; eauto with renaming).
-      have TR': typing_renaming (Δ ++ ⟨δ⟩ A) (up_ren δ) (Γ ++ A).
-      eauto with renaming.
-      eapply renaming_conv' with (Δ := Δ ++ ⟨δ⟩ A)
-        (δ := up_ren δ) (B := ⟨up_ren δ⟩ B) in h; eauto.
-      cbn in h. 
-      admit.
-    (* c_abs is now discharged by the [all: try solve] above *)
-    + (* c_tpi *)
-      admit.
-Admitted.
+    all: try have EC: ctx (Δ ++ A ⟨δ⟩) by
+      eapply c_cons; eauto;
+        eapply renaming_typing with (A:=tuniv); eauto.
+    + eapply c_conv; eauto.
+      eapply renaming_conv with (A:=tuniv); eauto.
+    + eapply c_refl; eauto with renaming.
+    + eapply c_sym; eauto with renaming.
+    + eapply c_trans; eauto with renaming.
+    + cbn. rewrite subst1_ren_comm.
+      eapply c_app1; eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      asimpl.
+      eapply renaming_conv in h; eauto with renaming.
+    + cbn. rewrite subst1_ren_comm.
+      eapply c_app2; eauto with renaming.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      asimpl.
+      eapply renaming_typing in H1; eauto with renaming.
+    + cbn. repeat rewrite subst1_ren_comm.
+      eapply c_beta; eauto.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing; eauto with renaming.
+    +       cbn. 
+      eapply c_eta; eauto.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing with (A:=tpi A B); eauto with renaming.
+      eapply renaming_typing with (A:=tpi A B); eauto with renaming.
+      eapply renaming_conv with (Δ := Δ ++ A⟨δ⟩)(δ:=up_ren δ) in h; 
+        eauto with renaming.
+      asimpl in h. done.
+      
+    + cbn.
+      eapply c_succ.
+      eapply renaming_conv with (A:=tnat); eauto.
+    + (* abs *)
+      cbn.
+      eapply c_abs; eauto.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto.
+      eapply renaming_typing with (A:=tuniv); eauto with renaming.
+      eapply renaming_typing; eauto with renaming.
+      eapply renaming_typing; eauto with renaming.
+      eapply renaming_conv with (A:=tuniv); eauto.
+      eapply renaming_conv; eauto with renaming.
+
+    + (* tpi *)
+      cbn.
+      have EC0: ctx (Δ ++ A0⟨δ⟩). 
+      { eapply c_cons; eauto;
+        eapply renaming_typing with (A:= tuniv); eauto.
+      }
+      have EC1: ctx (Δ ++ A1⟨δ⟩). 
+      { eapply c_cons; eauto;
+        eapply renaming_typing with (A:= tuniv); eauto.
+      }
+      eapply c_tpi; eauto.
+      eapply renaming_typing with (A:= tuniv); eauto.
+      eapply renaming_typing with (A:= tuniv); eauto.
+      eapply renaming_typing with (A:= tuniv); 
+        eauto with renaming.
+      eapply renaming_typing with (A:= tuniv); 
+        eauto with renaming.
+      eapply renaming_conv with (A:= tuniv); 
+        eauto. 
+      eapply renaming_conv with (A:= tuniv); 
+        eauto with renaming.
+Qed.
 
 (* All typed in well-formed contexts are well-formed *)
 Lemma ctx_typing_lookup {n} (Γ : Ctx n) : 
@@ -484,8 +516,8 @@ Proof.
 Qed.
 
 (** Add the substitution lemmas as hints *)
-#[export] Hint Resolve typing_subst_lift (* typing_subst_cons *)
-             typing_subst_id typing_subst_null : rec.
+#[export] Hint Resolve typing_subst_lift
+  typing_subst_id typing_subst_null : renaming.
 
 Fixpoint
   substitution_tm {n} (Γ : Ctx n) a A {m} (Δ:Ctx m) σ : 
@@ -500,8 +532,110 @@ Proof.
     all: cbn; asimpl.
     all: try solve [econstructor; eauto with syntax].
     + unfold typing_subst in tS. eauto.
-    + admit.
-Admitted.
+    + (* abs *) 
+      have EC: ctx (Δ ++ A[σ]). 
+      { eapply c_cons; eauto;
+          eapply substitution_tm with (A:= tuniv); eauto.
+      }
+      eapply t_abs.
+      eapply substitution_tm with (A:= tuniv); eauto.
+      eapply substitution_tm with (A:= tuniv); eauto with renaming.
+      eapply substitution_tm; eauto with renaming.
+
+    + (* app *) 
+      have EC: ctx (Δ ++ A[σ]). 
+      { eapply c_cons; eauto;
+          eapply substitution_tm with (A:= tuniv); eauto.
+      }
+      eapply t_app'; eauto.
+      eapply substitution_tm with (A:= tuniv); eauto.
+      eapply substitution_tm with (A:= tuniv); eauto with renaming.
+      eapply substitution_tm with (A:= tpi A B); eauto with renaming.
+      asimpl. reflexivity.
+
+    + (* tpi *)
+      eapply t_tpi.
+      eapply substitution_tm with (A:= tuniv); eauto.
+      have EC: ctx (Δ ++ A[σ]). 
+      { eapply c_cons; eauto;
+          eapply substitution_tm with (A:= tuniv); eauto.
+      }
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+  - dependent destruction h; subst.
+    all: try (have EC: ctx (Δ ++ A[σ]) by
+       eapply c_cons; eauto;
+       eapply substitution_tm with (A:= tuniv); eauto).
+      
+    + eapply c_conv; eauto.
+      eapply substitution_conv with (A:=tuniv); eauto.
+    + eapply c_refl; eauto.
+    + eapply c_sym; eauto.
+    + eapply c_trans; eauto.
+    + (* t_app1 *)
+      cbn. rewrite subst1_subst_comm.
+      eapply c_app1; eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+      eapply substitution_conv with (A:= tpi A B); eauto.
+    + (* t_app2 *)
+      cbn. rewrite subst1_subst_comm.
+      eapply c_app2; eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+      eapply substitution_tm with (A:= tpi A B); eauto.
+    + (* beta *)
+      cbn. repeat rewrite subst1_subst_comm.
+      eapply c_beta; eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+      eapply substitution_tm; eauto with renaming.
+    + (* eta *)
+      cbn. 
+      eapply c_eta; eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+      eapply substitution_tm with (A:=tpi A B); eauto with renaming.
+      eapply substitution_tm with (A:=tpi A B); eauto with renaming.
+      eapply substitution_conv with (Δ := Δ ++ A[σ])(σ:=⇑σ) in h; 
+        eauto with renaming.
+      asimpl in h. done.
+      
+    + cbn.
+      eapply c_succ.
+      eapply substitution_conv with (A:=tnat); eauto.
+    + (* abs *)
+      cbn.
+      eapply c_abs; eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto.
+      eapply substitution_tm with (A:=tuniv); eauto with renaming.
+      eapply substitution_tm; eauto with renaming.
+      eapply substitution_tm; eauto with renaming.
+      eapply substitution_conv with (A:=tuniv); eauto.
+      eapply substitution_conv; eauto with renaming.
+
+    + (* tpi *)
+      cbn.
+      have EC0: ctx (Δ ++ A0[σ]). 
+      { eapply c_cons; eauto;
+        eapply substitution_tm with (A:= tuniv); eauto.
+      }
+      have EC1: ctx (Δ ++ A1[σ]). 
+      { eapply c_cons; eauto;
+        eapply substitution_tm with (A:= tuniv); eauto.
+      }
+      eapply c_tpi; eauto.
+      eapply substitution_tm with (A:= tuniv); eauto.
+      eapply substitution_tm with (A:= tuniv); eauto.
+      eapply substitution_tm with (A:= tuniv); 
+        eauto with renaming.
+      eapply substitution_tm with (A:= tuniv); 
+        eauto with renaming.
+      eapply substitution_conv with (A:= tuniv); 
+        eauto. 
+      eapply substitution_conv with (A:= tuniv); 
+        eauto with renaming.
+Qed.
 
 (* ----------- context conversion -------------- *)
 
@@ -534,39 +668,86 @@ Proof.
     done.
 Qed.
 
-Lemma ctx_conv_typing {n} (Γ:Ctx n) A A' M B : 
-  conv Γ A A' tuniv -> 
-  typing (Γ ++ A) M B -> typing (Γ ++ A') M B.
+(* B[·] respects conversion in its argument.  No new infrastructure: route
+   through [abs A B : tpi A tuniv] and [c_beta]/[c_app2] —
+   B[M..] ≡ app (abs A B) M ≡ app (abs A B) M' ≡ B[M'..]. *)
+Lemma conv_subst_arg {n} (Γ : Ctx n) A (B : Tm (S n)) M M' :
+  typing Γ A tuniv -> typing (Γ ++ A) B tuniv ->
+  typing Γ M A -> typing Γ M' A -> conv Γ M M' A ->
+  conv Γ B[M..] B[M'..] tuniv.
 Proof.
-Admitted.
+  move=> tA tB tM tM' CMM'.
+  have CtxA : ctx (Γ ++ A) by (eapply c_cons; eauto using typing_ctx).
+  have tU : typing (Γ ++ A) tuniv tuniv by (apply t_univ; exact CtxA).
+  have tabs : typing Γ (abs A B) (tpi A tuniv) by (eapply t_abs; eauto).
+  have b1 : conv Γ (app (abs A B) M) B[M..] tuniv
+    by (eapply c_beta' with (A:=A)(B:=tuniv)(M:=M)(N:=B); try reflexivity; eauto).
+  have b2 : conv Γ (app (abs A B) M') B[M'..] tuniv
+    by (eapply c_beta' with (A:=A)(B:=tuniv)(M:=M')(N:=B); try reflexivity; eauto).
+  have a2 : conv Γ (app (abs A B) M) (app (abs A B) M') tuniv
+    by (eapply c_app2' with (A:=A)(B:=tuniv)(N:=abs A B)(M:=M)(M':=M'); try reflexivity; eauto).
+  eapply c_trans; [ apply c_sym; exact b1 | ].
+  eapply c_trans; [ exact a2 | exact b2 ].
+Qed.
 
-
-Lemma ctx_conv_conv {n} (Γ:Ctx n) A A' M N B : 
-  conv Γ A A' tuniv -> 
-  conv (Γ ++ A) M N B -> conv (Γ ++ A') M N B.
-Proof.
-  move=> CA CMN.
-Admitted.
-
-(* conv_typing: regularity of conversion — both sides of a conversion are
-   well-typed at the common type.  A standard syntactic metatheory fact (by
-   induction on [conv]); ADMITTED alongside the other syntactic gaps. *)
+(* Regularity of conversion: both sides of a conversion are well-typed at the
+   common type, by induction on [conv].  The [abs] case retypes [abs A' M'] from
+   [tpi A' B] to [tpi A B] via [ctc_conv_typing_subst]+[substitution_tm]+[c_tpi];
+   [app2] uses [conv_subst_arg]; [beta] uses [substitution_tm]. *)
 Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
   conv Γ M N A -> typing Γ M A /\ typing Γ N A.
 Proof.
-  induction 1; eauto.
-  all: split.
-  all: try destruct IHconv1 as [h1 h2].
-  all: try destruct IHconv2 as [h3 h4].
-  all: try destruct IHconv as [h5 h6].
-  all: eauto.
-  - eapply t_conv; eauto.
-  - eapply t_conv; eauto.
-  - eapply t_app; eauto.
-  - eapply t_app'; eauto.
-  - eapply t_app; eauto.
-  - eapply t_conv. eapply t_app; eauto.
-Admitted.
+  induction 1;
+    repeat match goal with [ H : _ /\ _ |- _ ] => destruct H end;
+    split; eauto using t_conv, t_app, t_succ, t_tpi, t_abs.
+  - (* c_app2, second side: [app N M' : B[M..]] *)
+    eapply t_conv; [ eapply t_app; eauto | ].
+    apply c_sym. eapply conv_subst_arg; eauto.
+  - (* c_beta, second side: [N[M..] : B[M..]] *)
+    eapply substitution_tm;
+      [ eauto
+      | eapply typing_subst_cons; [ asimpl; eauto | apply typing_subst_id; eauto using typing_ctx ]
+      | eauto using typing_ctx ].
+  - (* c_abs, second side: [abs A' M' : tpi A B] *)
+    have TSm : typing_subst (Γ ++ A') var (Γ ++ A)
+      by (eapply ctc_conv_typing_subst; [ eauto | eauto | apply c_sym; eauto ]).
+    have CtxA' : ctx (Γ ++ A') by (eapply c_cons; eauto using typing_ctx).
+    have tBA' : typing (Γ ++ A') B tuniv
+      by (move: (substitution_tm _ B tuniv _ var ltac:(eauto) TSm CtxA') => h; asimpl in h; exact h).
+    have tM'A' : typing (Γ ++ A') M' B
+      by (move: (substitution_tm _ M' B _ var ltac:(eauto) TSm CtxA') => h; asimpl in h; exact h).
+    eapply t_conv; [ eapply t_abs; eauto | ].
+    apply c_sym. eapply c_tpi;
+      [ eauto | eauto | eauto | exact tBA' | eauto | apply c_refl; eauto ].
+Qed.
+
+Lemma ctx_conv_typing {n} (Γ:Ctx n) A A' M B :
+  conv Γ A A' tuniv ->
+  typing (Γ ++ A) M B -> typing (Γ ++ A') M B.
+Proof.
+  move=> CA TM.
+  have [tA tA'] := conv_typing CA.
+  have TS : typing_subst (Γ ++ A') var (Γ ++ A)
+    by (eapply ctc_conv_typing_subst; [ exact tA' | exact tA | apply c_sym; exact CA ]).
+  have CTX : ctx (Γ ++ A') by (eapply c_cons; eauto using typing_ctx).
+  move: (substitution_tm _ _ _ _ _ TM TS CTX) => H.
+  asimpl in H. exact H.
+Qed.
+
+
+Lemma ctx_conv_conv {n} (Γ:Ctx n) A A' M N B :
+  conv Γ A A' tuniv ->
+  conv (Γ ++ A) M N B -> conv (Γ ++ A') M N B.
+Proof.
+  move=> CA CMN.
+  have [tA tA'] := conv_typing CA.
+  have TS : typing_subst (Γ ++ A') var (Γ ++ A)
+    by (eapply ctc_conv_typing_subst; [ exact tA' | exact tA | apply c_sym; exact CA ]).
+  have CTX : ctx (Γ ++ A') by (eapply c_cons; eauto using typing_ctx).
+  move: (substitution_conv _ _ _ _ _ _ CMN TS CTX) => H.
+  asimpl in H. exact H.
+Qed.
+
 
 
 
