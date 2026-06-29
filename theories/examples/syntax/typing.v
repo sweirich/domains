@@ -367,7 +367,7 @@ Proof.
     + (* tpi *)
       have EC0: ctx (Δ ++ A0⟨δ⟩) by
        eapply c_cons; eauto;
-       eapply renaming_typing with (A:= tuniv); eauto. 
+       eapply renaming_typing with (A:= tuniv); eauto.
       have EC1: ctx (Δ ++ A1⟨δ⟩) by
        eapply c_cons; eauto;
        eapply renaming_typing with (A:= tuniv); eauto.
@@ -376,7 +376,7 @@ Proof.
       eapply renaming_typing with (A:= tuniv); eauto.
       eapply renaming_typing with (A:= tuniv); eauto with renaming.
       eapply renaming_typing with (A:= tuniv); eauto with renaming.
-      eapply renaming_conv with (A:= tuniv); eauto. 
+      eapply renaming_conv with (A:= tuniv); eauto.
       eapply renaming_conv with (A:= tuniv); eauto with renaming.
 Qed.
 
@@ -515,24 +515,24 @@ Proof.
 
     + (* tpi *)
       cbn.
-      have EC0: ctx (Δ ++ A0[σ]). 
+      have EC0: ctx (Δ ++ A0[σ]).
       { eapply c_cons; eauto;
         eapply substitution_tm with (A:= tuniv); eauto.
       }
-      have EC1: ctx (Δ ++ A1[σ]). 
+      have EC1: ctx (Δ ++ A1[σ]).
       { eapply c_cons; eauto;
         eapply substitution_tm with (A:= tuniv); eauto.
       }
       eapply c_tpi; eauto.
       eapply substitution_tm with (A:= tuniv); eauto.
       eapply substitution_tm with (A:= tuniv); eauto.
-      eapply substitution_tm with (A:= tuniv); 
+      eapply substitution_tm with (A:= tuniv);
         eauto with renaming.
-      eapply substitution_tm with (A:= tuniv); 
+      eapply substitution_tm with (A:= tuniv);
         eauto with renaming.
-      eapply substitution_conv with (A:= tuniv); 
-        eauto. 
-      eapply substitution_conv with (A:= tuniv); 
+      eapply substitution_conv with (A:= tuniv);
+        eauto.
+      eapply substitution_conv with (A:= tuniv);
         eauto with renaming.
 Qed.
 
@@ -597,6 +597,19 @@ Proof.
   eapply c_trans; [ exact a2 | exact b2 ].
 Qed.
 
+(* Context conversion, with the two domain typings supplied explicitly (so it
+   does not depend on [conv_typing] and can be used inside it). *)
+Lemma ctx_conv_typing' {n} (Γ:Ctx n) A A' M B :
+  Γ ⊢e A ≡ A' ∈ tuniv -> Γ ⊢e A ∈ tuniv -> Γ ⊢e A' ∈ tuniv ->
+  Γ ++ A ⊢e M ∈ B -> Γ ++ A' ⊢e M ∈ B.
+Proof.
+  move=> CA tA tA' TM.
+  have TS : typing_subst (Γ ++ A') var (Γ ++ A)
+    by (eapply ctc_conv_typing_subst; [ exact tA' | exact tA | apply c_sym; exact CA ]).
+  have CTX : ctx (Γ ++ A') by (eapply c_cons; eauto using typing_ctx).
+  move: (substitution_tm _ M B _ var TM TS CTX) => h. asimpl in h. exact h.
+Qed.
+
 (* Regularity of conversion: both sides of a conversion are well-typed at the
    common type, by induction on [conv]. *)
 Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
@@ -631,13 +644,8 @@ Lemma ctx_conv_typing {n} (Γ:Ctx n) A A' M B :
   Γ ++ A  ⊢e M ∈ B -> 
   Γ ++ A' ⊢e M ∈ B.
 Proof.
-  move=> CA TM.
-  have [tA tA'] := conv_typing CA.
-  have TS : typing_subst (Γ ++ A') var (Γ ++ A)
-    by (eapply ctc_conv_typing_subst; [ exact tA' | exact tA | apply c_sym; exact CA ]).
-  have CTX : ctx (Γ ++ A') by (eapply c_cons; eauto using typing_ctx).
-  move: (substitution_tm _ _ _ _ _ TM TS CTX) => H.
-  asimpl in H. exact H.
+  move=> CA TM. have [tA tA'] := conv_typing CA.
+  eapply ctx_conv_typing'; eauto.
 Qed.
 
 
