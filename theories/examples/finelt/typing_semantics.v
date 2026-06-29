@@ -1115,18 +1115,16 @@ Qed.
 Lemma InvConv_eta {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (N N' : Tm n) :
   typing Γ A Core.tuniv ->
-  typing (Γ ++ A) B Core.tuniv ->
   typing Γ N (Core.tpi A B) ->
   typing Γ N' (Core.tpi A B) ->
   conv (Γ ++ A) (Core.app (⟨↑⟩ N) (var var_zero)) (Core.app (⟨↑⟩ N') (var var_zero)) B ->
   Γ ⊨ A ∈ Core.tuniv ->
-  Γ ++ A ⊨ B ∈ Core.tuniv ->
   Γ ⊨ N ∈ (Core.tpi A B) ->
   Γ ⊨ N' ∈ (Core.tpi A B) ->
   Γ ++ A ⊨ (Core.app (⟨↑⟩ N) (var var_zero)) ≡ (Core.app (⟨↑⟩ N') (var var_zero)) ∈ B ->
   Γ ⊨ N ≡ N' ∈ (Core.tpi A B).
 Proof.
-  move=> TA TB TN TN' Cbody iA iB iN iN' ibody ρ Fρ.
+  move=> TA TN TN' Cbody iA iN iN' ibody ρ Fρ.
   have Vρ : valid_env ρ by eauto with valid.
   have gen : forall (P Q : Tm n),
       Γ ⊨ P ∈ (Core.tpi A B) ->
@@ -1535,7 +1533,7 @@ Proof.
       | ?n ?Γ ?A ?B ?N ?N' ?M hA hB hNN' hM
       | ?n ?Γ ?A ?B ?N ?M ?M' hA hB hN hMM'
       | ?n ?Γ ?A ?B ?M ?N hA hB hM hN
-      | ?n ?Γ ?A ?B ?N ?N' hA hB hN hN' hbody 
+      | ?n ?Γ ?A ?B ?N ?N' hA hN hN' hbody
 (*      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
       | ?n ?Γ ?T ?M0 ?M1 ?z hT hM0 hM1 *)
       | ?n ?Γ ?M ?N hMN
@@ -1573,9 +1571,8 @@ Proof.
         eapply fits_cons; eauto.
     + (* c_eta: function extensionality (rests on the admitted [InvConv_eta]) *)
       move: ρ Fρ. eapply InvConv_eta;
-        [ exact hA | exact hB | exact hN | exact hN' | exact hbody
+        [ exact hA | exact hN | exact hN' | exact hbody
         | exact (typing_EvalRel _ _ _ _ hA)
-        | exact (typing_EvalRel _ _ _ _ hB)
         | exact (typing_EvalRel _ _ _ _ hN)
         | exact (typing_EvalRel _ _ _ _ hN')
         | exact (conv_EvalRel _ _ _ _ _ hbody) ].

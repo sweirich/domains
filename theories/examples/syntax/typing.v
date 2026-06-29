@@ -129,10 +129,9 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     typing Γ M A ->
     conv Γ (app (abs A N) M) N[M..] B[M..]
   | c_eta n (Γ : Ctx n) A B N N' :
-    typing Γ A tuniv -> 
-    typing (ctx_extend Γ A) B tuniv -> 
-    typing Γ N (tpi A B) ->     
-    typing Γ N' (tpi A B) ->     
+    typing Γ A tuniv ->
+    typing Γ N (tpi A B) ->
+    typing Γ N' (tpi A B) ->
     conv (ctx_extend Γ A) (app N⟨↑⟩ (var var_zero))
       (app N'⟨↑⟩ (var var_zero)) B ->
     conv Γ N N' (tpi A B)
@@ -358,10 +357,9 @@ Proof.
       eapply renaming_typing; eauto with renaming.
     + eapply c_eta; eauto.
       eapply renaming_typing with (A:=tuniv); eauto.
-      eapply renaming_typing with (A:=tuniv); eauto with renaming.
       eapply renaming_typing with (A:=tpi A B); eauto with renaming.
       eapply renaming_typing with (A:=tpi A B); eauto with renaming.
-      eapply renaming_conv with (Δ := Δ ++ A⟨δ⟩)(δ:=up_ren δ) in h; 
+      eapply renaming_conv with (Δ := Δ ++ A⟨δ⟩)(δ:=up_ren δ) in h;
         eauto with renaming.
       asimpl in h. done.
     + eapply c_succ.
@@ -495,10 +493,9 @@ Proof.
       cbn. 
       eapply c_eta; eauto.
       eapply substitution_tm with (A:=tuniv); eauto.
-      eapply substitution_tm with (A:=tuniv); eauto with renaming.
       eapply substitution_tm with (A:=tpi A B); eauto with renaming.
       eapply substitution_tm with (A:=tpi A B); eauto with renaming.
-      eapply substitution_conv with (Δ := Δ ++ A[σ])(σ:=⇑σ) in h; 
+      eapply substitution_conv with (Δ := Δ ++ A[σ])(σ:=⇑σ) in h;
         eauto with renaming.
       asimpl in h. done.
       

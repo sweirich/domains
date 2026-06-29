@@ -2210,13 +2210,11 @@ Qed.
 (* c_eta: function extensionality *)
 Lemma sc_eta A B (N N' : Tm n) :
   typing Γ A Core.tuniv ->
-  typing (Γ ++ A) B Core.tuniv ->
   typing Γ N (Core.tpi A B) ->
   typing Γ N' (Core.tpi A B) ->
   conv (Γ ++ A) (Core.app N⟨↑⟩ (var var_zero))
                 (Core.app N'⟨↑⟩ (var var_zero)) B ->
   semantic_typing Γ A Core.tuniv ->
-  semantic_typing (Γ ++ A) B Core.tuniv ->
   semantic_typing Γ N (Core.tpi A B) ->
   semantic_typing Γ N' (Core.tpi A B) ->
   semantic_conv2 (Γ ++ A) (Core.app N⟨↑⟩ (var var_zero))
@@ -2224,9 +2222,9 @@ Lemma sc_eta A B (N N' : Tm n) :
 (* ------------------------- *)
   semantic_conv2 Γ N N' (Core.tpi A B).
 Proof.
-  move=> TA TB TN TN' CBody STA STB STN STN' SC_body.
+  move=> TA TN TN' CBody STA STN STN' SC_body.
   have CNN' : conv Γ N N' (Core.tpi A B)
-    by (eapply c_eta; [ exact TA | exact TB | exact TN | exact TN' | exact CBody ]).
+    by (eapply c_eta; [ exact TA | exact TN | exact TN' | exact CBody ]).
   move=> ρ m Δ σ TS FR VS CD u a WT evN evTpi.
   have Vρ : valid_env ρ := fits_valid_env FR.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
