@@ -2718,5 +2718,72 @@ Proof.
   { eapply HeadRed_tpi_det. exact HR. apply ms_refl. }
   subst B0' F0'.
   split; auto.
-Qed. 
+Qed.
+
+(** * Subject reduction (Agda: [SubjectReduction.agda])
+
+    Port of the Agda [subject-red1]: typing is preserved by single-step head
+    reduction.  The β-case inverts the [abs] typing through conversion
+    ([typing_abs_inv]) and uses Π-injectivity ([piInjectivity]) to align the
+    domain/codomain, exactly as the Agda [ty-Lam-body] helper does, then
+    substitutes ([substitution_tm]). *)
+
+(* Inversion of a head reduction whose redex is an application. *)
+Lemma HeadRed1_app_inv {n} (F a N' : Tm n) :
+  HeadRed1 (Core.app F a) N' ->
+  (exists A0 M', F = Core.abs A0 M' /\ N' = M'[a..]) \/
+  (exists F2, HeadRed1 F F2 /\ N' = Core.app F2 a).
+Proof.
+  move=> h. inversion h; subst.
+  - left. do 2 eexists. split; reflexivity.
+  - right. eexists. split; [ eassumption | reflexivity ].
+Qed.
+
+(* Agda: subject-red1 : HasType G M A -> HeadRed1 M N -> HasType G N A *)
+Lemma subject_red1 {n} (Γ : Ctx n) (M A : Tm n) :
+  typing Γ M A -> forall N, HeadRed1 M N -> typing Γ N A.
+Proof.
+  induction 1 as
+    [ n Γ x cΓ
+    | n Γ M A B tM IHM cAB
+    | n Γ A B P tA IHA tB IHB tP IHP
+    | n Γ A B F a tA IHA tB IHB tF IHF ta IHa
+    | n Γ cΓ
+    | n Γ cΓ
+    | n Γ P tP IHP
+    | n Γ A B tA IHA tB IHB
+    | n Γ cΓ ]; intros N' hr.
+  all: try solve [ inversion hr ].
+  - (* t_conv: peel the conversion, recurse, re-wrap. *)
+    eapply t_conv; [ eapply IHM; exact hr | exact cAB ].
+  - (* t_app on [app F a] : B[a..] *)
+    apply HeadRed1_app_inv in hr.
+    destruct hr as [ [A0 [M' [-> ->]]] | [F2 [hrF ->]] ].
+    + (* β: F = abs A0 M'.  Invert the Lam typing, align via Π-injectivity. *)
+      destruct (typing_abs_inv _ _ _ _ _ tF) as [B2 [tM' cPi]].
+      destruct (piInjectivity cPi) as [cA cB].
+      have tM'A : typing (Γ ++ A) M' B2
+        by (eapply ctx_conv_typing; [ exact cA | exact tM' ]).
+      have cBA : conv (Γ ++ A) B2 B Core.tuniv
+        by (eapply ctx_conv_conv; [ exact cA | exact cB ]).
+      have tM'B : typing (Γ ++ A) M' B
+        by (eapply t_conv; [ exact tM'A | exact cBA ]).
+      eapply substitution_tm.
+      * exact tM'B.
+      * eapply typing_subst_cons.
+        -- asimpl. exact ta.
+        -- apply typing_subst_id. eapply typing_ctx; exact ta.
+      * eapply typing_ctx; exact ta.
+    + (* congruence: the function reduces. *)
+      eapply t_app; [ exact tA | exact tB | eapply IHF; exact hrF | exact ta ].
+Qed.
+
+(* Subject reduction for multi-step head reduction. *)
+Lemma subject_red {n} (Γ : Ctx n) (M N A : Tm n) :
+  typing Γ M A -> HeadRed M N -> typing Γ N A.
+Proof.
+  move=> H hr. move: A H. induction hr as [ e | e1 e2 e3 s _ IH ]; intros A H.
+  - exact H.
+  - apply IH. eapply subject_red1; eassumption.
+Qed.
 

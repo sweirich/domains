@@ -247,6 +247,8 @@ Public faces in Validity/Levels.agda and Validity/Props.agda.
 | `evalRel_Pi_trivial` | `evalRel-Pi-trivial` (PiInjectivity.agda) |
 | `bot_env_lookup` | `botEnv-lookup` (PiInjectivity.agda) |
 | `fits_bot_env` | `botEnv-fits` (PiInjectivity.agda) |
+| `subject_red1` / `subject_red` | `subject-red1` (SubjectReduction.agda) |
+| `HeadRed1_app_inv` | (inlined in `subject-red1`) |
 
 ### Lemmas without a counterpart
 

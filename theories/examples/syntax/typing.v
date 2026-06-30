@@ -84,8 +84,8 @@ Inductive typing : forall {n} (Γ : Ctx n), Tm n -> Tm n -> Prop :=
   | t_nrec n (Γ : Ctx n) (T U : Tm (S n)) M0 M1 :
     typing (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
-    U = T[rho] ->
-    typing Γ M1 (tpi tnat (tpi T U⟨↑⟩ )) ->       
+    U = T[succ (var var_zero)..] ->
+    typing Γ M1 (tpi tnat U) ->       
     typing Γ (nrec T M0 M1) (tpi tnat T) *)
   (* universes *)
   | t_tpi n (Γ : Ctx n) A B : 
@@ -135,19 +135,19 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     conv (ctx_extend Γ A) (app N⟨↑⟩ (var var_zero))
       (app N'⟨↑⟩ (var var_zero)) B ->
     conv Γ N N' (tpi A B)
-  (* natural numbers: TODO add typing hyps *)
-(*
+  (* natural numbers: *)
+  (*
   | c_nrec_Z n (Γ : Ctx n) M0 M1 (T : Tm (S n)) : 
     typing  (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
-    typing Γ M1 (tpi tnat (tpi T T[rho]⟨↑⟩ )) ->   
+    typing Γ M1 (tpi tnat T[(succ (var var_zero))..])) ->   
     conv Γ (app (nrec T M0 M1) zero) M0 T[zero..]
   | c_nrec_S n (Γ : Ctx n) T M0 M1 n : 
     typing (Γ ++ tnat) T tuniv ->
     typing Γ M0 (T[zero..]) ->
-    typing Γ M1 (tpi tnat (tpi T T[rho]⟨↑⟩ )) ->    
+    typing Γ M1 (tpi tnat T[(succ (var var_zero))..])) ->    
     conv Γ (app (nrec T M0 M1) (succ n)) 
-      (app (app M1 n) (app (nrec T M0 M1) n)) T[(succ n)..] *)
+           (app M1 n) T[(succ n)..] *)
   | c_succ n (Γ : Ctx n) M N :
     conv Γ M N tnat ->
     conv Γ (succ M) (succ N) tnat
