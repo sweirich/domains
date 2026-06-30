@@ -701,4 +701,48 @@ Proof.
     eapply t_tpi; eauto.
 Qed.
 
+(** Type inversion through conversions for the base type/numeral formers: each
+    one's principal type ([tuniv] for [tuniv]/[tnat]/[tpi], [tnat] for
+    [zero]/[succ]) is convertible to whatever type the term is given. *)
+
+Lemma typing_univ_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e tuniv ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_univ; assumption.
+Qed.
+
+Lemma typing_nat_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e tnat ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_univ; assumption.
+Qed.
+
+Lemma typing_tpi_inv {n} {Γ : Ctx n} {A0 B0 T} :
+  Γ ⊢e tpi A0 B0 ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+Qed.
+
+Lemma typing_zero_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e zero ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_nat; assumption.
+Qed.
+
+Lemma typing_succ_inv {n} {Γ : Ctx n} {M0 T} :
+  Γ ⊢e succ M0 ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_nat; eapply typing_ctx; eassumption.
+Qed.
+
 

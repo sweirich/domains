@@ -264,6 +264,12 @@ Public faces in Validity/Levels.agda and Validity/Props.agda.
   edge-forward construction; the Agda rank-relative `Stage` makes it unnecessary.
 - `SubRel_singleton_env` / `singleton_env_*` (eval_substitution.v) — Coq
   packaging with no standalone Agda lemma.
+- `progress` / `progress_gen` / `canonical_pi` / `neutral_not_closed` and the
+  non-confusion facts (`tnat_not_tpi`, `tuniv_not_tpi`) (adequacy.v), with the
+  per-former type inversions (`typing_univ_inv`, `typing_nat_inv`,
+  `typing_tpi_inv`, `typing_zero_inv`, `typing_succ_inv`) in syntax/typing.v —
+  the operational progress theorem for closed terms; the Agda MIN fragment ports
+  subject reduction but not progress.
 
 **Agda-only** (no analogous Rocq lemma):
 

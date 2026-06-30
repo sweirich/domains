@@ -2479,34 +2479,7 @@ End SemanticTyping.
 
 (*
 ------------------------------------------------------------------------
--- Part 6: Main mutual block — adequacySub2 / adequacyEqSub2 /
---                              adequacyConvSub2
---
--- These three theorems form the main "Theorem 2" of the paper
--- (p.660) and the central mutual block of Adequacy2.agda.  In the
--- Agda development they are a single TERMINATING mutual block; here
--- we state them as Theorems with proofs left admitted, and use the
--- previously defined semantic_typing / semantic_conv / semantic_conv2
--- to express their (unfolded) conclusions.
---
--- The Agda hypotheses translate as follows (with the source context
--- H instantiated to ctx_empty, i.e. closing substitutions):
---
---     HasType G M A             ≈  typing Γ M A
---     ConvTm   G M N A          ≈  conv   Γ M N A
---     σ : Sub h g               ≈  σ : Sub g  (= fin g -> Tm 0)
---     ρ : EnvApprox g           ≈  ρ : Env g
---     CoherentEnv ρ             ≈  valid_env ρ   (from fits_valid_env)
---     ValidSub2 H G σ ρ         ≈  ValSub Γ ρ σ
---     ValidConvSub2 H G σ σ' ρ  ≈  EqValSub Γ ρ σ σ'
---     Fits G ρ                  ≈  fits Γ ρ
---     WtSub H G σ               ≈  typing_subst ctx_empty σ Γ
---     WtConvSub H G σ σ'        ≈  (no Rocq counterpart yet — would
---                                  be a pointwise conv predicate)
---     WfCtx H                   ≈  ctx Γ
---     FinMem u a                ≈  wt u a
---     Val2 H M[σ] A[σ] u a      ≈  Val M[σ] A[σ] (h : wt u a)
-u--     EqVal2 H M[σ] N[σ] A[σ]   ≈  EqVal M[σ] N[σ] A[σ] (h : wt u a)
+-- Main mutual block — adequacySub / adequacyEqSub
 ------------------------------------------------------------------------
 *)
 
@@ -2787,3 +2760,116 @@ Proof.
   - apply IH. eapply subject_red1; eassumption.
 Qed.
 
+(** * Consistency: distinct type formers are not convertible.
+
+    [tnat] and [tpi A B] cannot be convertible at the universe.  If they were,
+    [piConv] would head-reduce [tnat] to a Π-code, but [tnat] is a head-normal
+    form (no [HeadRed1] step applies to it), so the only reduction sequence out
+    of it is the empty one — contradicting [tnat = tpi B0 F0]. *)
+Lemma tnat_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tnat (Core.tpi A B) Core.tuniv.
+Proof.
+  move=> H.
+  destruct (piConv H) as [B0 [F0 [HR _]]].
+  (* HR : HeadRed Core.tnat (Core.tpi B0 F0) *)
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
+Qed.
+
+(* Symmetric form. *)
+Lemma tpi_not_tnat {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ (Core.tpi A B) Core.tnat Core.tuniv.
+Proof.
+  move=> H. apply tnat_not_tpi with (Γ := Γ) (A := A) (B := B).
+  apply c_sym. exact H.
+Qed.
+
+(* [tuniv] is also head-normal, so it is not convertible to a Π type. *)
+Lemma tuniv_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tuniv (Core.tpi A B) Core.tuniv.
+Proof.
+  move=> H.
+  destruct (piConv H) as [B0 [F0 [HR _]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+Qed.
+
+(** * Progress for closed terms
+
+    A closed, well-typed term is either a value (weak-head-normal form) or it
+    takes a head-reduction step.  The content is in the application case: a
+    closed value of Π type must be a λ (canonical forms), proved from the
+    per-former type inversions ([typing_univ_inv], [typing_nat_inv],
+    [typing_tpi_inv], [typing_zero_inv], [typing_succ_inv], at the end of
+    [syntax/typing.v]) together with the [tnat]/[tuniv] vs Π non-confusion
+    facts. *)
+
+(* Values (weak-head-normal forms) and neutral (variable-headed) terms. *)
+Inductive value {n} : Tm n -> Prop :=
+| v_univ : value Core.tuniv
+| v_nat  : value Core.tnat
+| v_tpi  : forall A B, value (Core.tpi A B)
+| v_zero : value Core.zero
+| v_succ : forall M, value (Core.succ M)
+| v_abs  : forall A M, value (Core.abs A M).
+
+Inductive neutral {n} : Tm n -> Prop :=
+| ne_var : forall x, neutral (Core.var x)
+| ne_app : forall M N, neutral M -> neutral (Core.app M N).
+
+(* Canonical forms at Π type (any context): a value of Π type is a λ. *)
+Lemma canonical_pi {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) (B : Tm (S n)) :
+  value M -> typing Γ M (Core.tpi A B) -> exists A' N, M = Core.abs A' N.
+Proof.
+  move=> v; destruct v; move=> HT.
+  - exfalso; exact (tuniv_not_tpi (typing_univ_inv HT)).
+  - exfalso; exact (tuniv_not_tpi (typing_nat_inv HT)).
+  - exfalso; exact (tuniv_not_tpi (typing_tpi_inv HT)).
+  - exfalso; exact (tnat_not_tpi (typing_zero_inv HT)).
+  - exfalso; exact (tnat_not_tpi (typing_succ_inv HT)).
+  - eexists; eexists; reflexivity.
+Qed.
+
+(* Progress, general form: every well-typed term is a value, a neutral
+   (variable-headed) term, or head-reduces. *)
+Lemma progress_gen {n} (Γ : Ctx n) M A :
+  typing Γ M A -> value M \/ neutral M \/ exists N, HeadRed1 M N.
+Proof.
+  induction 1 as
+    [ n Γ x cΓ
+    | n Γ M A B tM IHM cAB
+    | n Γ A B P tA IHA tB IHB tP IHP
+    | n Γ A B F a tA IHA tB IHB tF IHF ta IHa
+    | n Γ cΓ
+    | n Γ cΓ
+    | n Γ P tP IHP
+    | n Γ A B tA IHA tB IHB
+    | n Γ cΓ ].
+  - right; left; constructor.
+  - exact IHM.
+  - left; constructor.
+  - destruct IHF as [ vF | [ neF | [F' stF] ] ].
+    + destruct (canonical_pi vF tF) as [A' [N0 ->]].
+      right; right; eexists; apply hr_beta.
+    + right; left; apply ne_app; exact neF.
+    + right; right; eexists; apply hr_app; exact stF.
+  - left; constructor.
+  - left; constructor.
+  - left; constructor.
+  - left; constructor.
+  - left; constructor.
+Qed.
+
+(* A closed term has no neutral (variable-headed) subterm. *)
+Lemma neutral_not_closed (M : Tm 0) : neutral M -> False.
+Proof. induction 1 as [ x | M N ne IH ]. - destruct x. - exact IH. Qed.
+
+(* Progress for closed terms. *)
+Lemma progress (M A : Tm 0) :
+  typing ctx_empty M A -> value M \/ exists N, HeadRed1 M N.
+Proof.
+  move=> H. destruct (progress_gen H) as [ v | [ ne | st ] ].
+  - left; exact v.
+  - exfalso; exact (neutral_not_closed ne).
+  - right; exact st.
+Qed.
