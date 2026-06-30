@@ -1,3 +1,19 @@
+(** * types.v: Well-typed finite elements ([wt], the FinMem relation)
+
+    This file defines the typing relation [wt u a] ("the finite element [u]
+    is a member of the type [a]"), the Coq analogue of Agda's [FinMem].  It
+    is the semantic well-typedness judgment on the elements of the value
+    domain (defined in [findom.v]), and is the layer the value PER in
+    [raw_validity.v] is built over.
+
+    The headline results are:
+    - [wt_le]  — typing is monotone in the type: [u : a] and [a <= b] give [u : b];
+    - [wt_lub] — types are closed under joins of compatible members;
+    - [wt_app] — application: if [abs w : tpi a f] and [u : a] then [w u : f u].
+
+    The first two are proven together inside module [WTLE] by well-founded
+    induction on a rank bound [k], because each direction needs the other at
+    smaller rank; the closed forms are re-exported afterwards. *)
 
 From Stdlib Require Import Relations List Program
      ssreflect ssrfun ssrbool.
@@ -46,8 +62,14 @@ Import findom.Raw.
 (* -------------------------------------------------------------- *)
 
 
-(** well typed elements (finMem)
-    In this branch tuniv has no universe-level argument (type-in-type). *)
+(** Well-typed elements ([FinMem]).  [wt u a] reads "element [u] inhabits type
+    [a]".  In this branch [tuniv] has no universe-level argument
+    (type-in-type), so every type lives in the single universe [tuniv].  A type
+    [tpi a g] (a finite Π / dependent-function code) is well-formed when its
+    domain [a] is a type, every recorded key/value pair types its key at [a]
+    and its value at [tuniv], and the underlying term is [valid]; an
+    abstraction [abs f] inhabits [tpi a g] when each entry's key types at [a]
+    and its value types at the codomain [app g ui]. *)
 Inductive wt : elt -> elt -> Prop :=
   | wt_bot a :
     wt a tuniv ->
@@ -87,7 +109,7 @@ Inductive wt : elt -> elt -> Prop :=
 
 (** * Validity *)
 
-
+(** A well-typed element is a [valid] term, and so is its type. *)
 Fixpoint wt_valid_tm u a : wt u a -> valid u.
 - induction 1; eauto.  
 Qed.
@@ -104,7 +126,9 @@ Proof. move=> h. inversion h. done. Qed.
 
 (** Generation / regularity *)
 
-(* FinMem-a-in-U (type-in-type: every typed term's type lives in tuniv). *)
+(** Regularity: the type of any well-typed element is itself a type, i.e. lives
+    in [tuniv].  (Agda: [FinMem-a-in-U]; here type-in-type makes [tuniv] the
+    single universe.) *)
 Lemma wt_ty_tuniv u a : wt u a -> wt a tuniv.
 Proof.
   induction 1; eauto using wt_tuniv, wt_tnat, wt_tpi.
@@ -209,10 +233,19 @@ Qed.
 
 
 From Stdlib Require Import Psatz.
+
+(** ** Monotonicity and join-closure of typing
+
+    [wt_le] (typing respects [le] on types) and [wt_lub] (types are closed
+    under joins of compatible elements) are mutually dependent, so they are
+    proven simultaneously by strong induction on a rank bound [k]: the record
+    [WTLE_Lemmas k] packages both statements restricted to elements/types of
+    rank [<= k], and [WTLE] discharges them for every [k]. The rank-free
+    corollaries [wt_le] and [wt_lub] are exported just below the module. *)
 Module WTLE.
 
 
-Record WTLE_Lemmas k := MkLemmas { 
+Record WTLE_Lemmas k := MkLemmas {
   wt_le  : forall u a (h : wt u a) b, 
            max (rk a) (rk b) <= k ->
            le a b -> wt a tuniv -> wt b tuniv -> wt u b ;
@@ -349,21 +382,26 @@ Qed.
 End WTLE.         
 
 
-Definition wt_le : forall u a (h : wt u a), 
+(** Typing is monotone in the type: if [u : a] and [a <= b] (both types) then
+    [u : b].  (Agda: the [wt]-monotonicity half of [WTLE].) *)
+Definition wt_le : forall u a (h : wt u a),
     forall b, le a b -> wt a tuniv -> wt b tuniv -> wt u b.
 Proof.
   intros.
   eapply WTLE.wt_le; eauto. eapply WTLE.WTLE.
 Qed.
 
-Definition wt_lub : forall u a (h: wt u a) v, 
+(** Types are closed under joins: if [u : a] and [v : a] are compatible then
+    [lub u v : a].  This is what makes each type an ideal (sub-lub-closed). *)
+Definition wt_lub : forall u a (h: wt u a) v,
            compatible u v ->
-           wt v a -> wt (lub u v) a. 
+           wt v a -> wt (lub u v) a.
 Proof.   intros.
   eapply WTLE.wt_lub; eauto. eapply WTLE.WTLE.
 Qed.
 
-Lemma all_app_is_tuniv {a g} (h : wt (tpi a g) tuniv) : 
+(** Applying a type-code [tpi a g] to any valid argument yields a type. *)
+Lemma all_app_is_tuniv {a g} (h : wt (tpi a g) tuniv) :
   forall u, valid u -> wt (app g u) tuniv.
 Proof. 
   intros.
@@ -378,8 +416,9 @@ Proof.
 Defined.
 
 
-(* Corollary 2 If w : Πaf and u : a, then w(u) : f (u). *)
-
+(** Application (Corollary 2): if [abs w : tpi a f] and [u : a], then the
+    applied value [app w u] inhabits the codomain image [app f u]. This is the
+    semantic counterpart of the application typing rule. *)
 Lemma wt_app w a f :
   wt (abs w) (tpi a f) ->
   forall u, wt u a -> wt (app w u) (app f u).
@@ -428,11 +467,11 @@ Proof.
       exact WTr'.
 Qed.
 
-(* Same as [wt_app] but only requires the argument to be valid (not
-   necessarily typed at the domain): a typed function maps any valid
-   argument to a value well-typed at the corresponding codomain image.
-   The argument's typing is only used in [wt_app] to thread the
-   recursion, so [valid u] suffices throughout. *)
+(** Same as [wt_app] but only requires the argument to be [valid] (not
+    necessarily typed at the domain): a typed function maps any valid argument
+    to a value well-typed at the corresponding codomain image. The argument's
+    typing is only used in [wt_app] to thread the recursion, so [valid u]
+    suffices throughout. *)
 Lemma wt_app_valid w a f :
   wt (abs w) (tpi a f) ->
   forall u, valid u -> wt (app w u) (app f u).

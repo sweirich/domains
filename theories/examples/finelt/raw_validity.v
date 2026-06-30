@@ -1,3 +1,30 @@
+(** * raw_validity.v: The value PER ([Val] / [EqVal])
+
+    (See [MIN/Validity/*.agda].)
+
+    This file builds the logical relation tying *syntactic* terms/types to
+    *semantic* well-typed finite elements.  The two mutually-recursive
+    relations are:
+    - [Val k Γ M A u a (h : wt u a)] — the term [M : A] is related to the
+      member [u : a] of type [a];
+    - [EqVal k Γ M N A u a h] — the convertible terms [M], [N] are related to
+      [u : a].
+
+    They are defined by recursion on a global *fuel* [k] (an over-approximation
+    of element rank): as [u]/[a] become more defined, the set of related
+    syntactic terms shrinks; at [u = bot] every well-scoped term qualifies.  The
+    Π cases quantify over [Selection]s of the function graph (see
+    [selection.v]).  [ValTy]/[EqValTy] are the type-level companions.
+
+    The major results, exported at the end of the file, are:
+    - [fuel_stable] — the relations are independent of fuel above the rank, so
+      the fuel index can be ignored (the rank-relative [Stage] of the Agda dev);
+    - [EqVal_sym], [EqVal_trans], [EqValTy_sym], [EqValTy_trans] — [EqVal] is a
+      PER;
+    - [Val_EqVal] (reflexivity), [Val_Bot]/[EqVal_Bot];
+    - head-expansion/contraction and up/down/restrict monotonicity lemmas;
+    - [fwd_per_all] — the forward (type-transport) package. *)
+
 (* See Validity.agda *)
 
 From Stdlib Require Import Relations List Program
@@ -45,6 +72,13 @@ Import Raw.
    include all well-scoped terms M and A.  *)
 
 
+(** This module defines the "edge" operations that the [Val]/[EqVal] fixpoints
+    use in their Π and universe cases (the Selection-indexed type and value
+    edges [PiEdge*]/[PiApp*], the type companions [ValTy]/[EqValTy], and the
+    Π-bundles [ValPi]/[EqValPi]).  Each is parameterized by the two main
+    fixpoints [Val] and [EqVal] *instantiated at a smaller rank*, so that the
+    recursion in [Val]/[EqVal] below stays structurally decreasing in the
+    fuel. *)
 Module Rec.
 
 (* This module defines various helper operations on the logical
@@ -128,11 +162,17 @@ Definition PiAppEqVal {n} (Γ : Ctx n)
         Val Γ P A0 WT ->
         EqVal Γ (Core.app M P) (Core.app N P) B0[P..] (wt_Selection_abs h Sel).
 
+(** [ValPi]: a function value [abs g : tpi b f] is related to [M : A] when [A]
+    head-reduces to a Π-type [tpi A0 B0] and [M] satisfies both value-graph
+    edges [PiAppVal] (each argument maps to a related result) and [PiAppEq]
+    (the action is congruent in the argument). *)
 Definition ValPi {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) g b f (h : wt (abs g) (tpi b f)):=
   exists A0, exists B0, HeadRed A (Core.tpi A0 B0)
   /\ PiAppVal Γ M A0 B0 h
   /\ PiAppEq Γ M A0 B0 h.
+
+(** Binary companion of [ValPi]: [M] and [N] act equally on related arguments. *)
 
 Definition EqValPi {n} (Γ : Ctx n)
   (M : Tm n) (N: Tm n) (A : Tm n) g b f 
@@ -141,6 +181,11 @@ Definition EqValPi {n} (Γ : Ctx n)
   /\ PiAppEqVal Γ M N A0 B0 h.
 
 
+(** [ValTy Γ M u h]: the type-level relation, i.e. [Val] specialized to
+    [a = tuniv].  When the type code [u] is a Π-code [tpi b g], [M] must
+    head-reduce to a syntactic Π-type [tpi A B] that is well-typed, with its
+    domain in the relation and the codomain satisfying the type edges
+    [PiEdgeVal]/[PiEdgeEq]; the base type codes are trivially related. *)
 Definition ValTy {n} (Γ : Ctx n)
   (M : Tm n) u (h : wt u tuniv) : Prop  :=
   (match u return wt _ tuniv ->  Prop with
@@ -180,7 +225,10 @@ Definition PiEdgeEqTy {n} (Γ : Ctx n)
           (* to (equal) related results *)
           EqVal Γ B[P..] B'[P..] Core.tuniv (wt_Selection_codU h Sel).
 
-Definition EqValTy {n} 
+(** [EqValTy Γ M N a h]: the binary type relation (two convertible types
+    related to the same type code [a]); the Π case additionally requires the
+    cross codomain edge [PiEdgeEqTy]. *)
+Definition EqValTy {n}
   (Γ : Ctx n) M N (a : elt) (h : wt a tuniv) :  Prop :=
   (match a return wt _ tuniv ->  Prop with
   | tpi b f =>
@@ -233,6 +281,13 @@ End Rec.
    occurrence at the canonical fuel.
    ------------------------------------------------------------------ *)
 
+(** [Val k Γ M A u a h]: the unary logical relation, by recursion on fuel [k]
+    and case analysis on the type [a] (then, for Π types, on the value [u]).
+    [a = bot] / [u = bot] / fuel [0] are trivially [True] (everything related);
+    [a = tuniv] defers to the type relation [ValTy]; [a = tpi b f] requires both
+    that [A] is a valid type and that [M] satisfies the Π-edge condition
+    [ValPi]; [a = tnat] matches the numeral structure through head reduction.
+    Defined mutually with [EqVal]. *)
 Fixpoint Val (k : nat) {n} (Γ : Ctx n)
   (M : Tm n) (A : Tm n) (u : elt) (a : elt) (h : wt u a)
   {struct k} : Prop :=
@@ -268,6 +323,10 @@ Fixpoint Val (k : nat) {n} (Γ : Ctx n)
       | _ => fun h  => True
        end) h
   end
+(** [EqVal k Γ M N A u a h]: the binary (PER) companion of [Val], relating two
+    convertible terms [M], [N] to the member [u : a].  It has the same case
+    structure as [Val], additionally requiring each side to be in [Val] and the
+    pair to satisfy the symmetric edge conditions. *)
 (* Binary logical relation *)
 with EqVal (k : nat) {n} (Γ : Ctx n)
   (M : Tm n) (N : Tm n) (A : Tm n) (u : elt) (a : elt) (h : wt u a)
@@ -373,6 +432,8 @@ Proof. reflexivity. Qed.
    Val2-Bot, EqVal2-Bot: at u = bot, both relations are total.
    ============================================================ *)
 
+(** The least element [bot] is related to every term: the relation is
+    inhabited at the bottom of every type. *)
 Lemma Val_Bot {n} (Γ : Ctx n) (M A : Tm n) a (h : wt bot a) k : Val k Γ M A h.
 Proof.
   unfold Val. destruct k as [|k']; first exact I.
@@ -477,7 +538,8 @@ Qed.
    ============================================================ *)
 
 
-(* Diagonal embedding [Val -> EqVal]. *)
+(** Reflexivity / diagonal embedding [Val -> EqVal]: a related term is related
+    to itself.  (Agda: [Val2-to-EqVal2].) *)
 Lemma Val_EqVal k : forall {n} (Γ : Ctx n) (M A : Tm n) u a (h : wt u a),
   Val k Γ M A h -> EqVal k Γ M M A h.
 Proof.
@@ -595,7 +657,8 @@ Proof.
   exact PEE.
 Qed.
 
-(* ValTy2-headred-expand *)
+(** Closure under head expansion for types: if [M'] head-reduces to a related
+    type [M], then [M'] is related too.  (Agda: [ValTy2-headred-expand].) *)
 Lemma ValTy_HeadRed_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
   HeadRed M' M -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof.
@@ -805,19 +868,21 @@ Proof.
         eapply EqValPiCon; [ exact RM | exact RN | exact EPi ].
 Qed.
 
-(* Val2-beta-expand *)
+(** Closure under head expansion for values (Agda: [Val2-beta-expand]): a term
+    head-reducing to a related term is itself related.  These four lemmas are
+    projections of the bundled [headred_VE_all]. *)
 Lemma Val_beta_expand k : forall {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a),
   HeadRed M0 M -> Val k Γ M T h -> Val k Γ M0 T h.
 Proof. exact (proj1 (headred_VE_all k)). Qed.
 
-(* EqVal2-headred-expand *)
+(** Binary head expansion (Agda: [EqVal2-headred-expand]). *)
 Lemma EqVal_headred_expand {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) u a (h : wt u a) k :
   HeadRed M0 M -> HeadRed N0 N ->
   EqVal k Γ M N T h -> EqVal k Γ M0 N0 T h.
 Proof. exact (proj1 (proj2 (headred_VE_all k)) n Γ M M0 N N0 T u a h). Qed.
 
 
-(* Val2-headred-contract *)
+(** Closure under head contraction for values (Agda: [Val2-headred-contract]). *)
 Lemma Val_headred_contract {n} (Γ : Ctx n) (M M0 T : Tm n) u a (h : wt u a) k :
   HeadRed M M0 -> Val k Γ M T h -> Val k Γ M0 T h.
 Proof. exact (proj1 (proj2 (proj2 (headred_VE_all k))) n Γ M M0 T u a h). Qed.
@@ -1466,6 +1531,9 @@ Proof.
   all: eapply (wt_tpi_inv2 (wt_tpi h0 w w0 i) (u := u0)); eauto with valid.
 Qed.
 
+(** All six up/down/restrict monotonicity facts, bundled in [UDR k] and proven
+    together by induction on the fuel [k]; the named projections appear just
+    below. *)
 Lemma up_down_restrict : forall k, UDR k.
 Proof.
   induction k as [|k IH].
@@ -1527,6 +1595,11 @@ Proof.
   Unshelve. all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot.
 Qed.
 
+(** Monotonicity of the relation in the *type* and *value* code, exported as
+    six lemmas (Agda: [upVal2-pub]/[downVal2-pub]/[restrictVal2-pub] and their
+    [EqVal] versions).  [upVal]/[upEqVal] enlarge the type along [le a0 a1];
+    [downVal]/[downEqVal] shrink it; [restrictVal]/[restrictEqVal] shrink the
+    value along [le u' u].  All are projections of [up_down_restrict]. *)
 Lemma upVal k {n} (Γ : Ctx n) (M T : Tm n) u a0 a1
   (h0 : wt u a0) (h1 : wt u a1) (hUa0 : wt a0 tuniv) (hUa1 : wt a1 tuniv) :
   le a0 a1 -> Val k Γ M T h0 -> Val k Γ T Core.tuniv hUa1 -> Val k Γ M T h1.
@@ -1904,6 +1977,11 @@ Proof.
     + refine (proj2 (FEP n Γ M N T _ _ _ _ _ _) VEqPi); cbn in Hu, Ha |- *; lia.
 Qed.
 
+(** Fuel stability (the bundle [FuelStable k], proven by induction on [k]):
+    above the ranks of the value/type codes, [Val]/[EqVal] do not depend on the
+    fuel.  This is what licenses passing extra fuel freely and recovers the
+    rank-relative behaviour of the Agda [Stage].  The eight directed projections
+    ([Val_fuel_up]/[Val_fuel_down]/… below) are taken from it. *)
 (* ---- the bundle, by induction on [k] ---- *)
 Lemma fuel_stable : forall k, FuelStable k.
 Proof.
@@ -1981,6 +2059,11 @@ Definition FwdPER (k : nat) : Prop :=
       rk u < k ->
       EqValTy k Γ A B h -> EqValTy k Γ B C h -> EqValTy k Γ A C h).
 
+(** The forward/PER kernel [FwdPER k], proven by one induction on [k].  It
+    bundles, and so simultaneously establishes: type transport of [Val]/[EqVal]
+    along [EqValTy] (forward), and symmetry and transitivity of [EqVal] and
+    [EqValTy].  The exported PER lemmas ([EqVal_sym], [EqVal_trans],
+    [EqValTy_sym], [EqValTy_trans], and the transport lemmas) are projections. *)
 Lemma fwd_per_all : forall k, FwdPER k.
 Proof.
   induction k as [|k IH].
@@ -2251,38 +2334,42 @@ Proof.
       [ exact FWD | exact EFWD | exact SYM | exact TRANS | exact ETSYM | exact ETTRANS ].
 Qed.
 
-(* downstream-facing projections *)
-(* conversion for Val *) 
+(** ** Downstream-facing projections of [fwd_per_all]. *)
+
+(** Type transport for [Val] (Agda: [Val2-EqValTy2-fwd]): a related term keeps
+    its relation across a related (convertible) type. *)
 Lemma Val_EqVal_fwd {n} (Γ : Ctx n) (M A : Tm n) u a
   (h : wt u a) (B : Tm n) (h' : wt a tuniv) k :
   rk u < k -> rk a < k ->
   Val k Γ M A h -> EqValTy k Γ A B h' -> Val k Γ M B h.
 Proof. exact (proj1 (fwd_per_all k) n Γ M A B u a h h'). Qed.
 
-(* conversion for EqVal *)
+(** Type transport for [EqVal] (Agda: [EqVal2-EqValTy2-fwd]). *)
 Lemma EqVal_EqVal_fwd {n} (Γ : Ctx n) (M N A : Tm n) u a
   (h : wt u a) (B : Tm n) (h' : wt a tuniv) k :
   rk u < k -> rk a < k ->
   EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h.
 Proof. exact (proj1 (proj2 (fwd_per_all k)) n Γ M N A B u a h h'). Qed.
 
+(** Symmetry of [EqVal] (the PER's symmetry; Agda: [EqVal2-sym]). *)
 Lemma EqVal_sym {n} (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a) k :
   rk u < k ->
   EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h.
 Proof. exact (proj1 (proj2 (proj2 (fwd_per_all k))) n Γ M1 M2 A u a h). Qed.
 
+(** Transitivity of [EqVal] (Agda: [EqVal2-trans]). *)
 Lemma EqVal_trans {n} (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a) k :
   rk u < k ->
   EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h.
 Proof. exact (proj1 (proj2 (proj2 (proj2 (fwd_per_all k)))) n Γ M1 M2 M3 A u a h). Qed.
 
-(* EqValTy2-sym *)
+(** Symmetry of the type PER (Agda: [EqValTy2-sym]). *)
 Lemma EqValTy_sym {n} (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv) k :
   rk u < k ->
   EqValTy k Γ M N h -> EqValTy k Γ N M h.
 Proof. exact (proj1 (proj2 (proj2 (proj2 (proj2 (fwd_per_all k))))) n Γ M N u h). Qed.
 
-(* EqValTy2-trans *)
+(** Transitivity of the type PER (Agda: [EqValTy2-trans]). *)
 Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) k :
   rk u < k ->
   EqValTy k Γ A B h -> EqValTy k Γ B C h -> EqValTy k Γ A C h.

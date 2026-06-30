@@ -19,17 +19,42 @@ Open Scope syntax_scope.
 
 Import Raw.
 
+(** * raw_semantics.v: The evaluation relation [EvalRel]
+
+    This file defines the denotational meaning of a (well-scoped) term [Tm n]
+    as a relation [EvalRel M ρ a] between a finite environment [ρ] and a finite
+    element [a]: "[a] is a (finite) approximation of the value of [M] under
+    [ρ]".  This is the Coq analogue of Agda's [EvalRel] / the model's ideal.
+
+    The principal structural properties — proven by induction on the term —
+    are that the set of approximations of a term is an *ideal*:
+    - [EvalRel_valid]      every approximation is [valid];
+    - [EvalRel_bot]        [bot] always approximates (the ideal is non-empty);
+    - [EvalRel_mono_env]   monotone in the environment;
+    - [EvalRel_down]       downward closed in the value;
+    - [EvalRel_compatible] approximations of one term are pairwise compatible;
+    - [EvalRel_sup]        closed under joins of compatible approximations;
+    - [EvalRel_ideal]      the directed-closure package used downstream. *)
+
 (* ------------------------------------------------- *)
 
-(* Part 1: Finite environments *)
+(** ** Part 1: Finite environments *)
 
+(** A finite environment assigns a finite element to each free variable. *)
 Definition Env n := fin n -> elt.
 
-  
-(* Part 2: EvalRel *)
+
+(** ** Part 2: EvalRel *)
 
 Notation " a ↦ b " := (singleton a b) (at level 70).
 
+(** [EvalRel M ρ a]: the finite element [a] approximates the value of term [M]
+    in environment [ρ].  For a function ([abs]/[tpi]) the table [g] is sound
+    when, for *every* valid argument [u], some well-typed approximation [x <= u]
+    of the argument makes the body evaluate to the recorded result [app g u].
+    Defining the function case via this "well-typed approximation below [u]"
+    (rather than demanding [u] itself be well-typed) is what makes
+    [EvalRel_fun_compatible] and the ideal properties go through. *)
 Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
   (* NOTE: this says that we can find a well-typed approximation for
      any argument u, even if u is not itself well-typed.
@@ -89,6 +114,10 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
   end.
 
 
+(** The soundness condition on a function table, named at top level: for every
+    valid argument [u] there is a well-typed approximation [x <= u] of the
+    argument under which the body [M] evaluates to the recorded result [app g u].
+    This is exactly the function clause of [EvalRel] above. *)
 Definition EvalRel_fun {n} (M : Tm (S n)) :=
     fun ρ a g =>
       forall u v, valid u -> app g u = v ->
@@ -127,6 +156,7 @@ Proof.  move=> Vx Vr. unfold valid_env. auto_case. Qed.
 Hint Resolve valid_cons: valid.
 
   
+(** Every approximation of a term is a valid element. *)
 Lemma EvalRel_valid {n} (M : Tm n) (ρ : Env n) (u : elt) :
   EvalRel M ρ u -> valid u.
 Proof.
@@ -166,7 +196,8 @@ Qed.
 
 (** * monotonicity *)
 
-Definition le_env {n} (ρ1 ρ2 : Env n) := 
+(** Pointwise extension of the information order [le] to environments. *)
+Definition le_env {n} (ρ1 ρ2 : Env n) :=
   forall x, le (ρ1 x) (ρ2 x).
 Lemma le_env_nil : le_env null null.
   unfold le_env. auto_case. Qed.
@@ -175,6 +206,8 @@ Lemma le_env_cons n u v (ρ1 ρ2 : Env n):
 Proof. move=> L1 L2. unfold le_env. auto_case. Qed.
 
 
+(** [EvalRel] is monotone in the environment: enlarging [ρ] to [ρ'] preserves
+    every approximation. *)
 Lemma EvalRel_mono_env {n} (M : Tm n) (ρ ρ' : Env n) u :
   EvalRel M ρ u -> valid_env ρ -> valid_env ρ' -> le_env ρ ρ' -> EvalRel M ρ' u.
 Proof.
@@ -229,6 +262,7 @@ Proof.
 Qed.
 
 
+(** [bot] approximates every term: the ideal is always non-empty. *)
 Lemma EvalRel_bot {n} (M : Tm n) (ρ : Env n) :
   EvalRel M ρ bot.
 Proof.
@@ -236,6 +270,8 @@ Proof.
   (* var *) all: split; [done | apply le_bot'].
 Qed.
 
+(** Downward closure: any valid element below an approximation is itself an
+    approximation. *)
 Lemma EvalRel_down n (M : Tm n) (ρ : Env n) u u' :
   valid_env ρ -> valid u' ->
   EvalRel M ρ u -> le u' u -> EvalRel M ρ u'.
@@ -373,6 +409,10 @@ Proof.
 Qed.
 
 
+(** The function-table half of compatibility: two sound tables [l], [l0] for
+    body [M] (at domains [a], [b]) are compatible, and their concatenation is a
+    sound table at the join [lub a b].  This is the key lemma motivating the
+    "approximation below [u]" formulation of [EvalRel] on functions. *)
 Lemma EvalRel_fun_compatible {n} (M : Tm (S n)) ρ a l b l0
   (Vρ : valid_env ρ)
   (IHM : forall (ρ : Env (S n)) (a b : elt),
@@ -514,6 +554,10 @@ Qed.
 
 
 
+(** Core ideal property (proven by induction on [M]): any two approximations
+    [a], [b] of a term are compatible, and their join is again an
+    approximation.  [EvalRel_compatible] and [EvalRel_sup] are the two
+    projections of this statement. *)
 Lemma EvalRel_compatible_lub {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
   EvalRel M ρ a -> EvalRel M ρ b ->
@@ -741,17 +785,20 @@ Proof.
     all: move=> c h; inversion h; subst c; done.
 Qed.
 
+(** Any two approximations of a term are compatible. *)
 Lemma EvalRel_compatible {n} (M : Tm n) :
   forall (ρ : Env n) (a b : elt), valid_env ρ ->
-  EvalRel M ρ a -> EvalRel M ρ b -> 
+  EvalRel M ρ a -> EvalRel M ρ b ->
   compatible a b.
 Proof.
   intros.
   eapply  EvalRel_compatible_lub; eauto.
 Qed.
 
+(** Join closure: the join of two compatible approximations is an
+    approximation. *)
 Lemma EvalRel_sup n (M : Tm n) (ρ : Env n) u u' v :
-  valid_env ρ -> valid u -> valid u' -> compatible u u' -> 
+  valid_env ρ -> valid u -> valid u' -> compatible u u' ->
   lub u u' = v ->
   EvalRel M ρ u -> EvalRel M ρ u' -> EvalRel M ρ v.
 Proof.
@@ -761,10 +808,13 @@ Proof.
 Qed.
 
 
-Lemma EvalRel_compatible_ext {n} (M : Tm (S n)) ρ x1 x2 y1 y2 : 
-  valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 -> 
-  EvalRel M (x1 .: ρ) y1 -> 
-  EvalRel M (x2 .: ρ) y2 -> 
+(** Extensional compatibility under a binder: evaluating a body [M] in two
+    environments that differ only in a compatible head value gives compatible
+    results.  (Used for the function/abs cases downstream.) *)
+Lemma EvalRel_compatible_ext {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
+  valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 ->
+  EvalRel M (x1 .: ρ) y1 ->
+  EvalRel M (x2 .: ρ) y2 ->
   compatible y1 y2.
 Proof.
   move=> Vρ CC Vx1 Vx2 E1 E2.
@@ -784,6 +834,10 @@ Proof.
   eapply (EvalRel_compatible Vext); eauto.
 Qed.  
 
+(** Directedness package under a binder: from compatible head values [x1],[x2]
+    with body results [y1],[y2], the joined head [lub x1 x2] yields the joined
+    result [lub y1 y2].  This is the form consumed by the function/abs cases of
+    the validity and substitution lemmas. *)
 Lemma EvalRel_ideal {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
   valid_env ρ -> compatible x1 x2 -> valid x1 -> valid x2 ->
   EvalRel M (x1 .: ρ) y1 ->

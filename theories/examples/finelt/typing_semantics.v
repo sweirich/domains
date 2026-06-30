@@ -1,3 +1,20 @@
+(** * typing_semantics.v: Typing/conversion soundness for [EvalRel]
+
+    (See [MIN/Model/Soundness.agda] and [MIN/Model/SoundnessLemmas.agda].)
+
+    This file proves that the denotational meaning [EvalRel] respects the
+    syntactic typing and conversion judgments — the model's "Theorem 1":
+    - [typing_EvalRel] (Agda [theorem1]): a derivation [Γ ⊢ M : A] makes [M]
+      *invertibly typed* ([InvTyped]) under any environment that [fits Γ];
+    - [conv_EvalRel] (Agda [convSound']): a derivation [Γ ⊢ M ≡ N : A] makes
+      [M] and [N] *invertibly convertible* ([InvConv]) — invertibly typed on
+      both sides plus mutual approximation.
+    They are proven by simultaneous induction on the two judgments.
+
+    The bulk of the file is the supporting inversion lemmas ([InvTyp_Lam],
+    [InvTyp_App], [InvTyp_Pi], [InvConv_beta], [InvConv_eta], …) that extract
+    the semantic content of each typing/conversion rule. *)
+
 (* See LemmaForTS.agda/TypingSemantics.agda *)
 
 (* Prove that well typed syntax produces well typed interpretations.
@@ -62,6 +79,9 @@ Import Raw.
    See LemmaForTS.agda Part 1.
    ===================================================================== *)
 
+(** [fits Γ ρ] ([Fits]): the environment [ρ] is well-typed for context [Γ] —
+    each [ρ x] is a member of the (evaluated) type of [x] in [Γ].  This is the
+    standing hypothesis under which the soundness theorems quantify. *)
 Inductive fits : forall {n} (Γ:Ctx n) (ρ : Env n), Prop :=
   | fits_empty : fits ctx_empty null
   | fits_cons n (Γ : Ctx n) A ρ a u :
@@ -109,6 +129,9 @@ Hint Resolve fits_valid_env : valid typing.
 (* Fits-var: the value at every variable is well-typed
    at the lookup of its type. *)
 
+(** Variable case ([Fits-var]): in a fitting environment each [ρ x] is a
+    member of the evaluated type of [x].  This is the semantic content of the
+    [ty-var] rule. *)
 Lemma fits_var {n} (Γ : Ctx n)(ρ : Env n) :
   fits Γ ρ ->
   forall x,
@@ -146,6 +169,11 @@ Qed.
    ===================================================================== *)
 
 
+(** [Typed M A ρ u]: the approximation [u] of [M] is dominated by some
+    *well-typed* approximation [v] (with [wt v a] and [a] an approximation of
+    the type [A]).  Stated this way — "some larger typed [v]" rather than
+    "[u] itself is typed" — because [EvalRel] on functions ranges over
+    not-necessarily-typed arguments. *)
 Definition Typed {n:nat} (M : Tm n) (A : Tm n) ρ u :=
   exists v , exists a, exists (h : wt v a),
     le u v /\ EvalRel M ρ v /\ EvalRel A ρ a.
@@ -156,10 +184,15 @@ Definition Typed {n:nat} (M : Tm n) (A : Tm n) ρ u :=
   exists a, exists (h : wt u a), EvalRel A ρ a.
 *)
 
+(** [InvTyped Γ M A ρ]: *every* approximation of [M] is [Typed].  This is the
+    conclusion of typing soundness. *)
 Definition InvTyped
   {n:nat} (Γ: Ctx n) (M : Tm n) (A : Tm n) (ρ : Env n) :=
   forall u, EvalRel M ρ u -> Typed M A ρ u.
 
+(** [InvConv Γ M N A ρ]: invertible typing of both [M] and [N], together with
+    mutual approximation ([M] and [N] have the same approximations).  This is
+    the conclusion of conversion soundness. *)
 Definition InvConv
   {n:nat} (Γ: Ctx n) (M : Tm n) (N: Tm n) (A : Tm n) (ρ : Env n) :=
   InvTyped Γ M A ρ
@@ -283,12 +316,9 @@ Definition EvalRel_funT {n} (M : Tm (S n))
     { z : elt & ((wt z a * (le z (fst p) = true)) *
                  EvalRel M (z .: ρ) (snd p))%type }.
 
-(* Lam_L1: each entry of l comes with a typed enlargement of its key and
-   an EvalRel witness for its value.
-
-   Proof: trivial — the input is already in the right shape.  This is
-   the *refactored* form of Lam_L1; the real work has moved into the
-   construction of the [EvalRel_funT] input. *)
+(** [Lam_L1] (Agda: [Lam-L1]): from a [EvalRel_funT] table for body [M], each
+    entry comes with a typed enlargement of its key and an [EvalRel] witness for
+    its value — the per-edge data assembled into the value graph of a lambda. *)
 Lemma Lam_L1 {n} (M : Tm (S n)) (ρ : Env n) (a : elt)
   (l : list (elt * elt))
   (ER_T : EvalRel_funT M ρ a l) :
@@ -480,6 +510,9 @@ Proof.
     + exists bot, (wt_bot WTa). split; [by rewrite le_bot' | apply EvalRel_bot].
 Qed.
 
+(** Soundness of the lambda rule ([InvTyp-Lam]): given semantic typing of the
+    domain, codomain, and body, the abstraction [abs A M] is invertibly typed
+    at [tpi A B]. *)
 Lemma InvTyp_Lam {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) (M : Tm (S n)) :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B  Core.tuniv ->
@@ -668,11 +701,14 @@ Proof.
   - by [].
 Qed.
 
+(** Soundness of the Π-formation rule ([InvTyp-Pi]): from semantic typing of
+    the domain and codomain, the type [tpi A B] is invertibly typed in the
+    universe. *)
 Lemma InvTyp_Pi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
-  typing Γ A Core.tuniv -> 
-  typing (Γ ++ A) B Core.tuniv -> 
-  Γ ⊨ A ∈ Core.tuniv -> 
-  (Γ ++ A) ⊨ B ∈ Core.tuniv -> 
+  typing Γ A Core.tuniv ->
+  typing (Γ ++ A) B Core.tuniv ->
+  Γ ⊨ A ∈ Core.tuniv ->
+  (Γ ++ A) ⊨ B ∈ Core.tuniv ->
   Γ ⊨ (Core.tpi A B) ∈ Core.tuniv.
 Proof.
   move=> TA TB IHA IHB ρ Fρ u Eu.
@@ -775,6 +811,9 @@ Qed.
        (App M N) has InvTyp at B[N..].
    ===================================================================== *)
 
+(** Soundness of the application rule ([InvTyp-App]): if [M] is invertibly
+    typed at [tpi A B] and [N] at [A], then [app M N] is invertibly typed at
+    the substituted codomain [B[N..]]. *)
 Lemma InvTyp_App {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (M : Tm n) (N : Tm n) ρ :
   fits Γ ρ ->
@@ -847,6 +886,8 @@ Qed.
    App — no graph reconstruction is needed.
    ===================================================================== *)
 
+(** Conversion congruence in the function position ([InvConv-App-fun]): if
+    [M ≡ N : tpi A B] and [a : A], then [app M a ≡ app N a : B[a..]]. *)
 Lemma InvConv_App_fun {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (M N a : Tm n) ρ :
   fits Γ ρ ->
@@ -872,6 +913,8 @@ Qed.
        If M : Pi A B and a = a' : A, then App M a = App M a' : B[a..].
    ===================================================================== *)
 
+(** Conversion congruence in the argument position ([InvConv-App-arg]): if
+    [M : tpi A B] and [a ≡ a' : A], then [app M a ≡ app M a' : B[a..]]. *)
 Lemma InvConv_App_arg {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (M a a' : Tm n) ρ :
   fits Γ ρ ->
@@ -938,6 +981,10 @@ Qed.
    whnf-reduce [EvalRel (abs..) (abs g)] to its conjunction.
    ===================================================================== *)
 
+(** Soundness of beta ([InvConv-beta]): the redex [app (abs A M) N] is
+    invertibly convertible to its contractum [M[N..]] at type [B[N..]].  The
+    forward direction uses [EvalRel_subst1_forward], the backward direction
+    [EvalRel_subst1_backwards]. *)
 Lemma InvConv_beta {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (M : Tm (S n)) (N : Tm n) ρ :
   fits Γ ρ ->
@@ -1112,6 +1159,10 @@ Qed.
             [EvalRel Q ρ (ui ↦ vi)] (down along [ui↦vi ≤ a↦vi]).
    ===================================================================== *)
 
+(** Soundness of function extensionality / eta ([InvConv-funext]): two functions
+    that agree on a fresh argument ([app N⟨↑⟩ x ≡ app N'⟨↑⟩ x]) are convertible
+    at the Π-type.  Reassembles agreement on every value-graph edge via
+    [EvalRel_reassemble]. *)
 Lemma InvConv_eta {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (N N' : Tm n) :
   typing Γ A Core.tuniv ->
@@ -1433,6 +1484,14 @@ Qed.
    See TypingSemantics.agda's mutual block.
    ===================================================================== *)
 
+(** Theorem 1 — typing soundness (Agda: [theorem1]): a typing derivation
+    [Γ ⊢ M : A] yields [Γ ⊨ M ∈ A], i.e. [M] is invertibly typed under every
+    fitting environment.  Mutually defined with [conv_EvalRel] — conversion
+    soundness (Agda: [convSound']): [Γ ⊢ M ≡ N : A] yields [Γ ⊨ M ≡ N ∈ A].  The
+    mutual recursion is essential: the [t_conv] typing case appeals to
+    conversion, while the [c_app]/[c_beta]/[c_eta] conversion cases appeal to
+    typing.  Each rule is discharged by the corresponding [InvTyp_*]/[InvConv_*]
+    lemma above. *)
 Fixpoint typing_EvalRel {n} (Γ : Ctx n) (M : Tm n) (A : Tm n)
    (h : typing Γ M A) {struct h} :
    Γ ⊨ M ∈ A

@@ -1,3 +1,28 @@
+(** * adequacy.v: Fundamental theorem and Π-injectivity
+
+    (See [MIN/Adequacy/Bundle.agda] and [MIN/PiInjectivity.agda].)
+
+    This file proves the *fundamental theorem* (adequacy) of the value PER from
+    [raw_validity.v]: well-typed syntax is in the relation.  It is organized as
+    one [semantic_typing]/[semantic_conv2] lemma per typing/conversion rule:
+    - [st_var], [st_univ], [st_tpi], [st_abs], [st_app], [st_conv], … —
+      the typing rules (Agda: [adequacyV2-*]);
+    - [sc_refl], [sc_sym], [sc_trans], [sc_conv], [sc_app1], [sc_app2],
+      [sc_beta], [sc_eta], [sc_tpi], [sc_abs] — the conversion rules
+      (Agda: [adequacyE2-*]).
+
+    [semantic_typing Γ M A] (≈ Agda [AdqV2]) bundles, for every substitution and
+    every related member, the [Val] facts; [semantic_conv2] (≈ [AdqE2]) the
+    [EqVal] facts.  The relations [ValSub]/[EqValSub] thread the logical
+    relation through a substitution at *every fuel above the rank* — the Coq
+    rendering of Agda's single canonical [Stage]; the cross-fuel bridges
+    ([Val_fuel_any] etc.) move between such fuels.
+
+    The headline application, assembled at the end, is [piInjectivity]: from a
+    type conversion [tpi A0 B0 ≡ tpi A1 B1] the components are convertible
+    ([piConv]), proven by evaluating both sides in the trivial (bottom)
+    environment ([evalRel_Pi_trivial]). *)
+
 (* Fundamental theorem of the logical relation *)
 
 
@@ -86,6 +111,10 @@ Definition Sub m n := fin m -> Tm n.
    threaded at any above-rank fuel — the Coq counterpart of Agda's
    single canonical stage [Stage (suc (max (RANK u) (RANK a)))].
    ============================================================ *)
+(** Cross-fuel bridge: between any two fuels both above the ranks of [u] and
+    [a], [Val] is interchangeable (here: raise the fuel).  These bridges are
+    what let the [forall RB] substitution relations be threaded at any
+    above-rank fuel, the Coq counterpart of Agda's single canonical [Stage]. *)
 Lemma Val_fuel_up_to {n} (Γ : Ctx n) (M T : Tm n) u a (h : wt u a) k k' :
   k <= k' -> rk u < k -> rk a < k -> Val k Γ M T h -> Val k' Γ M T h.
 Proof.
@@ -140,6 +169,12 @@ Qed.
    fuel, and [Val_fuel_any] then provides it at all above-rank fuels (as
    [ValSub_cons] needs) — every fuel in play stays above the rank, where
    fuel-stability applies. *)
+(** [ValSub Δ Γ σ ρ] (≈ Agda [TySub]): the substitution [σ : Γ → Δ] is
+    semantically well-typed against the environment [ρ].  For each variable [i]
+    and each valid approximation [u <= ρ i] typed at the variable's evaluated
+    type [a], the substituted term [σ i] is in [Val] at [u : a] — and at *every*
+    fuel [RB] above the ranks, so codomain edges (which produce members at one
+    above-rank fuel and need them at all) go through via [Val_fuel_any]. *)
 Definition ValSub {n} (Δ : Ctx n) {g} (Γ : Ctx g) (σ : Sub g n) (ρ : Env g)    : Prop :=
   forall i u, valid u -> le u (ρ i) ->
     forall a, EvalRel (lookup i Γ) ρ a ->
@@ -174,6 +209,9 @@ Proof.
     eapply hyp0; eauto.
 Qed.
 
+(** [EqValSub Δ Γ σ1 σ2 ρ] (≈ Agda [TyConvSub]): the binary companion of
+    [ValSub] — two substitutions [σ1], [σ2] act equally (in [EqVal]) on every
+    member realized by [ρ], again at every above-rank fuel. *)
 Definition EqValSub {h} {g} (Δ : Ctx h) (Γ : Ctx g)
   (σ1 : Sub g h) (σ2 : Sub g h) (ρ : Env g) : Prop :=
   forall i,
@@ -422,12 +460,11 @@ Proof.
   - (* t_univ *) cbn. eapply c_refl. eapply t_univ. exact CΔ.
 Qed.
 
-(* [semantic_typing] bundles the two value-only results of
-   [MIN/Adequacy/Value.agda] over a well-typed [M : A]:
-     - [adequacySub2]     : [Val]   at [M[σ]]            (one substitution),
-     - [adequacyConvSub2] : [EqVal] at [M[σ]] / [M[σ']]  (two substitutions).
-   Following Agda, it takes [ValSub σ] ([vs]), [ValSub σ'] ([vs']) and
-   [EqValSub σ σ'] ([vcs]) as separate hypotheses. *)
+(** [semantic_typing Γ M A] (≈ Agda [AdqV2]) bundles the two value results over
+    a well-typed [M : A]: for any pair of related substitutions, [Val] at [M[σ]]
+    (Agda [adequacySub2]) and [EqVal] at [M[σ]]/[M[σ']] (Agda
+    [adequacyConvSub2]).  It takes [ValSub σ], [ValSub σ'] and [EqValSub σ σ']
+    as separate hypotheses, at all above-rank fuels [RB]. *)
 Definition semantic_typing {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) :=
   forall ρ m (Δ : Ctx m) (σ σ': Sub n m) (TS : typing_subst Δ σ Γ)
     (TS' : typing_subst Δ σ' Γ)
@@ -442,10 +479,10 @@ Definition semantic_typing {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) :=
     (forall RB, max (rk u) (rk a) < RB -> Val RB Δ M[σ] A[σ] WT) /\
     (forall RB, max (rk u) (rk a) < RB -> EqVal RB Δ M[σ] M[σ'] A[σ] WT).
 
-(* [semantic_conv2] is [adequacyEqSub2] of [MIN/Adequacy/Value.agda]: from a
-   conversion [M ≡ N : A], a *single* substitution [σ] gives
-   [EqVal] at [M[σ]] / [N[σ]].  (No second substitution, unlike the old
-   two-σ formulation that made [sc_sym]/[sc_trans] unprovable.) *)
+(** [semantic_conv2 Γ M N A] (≈ Agda [AdqE2] / [adequacyEqSub2]): from a
+    conversion [M ≡ N : A], a *single* substitution [σ] gives [EqVal] at
+    [M[σ]]/[N[σ]].  Using one substitution (rather than two) is what keeps
+    [sc_sym]/[sc_trans] provable. *)
 Definition semantic_conv2 {n} (Γ : Ctx n) (M N: Tm n) (A : Tm n) :=
   forall ρ m (Δ : Ctx m) (σ : Sub n m) (TS : typing_subst Δ σ Γ)
     (F : fits Γ ρ)
@@ -815,6 +852,13 @@ Lemma EvalRel_app_Comp {n} (M : Tm n) (ρ : Env n) (u v : elt) :
 Proof. intros; eapply EvalRel_compatible; eauto. Qed.
 
 
+(** ** Semantic typing/conversion rules (the fundamental theorem, rule by rule)
+
+    Each [st_*] lemma below states that [semantic_typing] is closed under one
+    typing rule (Agda [adequacyV2-*]); each [sc_*] that [semantic_conv2] is
+    closed under one conversion rule (Agda [adequacyE2-*]).  Assembling them by
+    induction over a derivation gives adequacy for the whole judgment. *)
+
 (* ------------------ semantic typing rules ----------- *)
 
 Section SemanticTyping.
@@ -824,8 +868,10 @@ Local Notation "Γ ⊨ M ≡ N ∈ A" := (semantic_conv2 Γ M N A).
 
 Variable (n:nat) (Γ : Ctx n).
 
-Lemma st_var (x : fin n) : 
-  ctx Γ -> 
+(** Variable rule (Agda [adequacyV2-var]): a variable is semantically typed at
+    its declared type — read straight off the substitution relations. *)
+Lemma st_var (x : fin n) :
+  ctx Γ ->
 (* ------------------------- *)
   (semantic_typing Γ (var x) (lookup x Γ)).
 Proof.
@@ -837,6 +883,8 @@ Proof.
   - move=> RB. eapply (EVS x); eauto.
 Qed.
 
+(** Conversion rule (Agda [adequacyV2-conv]): semantic typing transports along
+    a semantic type conversion [A ≡ B]. *)
 Lemma st_conv M A B :
   typing Γ M A ->
   conv Γ A B Core.tuniv ->
@@ -871,11 +919,14 @@ Proof.
 Qed.
 
 
-Lemma st_app A B N M : 
-  typing Γ A Core.tuniv -> 
-  typing (Γ ++ A) B Core.tuniv -> 
-  typing Γ M (Core.tpi A B) -> 
-  typing Γ N A  -> 
+(** Application rule (Agda [adequacyV2-ty-App]): applying a semantically typed
+    function to a semantically typed argument is semantically typed at the
+    substituted codomain. *)
+Lemma st_app A B N M :
+  typing Γ A Core.tuniv ->
+  typing (Γ ++ A) B Core.tuniv ->
+  typing Γ M (Core.tpi A B) ->
+  typing Γ N A  ->
   semantic_typing Γ A Core.tuniv -> 
   semantic_typing (Γ ++ A) B Core.tuniv -> 
   semantic_typing Γ M (Core.tpi A B) -> 
@@ -1092,7 +1143,8 @@ Proof.
         | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
 Qed.
 
-(* t_nat: ctx Γ ⟹ tnat : tuniv 0 *)
+(** Nat formation: [tnat] is semantically a type.  (No Agda counterpart — the
+    MIN fragment omits ℕ.) *)
 Lemma st_nat :
   ctx Γ ->
 (* ------------------------- *)
@@ -1115,7 +1167,8 @@ Proof.
       destruct a; try done.
 Qed.
 
-(* t_zero: ctx Γ ⟹ zero : tnat *)
+(** Nat introduction: [zero] is semantically typed at [tnat] (ℕ; no Agda
+    counterpart). *)
 Lemma st_zero :
   ctx Γ ->
 (* ------------------------- *)
@@ -1141,7 +1194,8 @@ Proof.
       split; eapply ms_refl.
 Qed.
 
-(* t_succ: M : tnat ⟹ succ M : tnat *)
+(** Nat successor: [succ M] is semantically typed at [tnat] when [M] is (ℕ; no
+    Agda counterpart). *)
 Lemma st_succ M :
   typing Γ M Core.tnat ->
   semantic_typing Γ M Core.tnat ->
@@ -1587,6 +1641,10 @@ Proof.
     eapply tpi_PiEdgeEqTy; (try eassumption); exact Hrank.
 Qed.
 
+(** Π-formation rule (Agda [adequacyV2-ty-Pi]): from semantic typing of the
+    domain and codomain, the Π-type [tpi A B] is semantically a type.  The
+    Selection-indexed type edges are supplied by [st_tpi_Val_edge] /
+    [st_tpi_EqVal_edge] above. *)
 Lemma st_tpi A B :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
@@ -1859,6 +1917,10 @@ Proof.
       | exact HvB ].
 Qed.
 
+(** Lambda rule (Agda [adequacyV2-ty-Lam]): from semantic typing of the domain,
+    codomain, and body, the abstraction [abs A M] is semantically typed at
+    [tpi A B].  The value-graph edges come from [st_abs_Val_edge] /
+    [st_abs_EqVal_edge]. *)
 Lemma st_abs A B M :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
@@ -1875,6 +1937,8 @@ Proof.
   - eapply st_abs_EqVal_edge; eassumption.
 Qed.
 
+(** Universe rule (Agda [adequacyV2-U]): [tuniv] is semantically typed at
+    [tuniv] (type-in-type). *)
 Lemma st_univ :
   ctx Γ ->
 (* ------------------------- *)
@@ -1900,6 +1964,8 @@ Qed.
 (* -------- semantic conversion rules -------- *)
 
 (* c_conv: M ≡ N : A, A ≡ B : tuniv i ⟹ M ≡ N : B *)
+(** Conversion congruence for [≡] (Agda [adequacyE2-conv]): a semantic
+    conversion transports along a semantic type conversion. *)
 Lemma sc_conv M N A B :
   conv Γ M N A ->
   conv Γ A B Core.tuniv ->
@@ -1921,7 +1987,8 @@ Proof.
     | eapply EqVal_EqValTy; eapply (eqAB (S RB)); cbn in Hrank |- *; lia ].
 Qed.
 
-(* c_refl: M : A ⟹ M ≡ M : A *)
+(** Reflexivity of [≡] (Agda [adequacyE2-refl]): a semantically typed term is
+    semantically convertible to itself (the diagonal [Val → EqVal]). *)
 Lemma sc_refl M A :
   typing Γ M A ->
   semantic_typing Γ M A ->
@@ -1948,6 +2015,7 @@ Proof.
 Qed.
 
 (* c_sym: M ≡ N : A ⟹ N ≡ M : A *)
+(** Symmetry of [≡] (Agda [adequacyE2-sym]): from [EqVal_sym]. *)
 Lemma sc_sym M N A :
   conv Γ M N A ->
   semantic_conv2 Γ M N A ->
@@ -1965,7 +2033,7 @@ Proof.
   move=> RB Hrank. eapply EqVal_sym; [ cbn in Hrank; lia | exact (h RB Hrank) ].
 Qed.
 
-(* c_trans: M ≡ N : A, N ≡ P : A ⟹ M ≡ P : A *)
+(** Transitivity of [≡] (Agda [adequacyE2-trans]): from [EqVal_trans]. *)
 Lemma sc_trans M N P A :
   conv Γ M N A ->
   conv Γ N P A ->
@@ -1983,7 +2051,8 @@ Proof.
   move=> RB Hrank. eapply EqVal_trans; [ cbn in Hrank; lia | exact (e1 RB Hrank) | exact (e2 RB Hrank) ].
 Qed.
 
-(* c_app1: N ≡ N' : (tpi A B), M : A ⟹ app N M ≡ app N' M : B[M..] *)
+(** Application congruence in the function position (Agda [adequacyE2-App-fun]):
+    [N ≡ N' : tpi A B] and [M : A] give [app N M ≡ app N' M : B[M..]]. *)
 Lemma sc_app1 A B N N' M :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
@@ -2077,7 +2146,8 @@ Proof.
     | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
 Qed.
 
-(* c_app2: N : (tpi A B), M ≡ M' : A ⟹ app N M ≡ app N M' : B[M..] *)
+(** Application congruence in the argument position (Agda [adequacyE2-App-arg]):
+    [N : tpi A B] and [M ≡ M' : A] give [app N M ≡ app N M' : B[M..]]. *)
 Lemma sc_app2 A B N M M' :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
@@ -2171,7 +2241,8 @@ Proof.
     | solve [ apply subst1_subst_comm | symmetry; apply subst1_subst_comm ] ].
 Qed.
 
-(* c_beta: A, B, body N, arg M ⟹ app (abs A N) M ≡ N[M..] : B[M..] *)
+(** Beta rule (Agda [adequacyE2-beta]): the redex [app (abs A N) M] is
+    semantically convertible to its contractum [N[M..]] at [B[M..]]. *)
 Lemma sc_beta A B M N :
   typing Γ A Core.tuniv ->
   typing (Γ ++ A) B Core.tuniv ->
@@ -2207,7 +2278,9 @@ Proof.
   - exact (eqApp RB Hrank).
 Qed.
 
-(* c_eta: function extensionality *)
+(** Function extensionality / eta (Agda [adequacyE2-funext]): two functions
+    that act equally on a fresh argument are semantically convertible at the
+    Π-type. *)
 Lemma sc_eta A B (N N' : Tm n) :
   typing Γ A Core.tuniv ->
   typing Γ N (Core.tpi A B) ->
@@ -2446,10 +2519,10 @@ Proof.
   exact HvB.
 Qed.
 
-(* c_tpi: A0 ≡ A1 : tuniv, B0 ≡ B1 : tuniv ⟹ tpi A0 B0 ≡ tpi A1 B1 : tuniv.
-   Needs full [semantic_typing] of the four components (for the [ValTy] of both
-   Pi types — Coq's [EqValTy] bundles [ValTy M /\ ValTy N], unlike Agda); the
-   shared value [u] for [ValTy N] comes from [conv_EvalRel]'s forward transport. *)
+(** Π congruence (Agda [adequacyE2-Pi]): [A0 ≡ A1] and [B0 ≡ B1] give
+    [tpi A0 B0 ≡ tpi A1 B1 : tuniv].  Needs full [semantic_typing] of the four
+    components because Coq's [EqValTy] bundles [ValTy] of both sides; the shared
+    value for the right side comes from [conv_EvalRel]'s forward transport. *)
 Lemma sc_tpi A0 A1 (B0 B1 : Tm (S n)) :
   typing Γ A0 Core.tuniv ->
   typing Γ A1 Core.tuniv ->
@@ -2518,12 +2591,12 @@ Proof.
     eapply tpi_PiEdgeEqTy_cross; (try eassumption); exact Hrank.
 Qed.
 
-(* c_abs: A ≡ A' : tuniv, M ≡ M' : B ⟹ abs A M ≡ abs A' M' : tpi A B.
-   Like [sc_tpi] this needs full [semantic_typing] of the components (for the
-   two [ValPi]s — Coq's [EqVal]-at-Pi bundles [ValPi M /\ ValPi N]); the N-side
-   lambda [abs A' M'] is valued at the OFF-DIAGONAL type [tpi A B] (lambda
-   domain A' ≠ type domain A), handled by the [Alam]-generalised
-   [st_abs_Val_edge]; the shared value [u] comes from [conv_EvalRel]. *)
+(** Lambda congruence: [A ≡ A'] and [M ≡ M'] give [abs A M ≡ abs A' M' : tpi A B].
+    (No Agda counterpart: the MIN conversion judgment derives a Lam congruence
+    from [funext] rather than taking it as a rule.)  Needs full
+    [semantic_typing] of the components since Coq's [EqVal]-at-Π bundles both
+    [ValPi]s; the right lambda is valued at the off-diagonal type [tpi A B],
+    handled by the [Alam]-generalised [st_abs_Val_edge]. *)
 Lemma sc_abs (A A' : Tm n) (B M M' : Tm (S n)) :
   typing Γ A Core.tuniv ->
   typing Γ A' Core.tuniv ->
@@ -2748,6 +2821,9 @@ Proof.
     + eapply wt_bot. eapply wt_bot. eapply wt_tuniv. 
 Qed.
 
+(** The identity substitution is semantically well-typed against the everywhere
+    -[bot] environment ([botEnv-validSub2]); used to instantiate adequacy at the
+    trivial environment for Π-injectivity. *)
 Lemma ValSub_id n (Γ:Ctx n) :
   ValSub Γ Γ var bot_env.
 Proof.
@@ -2769,8 +2845,9 @@ Proof.
   apply EqVal_Bot.
 Qed.
 
-(* evalRel_Pi_trivial: every Pi type evaluates to (tpi bot nil).
-   Mirrors evalRel-Pi-trivial in PiInjectivity.agda. *)
+(** Every Π-type evaluates to the trivial Π-code [tpi bot nil] (Agda:
+    [evalRel-Pi-trivial]).  This is the seed that exposes a Π-code at the
+    bottom environment, where the type edges can be read off. *)
 Lemma evalRel_Pi_trivial {n} (A : Tm n) (B : Tm (S n)) (ρ : Env n) :
   EvalRel (Core.tpi A B) ρ (tpi bot nil).
 Proof.
@@ -2785,10 +2862,12 @@ Proof.
   split; [ apply le_bot' | apply EvalRel_bot ].
 Qed.
 
-(* piConv (Corollary 6, parts 1–3):
-   From conv Γ A₀ (tpi B₁ F₁) (tuniv i) extract HeadRed A₀ (tpi B₀ F₀)
-   and conversions on the domain and codomain.
- *)
+(** [piConv] (Agda: [piConv] / [convPi2]): from a conversion
+    [A0 ≡ tpi B1 F1 : tuniv], recover that [A0] head-reduces to some Π-type
+    [tpi B0 F0] whose domain and codomain are convertible to [B1], [F1].  The
+    engine: evaluate at the bottom environment, transport the trivial Π code via
+    conversion soundness, then run adequacy ([semantic_conv2]) and read the
+    components off the resulting [EqValTy]. *)
 Lemma piConv {n} (Γ : Ctx n) (A0 : Tm n) (B1 : Tm n) (F1 : Tm (S n)) :
   conv Γ A0 (Core.tpi B1 F1) Core.tuniv ->
   exists B0 F0,
@@ -2848,9 +2927,10 @@ Proof.
   exists B0, F0. split; [ exact HRA0 | split; [ exact cD | exact cC ] ].
 Qed.
 
-(* piInjectivity (Corollary): from conv Γ (tpi A₀ B₀) (tpi A₁ B₁) U,
-   extract domain and codomain conversions.
-   Mirrors piInjectivity in PiInjectivity.agda. *)
+(** Π-injectivity (Agda: [piInjectivity]) — the headline corollary of adequacy:
+    a conversion between two Π-types entails convertibility of their domains and
+    codomains.  Obtained from [piConv] plus determinacy of head reduction on the
+    Π head-normal form. *)
 Lemma piInjectivity {n} (Γ : Ctx n)
   (A0 A1 : Tm n) (B0 B1 : Tm (S n)) :
   conv Γ (Core.tpi A0 B0) (Core.tpi A1 B1) Core.tuniv ->

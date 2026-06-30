@@ -1,4 +1,16 @@
-(* Finite domain elements, raw definitions and properties *)
+(** * findom.v: Finite-domain elements ([elt]) and their raw theory
+
+    This file defines the carrier of the value domain — finite elements [elt] —
+    and the basic computable operations on them: the information order [le], the
+    join [lub] (with its compatibility test [compatible]), application [app] of
+    a finite-function code to an argument, the [valid] predicate (minimal,
+    bot-free representations), and the rank function [rk] used to drive
+    well-founded recursion.  Everything here is "raw" / untyped: the typing
+    layer is added in [types.v].
+
+    Functions (both Π-codes [tpi] and abstractions [abs]) are represented as
+    finite association lists of key/value [elt] pairs; [app] interprets such a
+    list as the join of the values whose key is [<=] the argument. *)
 
 From Stdlib Require Import Relations List Program
      ssreflect ssrfun ssrbool.
@@ -18,13 +30,12 @@ From Equations Require Import Equations.
 
 Module Raw.
 
-(* Finite elements: raw form.
-
-   Functions are represented as finite mappings from 
-   arguments to results.
-
- *)
-Inductive elt := 
+(** Finite elements, raw form.  [bot] is the least element; [tnat]/[tuniv] are
+    the base type codes; [zero]/[succ] build numerals; [tpi a g] is a finite
+    Π-type code with domain [a] and key/value table [g]; [abs f] is a function
+    value given by the finite table [f].  Functions are thus represented as
+    finite mappings from arguments to results. *)
+Inductive elt :=
   | bot   : elt 
   | tnat  : elt 
   | tuniv : elt
@@ -39,8 +50,11 @@ Definition is_bot (a : elt) :bool :=
   | _ => false
   end.
 
+(** The one-entry function [a |-> b], collapsing to [bot] when the result [b]
+    is [bot] (a [bot] result is never recorded, to keep representations
+    minimal). *)
 Definition singleton (a b: elt) : elt :=
-  if is_bot b then bot 
+  if is_bot b then bot
   else abs (cons (a,b) nil).
 
 (* --------------------------------------------------- *)
@@ -64,8 +78,10 @@ Fixpoint _rk_fun (rk : elt -> nat) (f : list (elt*elt)) : nat :=
     | (ui, vi) :: tl => max (max (rk ui) (rk vi)) (_rk_fun rk tl)
   end.
 
+(** Rank: the depth of an element's tree, used as the well-founded measure for
+    the recursive definitions of [le], [app], and friends below. *)
 Fixpoint rk (u : elt) : nat :=
-  match u with 
+  match u with
   | bot => 0 
   | tnat => 1
   | tuniv => 1
@@ -117,9 +133,11 @@ Definition _compatible_fun (comp : elt -> elt -> bool) (f g : list (elt * elt)) 
       List.forallb (fun '(uj,vj) => 
          (comp ui uj) ==> (comp vi vj)) g) f.
 
-(* We can only compute the lub of compatible functions.
-   NB: compatible <-> Comp *)
-Fixpoint compatible u v {struct u} : bool := 
+(** Compatibility test ([Comp]): [compatible u v] holds when [u] and [v] have a
+    join.  For function tables this means every pair of entries with compatible
+    keys has compatible values, so the merged table is still functional.  We
+    can only compute [lub] for compatible elements. *)
+Fixpoint compatible u v {struct u} : bool :=
   match u , v with 
   | bot , _ => true
   | _ , bot => true
@@ -151,8 +169,9 @@ Lemma compatible_fun_spec f g :
   compatible_fun f g = List.forallb (coherent_with g) f.
 Proof. reflexivity. Qed.
 
-(* Least upper bound of two terms *)
-(* This function returns garbage ([bot]) on non-compatible elements *)
+(** Least upper bound ([Sup]) of two elements.  On compatible function tables
+    it is concatenation; on incompatible elements it returns the garbage value
+    [bot] (callers establish [compatible u v] first). *)
 Fixpoint lub (u v : elt) : elt :=
   match u, v with
   | bot,    v    => v
@@ -170,8 +189,8 @@ Fixpoint lub (u v : elt) : elt :=
   | _, _ => bot
   end.
 
-(* Fold lub over a list of elements. *)
-Definition lub_list (xs : list elt) : elt := 
+(** The join of a finite list of elements (folds [lub] from [bot]). *)
+Definition lub_list (xs : list elt) : elt :=
   fold_right lub bot xs.
 
 (* Rank of a lub *)
@@ -202,6 +221,7 @@ Proof.
   lia.
 Qed.
 
+(** Well-founded induction on a single element's rank. *)
 Lemma rk_ind (P : elt -> Prop) :
   (forall e : elt, (forall e' : elt, rk e' < rk e -> P e')%nat -> P e) ->
   forall e : elt, P e.
@@ -226,6 +246,8 @@ Proof.
     lia.
 Qed.
 
+(** Well-founded induction on the maximum rank of a *pair* of elements; used
+    pervasively for the binary relations [le], [compatible], and [lub]. *)
 Lemma rk_ind2 (R : elt -> elt -> Prop) :
   (forall e1 e2 : elt,
     (forall e1' e2' : elt, max (rk e1') (rk e2') < max (rk e1) (rk e2) -> R e1' e2')%nat
@@ -317,6 +339,12 @@ Next Obligation.
   apply _rk_app.
 Qed.
 
+(** The information order [le u v] ("[u] approximates [v]"), a decidable
+    boolean relation defined by well-founded recursion on the combined rank.
+    On function tables it is the pointwise extensional order computed via
+    [_le_fun]/[le_fun]: every entry [(p.1, p.2)] of [f] must have [p.2] below
+    the result [app f' p.1] of applying [f'] to its key.  (Despite the name it
+    is "leb": decidable.) *)
 (* leFinEl *)
 #[tactic="idtac"] Equations?
 le (u v : elt) : bool by wf (max (rk u) (rk v)) Peano.lt :=
@@ -332,6 +360,9 @@ Proof.
   all: cbn ; lia.
 Qed.
 
+(** Application of a function table to an argument ([EvalFun]): the join of the
+    values [p.2] of all entries whose key [p.1] approximates the argument [u].
+    This is the closed (non-rank-indexed) form of [_app]. *)
 (* EvalFun *)
 Definition app (f : list (elt*elt)) (u : elt) : elt :=
   lub_list (List.map (fun p' => if (le p'.1 u) then p'.2 else bot) f).
@@ -349,8 +380,10 @@ Proof.
   apply _rk_app.
 Qed.
 
+(** The order on function tables ([leFun]): [f <= f'] iff each value of [f] is
+    below the result of applying [f'] to the corresponding key. *)
 (* leFun *)
-Definition le_fun (f f' : list (elt*elt)) : bool := 
+Definition le_fun (f f' : list (elt*elt)) : bool :=
   forallb (fun p => le p.2 (app f' p.1)) f.
 
 Lemma le_fun_eq f f' :
@@ -383,10 +416,11 @@ Qed.
 Remove Hints le_graph_equation_35 : le.
 Hint Rewrite le_pi : le.
 
-(* strict less than (still decidable) *)
+(** Strict order (still decidable): below but not equal. *)
 Definition lt u v := le u v && ~~(le v u).
 
-(* decidable equality *)
+(** Order-induced equality: mutual approximation.  Two elements are [eqb] when
+    each is [<=] the other; likewise [eqb_fun] for tables. *)
 Definition eqb (u v:elt) := le u v && le v u.
 Definition eqb_fun f g := le_fun f g && le_fun g f.
 
@@ -794,17 +828,24 @@ Qed.
   valid -> Coherent
 *)
 
-Definition no_bot_result (f : list (elt * elt)) := 
+(** No entry of [f] records [bot] as its result. *)
+Definition no_bot_result (f : list (elt * elt)) :=
   List.forallb (fun p => ~~ (le (snd p) bot)) f.
 
-Definition is_nil {A} (f : list A) := 
+Definition is_nil {A} (f : list A) :=
   match f with | nil => true | _ => false end.
 
+(** A function table is valid when it is self-compatible (functional), records
+    no [bot] result, and contains only valid keys and values. *)
 Definition _valid_fun valid f :=
     (compatible_fun f f) &&
     (no_bot_result f) &&
     (List.forallb (fun '(ui,vi) => (valid ui) && (valid vi)) f).
 
+(** [valid u]: [u] is a well-formed (minimal, bot-free) representation.  All
+    subterms must be valid; additionally an abstraction's table must be a valid
+    function and non-empty.  [valid] implies coherence ([Coherent]) and is the
+    standing well-formedness hypothesis throughout the development. *)
 Fixpoint valid u : bool :=
   match u with
   | abs f => _valid_fun valid f && ~~ is_nil f
@@ -1037,7 +1078,7 @@ Proof.
     apply /andP; split; auto.
 Qed.
 
-(* The lub of valid elements is valid *)
+(** Validity is preserved by joins of compatible elements. *)
 Lemma valid_lub u v :
   compatible u v -> valid u -> valid v -> valid (lub u v).
 Proof.
@@ -1059,6 +1100,7 @@ Proof.
     by destruct l.
 Qed.
 
+(** Applying a valid function table to a valid argument yields a valid result. *)
 Lemma valid_app f u :
   valid_fun f -> valid u -> valid (app f u).
 Proof.
@@ -1565,8 +1607,10 @@ Proof.
   eapply OTL.le_fun_refl. eapply OTL.OTLs. reflexivity.
 Qed.
 
+(** Reflexivity of the order on valid elements (the order theory is developed
+    inside module [OTL] by rank induction and re-exported here). *)
 Lemma le_refl a : valid a -> le a a.
-Proof. 
+Proof.
   eapply OTL.le_refl. eapply OTL.OTLs. reflexivity.
 Qed.
 
@@ -1658,7 +1702,8 @@ Proof.
   now apply le_in_app.
 Qed.
 
-(* extract app f u and its validity when valid (tpi a f) holds. *)
+(** Applying the table of a valid Π-code [tpi a f] to a valid argument yields a
+    valid result (extracts [app f u] and its validity from [valid (tpi a f)]). *)
 Lemma app_tpi_valid a f u :
   valid (tpi a f) -> valid u ->
   valid (app f u).

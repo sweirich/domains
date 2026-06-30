@@ -1,3 +1,20 @@
+(** * eval_substitution.v: Renaming and substitution for [EvalRel]
+
+    (cf. [MIN/Model/EvalSubstitution.agda].)
+
+    This file shows how the evaluation relation [EvalRel] interacts with
+    renamings and substitutions.  The two directions are:
+    - *renaming/backward substitution*: an approximation of [M] under a related
+      environment is an approximation of the substituted term [M[σ]]
+      ([EvalRel_subst], via [SubRel]);
+    - *forward substitution*: an approximation of [M[σ]] comes from one of [M]
+      under a witness environment built from the substitution
+      ([EvalRel_subst_forward_max] / [EvalRel_subst1_forward]).
+
+    The forward direction is the harder one and is organized around building a
+    per-variable *witness environment* and combining the per-edge witnesses
+    with [sup_env] / [fold_edge_fwd]. *)
+
 (* cf. EvalSubstitution.agda *)
 
 From Stdlib Require Import Relations List Program
@@ -108,9 +125,13 @@ EvalRel-subst : {h g : Nat} (sigma : Sub h g)
   (u : FinEl) -> EvalRel M rho' u -> EvalRel (substExpr sigma M) rho u
 *)
 
+(** A substitution maps each of [h] variables to a term over [g] variables. *)
 Definition Sub h g := fin h -> Tm g.
 
-Definition SubRel {h g} (σ : Sub h g) (ρ' : Env h) (ρ : Env g) := 
+(** [SubRel σ ρ' ρ]: the environment [ρ'] (over the source scope) is realized
+    by the substitution [σ] under [ρ], i.e. each [ρ' i] is an approximation of
+    [σ i] in [ρ].  This is the relation transported by [EvalRel_subst]. *)
+Definition SubRel {h g} (σ : Sub h g) (ρ' : Env h) (ρ : Env g) :=
   forall i, EvalRel (σ i) ρ (ρ' i).
 
 Lemma SubRel_lift {h g} (σ : Sub h g) ρ' ρ u :
@@ -124,9 +145,12 @@ Proof.
   split; eauto using le_refl.
 Qed.
 
+(** Substitution lemma (backward): if [ρ] is realized by [σ] under [ρ'], then
+    every approximation of [M] under [ρ] is an approximation of [M[σ]] under
+    [ρ']. *)
 Lemma EvalRel_subst {m n} (σ : Sub m n) (M : Tm m)
-  (ρ : Env m) (ρ' : Env n)  u : 
-  valid_env ρ -> valid_env ρ' -> SubRel σ ρ ρ' -> 
+  (ρ : Env m) (ρ' : Env n)  u :
+  valid_env ρ -> valid_env ρ' -> SubRel σ ρ ρ' ->
   EvalRel M ρ u -> EvalRel M[σ] ρ' u.
 Proof.
   move: n σ ρ ρ' u.
@@ -172,11 +196,14 @@ Proof.
     eauto using valid_cons, SubRel_lift.
 Qed.
 
-Lemma EvalRel_subst1_backwards {n} 
-  (B : Tm (S n)) (M : Tm n) 
-  (ρ : Env n) v u : 
-  valid_env ρ -> 
-  EvalRel M ρ v -> 
+(** Single-variable specialization: an approximation [u] of body [B] in an
+    environment extended by an approximation [v] of [M] is an approximation of
+    the one-point substitution [B[M..]]. *)
+Lemma EvalRel_subst1_backwards {n}
+  (B : Tm (S n)) (M : Tm n)
+  (ρ : Env n) v u :
+  valid_env ρ ->
+  EvalRel M ρ v ->
   EvalRel B (v .: ρ) u ->
   EvalRel B[M..] ρ u.
 Proof.
@@ -189,7 +216,10 @@ Qed.
 
 (** * MaxRel *)
 
-Definition MaxSubRel {h g} (σ : Sub h g) (ρ' : Env h) (ρ : Env g) := 
+(** [MaxSubRel σ ρ' ρ]: [ρ' i] is an upper bound of *every* approximation of
+    [σ i] under [ρ].  This "maximal" variant supports the forward substitution
+    lemma, where we need the realizing environment to dominate all approximants. *)
+Definition MaxSubRel {h g} (σ : Sub h g) (ρ' : Env h) (ρ : Env g) :=
   forall i, forall u,  EvalRel (σ i) ρ u -> le u (ρ' i).
 
 Lemma MaxSubRel_lift {h g} (σ : Sub h g) ρ' ρ u :
@@ -203,8 +233,11 @@ Proof.
   eauto using le_refl.
 Qed.
 
+(** Forward substitution via a maximal realizer: under a [MaxSubRel], every
+    approximation of [M[σ]] is already an approximation of [M] in the realizing
+    environment. *)
 Lemma EvalRel_subst_forward_max {m n} (σ : Sub m n) (M : Tm m)
-  (ρ : Env m) (ρ' : Env n)  u : 
+  (ρ : Env m) (ρ' : Env n)  u :
   valid_env ρ -> valid_env ρ' -> MaxSubRel σ ρ ρ' -> 
   EvalRel M[σ] ρ' u -> EvalRel M ρ u.
 Proof.
@@ -428,6 +461,9 @@ Qed.
 
 (** ** Forward result type *)
 
+(** Goal of the forward direction for a given approximation [u] of [M[σ]]:
+    exhibit a valid source environment [ρ'] realized by [σ] under [ρ] in which
+    [u] already approximates [M]. *)
 Definition FwdResult {h g} (σ : Sub h g) (M : Tm h) (ρ : Env g) (u : elt) : Prop :=
   exists ρ', valid_env ρ' /\ SubRel σ ρ' ρ /\ EvalRel M ρ' u.
 
@@ -550,6 +586,11 @@ Qed.
 
 (** ** Main forward witness lemma *)
 
+(** The forward substitution theorem, in witness form: every approximation of
+    [M[σ]] is reflected back to [M] under some source environment realized by
+    [σ] (i.e. [FwdResult] holds).  Proven by induction on [M]; the function
+    cases consume [fold_edge_fwd] to assemble a single witness environment from
+    the per-edge ones. *)
 Lemma EvalRel_subst_forward_wit {h g} (σ : Sub h g)
   (M : Tm h) (ρ : Env g) (u : elt) :
   valid_env ρ -> EvalRel M[σ] ρ u -> FwdResult σ M ρ u.
@@ -699,6 +740,10 @@ Qed.
 
 (** ** EvalRel_subst1_forward as a corollary *)
 
+(** Single-variable forward substitution: an approximation of [M[N..]] factors
+    as some approximation [v] of [N] together with an approximation of the body
+    [M] in the environment extended by [v].  This is the form used by the beta
+    case of the validity/adequacy proofs. *)
 Lemma EvalRel_subst1_forward n (M : Tm (S n)) (N : Tm n) (ρ : Env n) u :
   valid_env ρ ->
   EvalRel M[N..] ρ u ->

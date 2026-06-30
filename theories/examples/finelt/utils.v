@@ -16,6 +16,13 @@ From Equations Require Import Equations.
 
 Arguments svalP [_ _] _.
 
+(** This file collects general-purpose lemmas and combinators that are not
+    specific to the model construction: list/fold utilities, strong
+    induction, and a handful of [In]-proof-carrying recursors (built with the
+    Equations plugin) that the rest of the development uses to define
+    structurally-recursive functions over lists whose bodies need a membership
+    witness. *)
+
 (* Library stuff *)
 
 Lemma option_eta {A} (o:option A) : match o with Some x => Some x | None => None end = o.
@@ -72,8 +79,9 @@ Lemma le_S_pred : forall m n, S m <= n -> exists j, n = S j /\ (m <= j).
     inversion Le; subst; eexists; split; eauto; try lia.
 Qed.
 
-(* If we fold with a monoid, then we can decompose appends into sub folds *)
-Lemma fold_right_app : 
+(** Folding a monoid over an append splits into the fold of each part: given a
+    unit [base] and an associative [op], [fold_right] distributes over [++]. *)
+Lemma fold_right_app :
   forall {A : Type} (base : A) (op : A -> A -> A),
   (forall y : A, op base y = y) -> 
   (forall x y z : A, op x (op y z) = op (op x y) z) -> 
@@ -87,6 +95,8 @@ Proof.
 Qed.
 
 
+(** Strong (course-of-values) induction on [nat], derived from well-founded
+    induction on [<]. *)
 Lemma strong_ind (P : nat -> Prop) :
   (forall m, (forall k : nat, k < m -> P k)%nat -> P m) -> forall n, P n.
 Proof. intro h. 
@@ -102,12 +112,20 @@ Proof.
   reflexivity.
 Qed.
 
-(** Equations library *)
+(** ** Proof-carrying recursors (Equations library)
 
+    The following combinators are like [forallb], [map], and an [option]
+    eliminator, except the per-element predicate/function additionally receives
+    a proof that the element belongs to the original list (resp. that the
+    option is [Some]). This is what lets us define well-typed functions over
+    lists of value edges where the body needs to know the element is a genuine
+    member. Each comes with a [_spec] lemma showing it agrees with the ordinary
+    version when the witness is ignored. *)
 
 Section AllInP.
   Context {A : Type}.
 
+  (** [forallb] whose test may use a membership proof for its argument. *)
   Equations forallb_InP (l : list A) (H : forall x : A, In x l -> bool) : bool :=
   | nil, _ := true ;
   | (cons x xs), H := (H x _) && (forallb_InP xs (fun x inx => H x _)).
@@ -125,6 +143,7 @@ Qed.
 Section MapInP.
   Context {A B : Type}.
 
+  (** [map] whose mapping function may use a membership proof for its argument. *)
   Equations map_InP (l : list A) (f : forall x : A, In x l -> B) : list B :=
   @map_InP nil _ := nil;
   @map_InP (cons x xs) f := cons (f x _) (map_InP xs (fun x inx => f x _)).
@@ -138,6 +157,8 @@ Proof.
   now rewrite (H f0).
 Qed.
 
+(** Test the contents of an [option], where the test receives a proof that the
+    option is [Some]; [None] is treated as [false]. *)
 Equations onSomeP {A} (o : option A) (p : forall (x : A), o = Some x -> bool) : bool :=
   @onSomeP _ (Some a) p := p a _ ;
   @onSomeP _ None _ => false.
@@ -151,6 +172,8 @@ Proof.
   funelim (onSomeP o g) => //.
 Qed.
 
+(** Dependent [if] on a boolean: each branch additionally receives a proof of
+    the discriminee's value, so the branches can use [b = true] / [b = false]. *)
 Definition if_eq {T : Type} (b : bool) (btrue : b = true -> T) (bfalse : b = false -> T) : T :=
   match b as x return (b = x) -> T with
   | true => btrue

@@ -16,26 +16,23 @@ Require Import findom.
 Import findom.Raw.
 Require Import types.
 
-(* ============================================================
-   Selection.v  —  Coq port of MIN/Model/Selection.agda
+(** * selection.v: Compatible sub-joins of a finite function ([Selection])
 
-   A [Selection f u v] is a "compatible sub-multiset" of the finite
-   function [f]: [u] is the join (lub) of a chosen subset of [f]'s keys
-   and [v] the join of the corresponding values.  [sel_take] records the
-   compatibility of each selected key/value with the running join, so
-   the joins stay valid.
+    Coq port of [MIN/Model/Selection.agda].
 
-   This is the infrastructure that the function-VALUE edge of the
-   logical relation must quantify over (instead of exact graph entries
-   [In (ui,vi) f]) in order to support the [wt_abs] monotonicity case:
-   a selection is a *join* of edges, typed at the value's domain, which
-   transports across both type- and value-graph refinement.
+    A [Selection f u v] is a "compatible sub-multiset" of the finite function
+    [f]: [u] is the join ([lub]) of a chosen subset of [f]'s keys and [v] the
+    join of the corresponding values.  The [sel_take] constructor records the
+    compatibility of each selected key/value with the running join, so the
+    joins stay valid.
 
-   ============================================================ *)
+    This is the infrastructure that the function-VALUE edge of the logical
+    relation (in [raw_validity.v]) quantifies over — instead of exact graph
+    entries [In (ui,vi) f] — in order to support the [wt_abs] monotonicity
+    case: a selection is a *join* of edges, typed at the value's domain, which
+    transports across both type- and value-graph refinement. *)
 
-(* ------------------------------------------------------------
-   The Selection relation.
-   ------------------------------------------------------------ *)
+(** ** The Selection relation *)
 Inductive Selection : list (elt * elt) -> elt -> elt -> Prop :=
 | sel_nil  : Selection nil bot bot
 | sel_skip : forall p g u v, Selection g u v -> Selection (p :: g) u v
@@ -44,11 +41,11 @@ Inductive Selection : list (elt * elt) -> elt -> elt -> Prop :=
     Selection g u v ->
     Selection ((pu, pv) :: g) (lub pu u) (lub pv v).
 
-(* The empty (skip-everything) selection of any graph yields [bot]/[bot]. *)
+(** The empty (skip-everything) selection of any graph yields [bot]/[bot]. *)
 Lemma sel_skip_all (g : list (elt * elt)) : Selection g bot bot.
 Proof. induction g as [|p g IH]; [ exact sel_nil | exact (sel_skip p IH) ]. Qed.
 
-(* A single edge in the graph is a (singleton) selection. *)
+(** A single edge in the graph is a (singleton) selection. *)
 Lemma singleton_selection (pu pv : elt) (g : list (elt * elt)) :
   In (pu, pv) g -> Selection g (lub pu bot) (lub pv bot).
 Proof.
@@ -58,9 +55,8 @@ Proof.
   - exact (sel_skip p (IH Hin)).
 Qed.
 
-(* ------------------------------------------------------------
-   Coherent-Selection: the joins produced by a selection are valid.
-   ------------------------------------------------------------ *)
+(** [Coherent-Selection]: the key- and value-joins produced by a selection of a
+    valid function table are themselves valid. *)
 Lemma valid_Selection (f : list (elt * elt)) u v :
   valid_fun f -> Selection f u v -> valid u /\ valid v.
 Proof.
@@ -74,10 +70,8 @@ Proof.
     + apply valid_lub; [ exact Cv | exact (val_valid _ _ _ HD) | exact Vv ].
 Qed.
 
-(* ------------------------------------------------------------
-   FinMem-Selection: if every key of [f] is in (typed at) [b], then the
-   selected key-join [u] is also in [b].  ([wt_lub]-closure.)
-   ------------------------------------------------------------ *)
+(** [FinMem-Selection]: if every key of [f] is typed at [b], then the selected
+    key-join [u] is also typed at [b] (by [wt_lub]-closure). *)
 Lemma wt_Selection (f : list (elt * elt)) u v b :
   wt b tuniv ->
   valid_fun f ->
@@ -97,12 +91,10 @@ Proof.
     apply (wt_lub Wpu); [ exact Ck | exact Wu ].
 Qed.
 
-(* ------------------------------------------------------------
-   wt_Selection_cod: the value-join [v] of a selection of the value
-   graph [F] is typed at the codomain [app G u] (where [G] is the type's
-   codomain graph and [u] the key-join).  This is the [wt] witness used
-   for the result of the Selection-indexed function-value edge.
-   ------------------------------------------------------------ *)
+(** [FinMem-Selection-codomain]: the value-join [v] of a selection of the value
+    graph [F] is typed at the codomain [app G u], where [G] is the type's
+    codomain graph and [u] the key-join.  This is the [wt] witness for the
+    result of the Selection-indexed function-value edge. *)
 Lemma wt_Selection_cod (F G : list (elt * elt)) b u v :
   wt (tpi b G) tuniv ->
   (forall ui vi, In (ui, vi) F -> wt ui b) ->
@@ -144,9 +136,9 @@ Proof.
       apply (wt_lub Wpv0'); [ exact Cv | exact Wv'' ].
 Qed.
 
-(* Convenience wrapper taking the [abs] typing directly: the value-join
-   of a selection is typed at the codomain.  This is the result witness
-   used by the Selection-indexed value edge. *)
+(** Convenience wrapper taking the [abs] typing directly: the value-join of a
+    selection is typed at the codomain.  Result witness for the
+    Selection-indexed value edge. *)
 Lemma wt_Selection_abs (F G : list (elt * elt)) b u v :
   wt (abs F) (tpi b G) -> Selection F u v -> wt v (app G u).
 Proof.
@@ -156,10 +148,10 @@ Proof.
                  (fun ui vi Hin => wt_abs_inv2 h Hin erefl) VF S)).
 Qed.
 
-(* wt_Selection_codU: the value-join of a selection of the *type* graph [f]
-   (whose values are codomains in the universe) is itself typed at [tuniv].
-   This is the result witness for the Selection-indexed *type* edges
-   [PiEdgeVal]/[PiEdgeEq]/[PiEdgeEqTy] (Agda's RValTyPi edges). *)
+(** [FinMem-Selection-UCode]: the value-join of a selection of the *type* graph
+    [f] (whose values are codomains in the universe) is itself typed at
+    [tuniv].  Result witness for the Selection-indexed *type* edges
+    [PiEdgeVal]/[PiEdgeEq]/[PiEdgeEqTy] (Agda's RValTyPi edges). *)
 Lemma wt_Selection_codU (f : list (elt * elt)) b u v :
   wt (tpi b f) tuniv -> Selection f u v -> wt v tuniv.
 Proof.
@@ -180,14 +172,10 @@ Proof.
     apply (wt_lub Wpv0); [ exact Cv | exact Wv' ].
 Qed.
 
-(* ------------------------------------------------------------
-   selectionBelow: for any argument [x], the edges of [f] with key
-   below [x] form a selection whose key-join is [<= x] and whose
-   value-join is exactly [app f x] (the function's value at [x]).
-
-   This is the canonical selection used to turn an "arbitrary argument
-   [x]" into the [Selection]-indexed edge.
-   ------------------------------------------------------------ *)
+(** [selectionBelow]: for any argument [x], the edges of [f] with key below [x]
+    form a selection whose key-join is [<= x] and whose value-join is exactly
+    [app f x] (the function's value at [x]).  This is the canonical selection
+    used to turn an "arbitrary argument [x]" into a [Selection]-indexed edge. *)
 Lemma selectionBelow (f : list (elt * elt)) (x : elt) :
   valid_fun f -> valid x ->
   exists u v, Selection f u v /\ le u x /\ app f x = v.
@@ -215,16 +203,12 @@ Proof.
       split; [ exact Le | by rewrite Eq ].
 Qed.
 
-(* ------------------------------------------------------------
-   Selection-le-EvalFun: the value-join of a selection of [f] is below
-   the application [app g u] of any larger graph [g] (le_fun f g) at the
-   selection's key-join.
-
-   TODO (next milestone): this is the remaining monotonicity lemma; its
-   proof needs argument-monotonicity of [app] ([le_fun_mono_arg]) and
-   lub/compatibility bookkeeping along the selection.  Stated here so the
-   [Selection] interface used by the value-edge restriction is complete.
-   ------------------------------------------------------------ *)
+(** [Selection-le-EvalFun]: the value-join of a selection of [f] is below the
+    application [app g u] of any larger graph [g] (with [le_fun f g]) at the
+    selection's key-join.  This is the monotonicity lemma that lets a value
+    edge transport across graph refinement; its proof uses argument-
+    monotonicity of [app] ([le_fun_mono_arg]) and lub/compatibility bookkeeping
+    along the selection. *)
 Lemma Selection_le_app (f g : list (elt * elt)) u v :
   valid_fun f -> valid_fun g -> le_fun f g -> valid u ->
   Selection f u v -> le v (app g u).
@@ -258,7 +242,8 @@ Proof.
       eapply le_trans; [ exact Vv' | exact Vgu' | exact Vgu | exact HIH | exact step ].
 Qed.
 
-(* ---- rank bounds for the key-/value-joins of a [Selection] ---- *)
+(** Rank bounds: the key- and value-joins of a [Selection] of [f] have rank
+    bounded by [rk_fun f] (Agda: [Selection-RANK-u] / [Selection-RANK-v]). *)
 Lemma rk_Selection_key f u v : Selection f u v -> rk u <= rk_fun f.
 Proof.
   induction 1 as [ | [pu pv] g u v S IH | pu pv g u v Cu Cv S IH ]; cbn; try lia.
