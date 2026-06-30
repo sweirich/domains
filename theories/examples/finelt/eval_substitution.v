@@ -85,6 +85,9 @@ Proof.
     all: split; auto.
     rewrite -> IHM in E1; eauto.
     rewrite -> IHM ; eauto.
+  - (* ncase — TODO: renaming commutes through the case branches (scrutinee via
+       IHM1, zero via IHM2, succ via IHM3 with a lifted env). *)
+    admit.
   - (* tpi *)
     cbn.
     destruct a; try done.
@@ -100,7 +103,7 @@ Proof.
     all: exists x; repeat split; auto.
     all: try rewrite IHM2 in E2; auto; try rewrite IHM2; eauto.
     all: auto_case.
-Qed.
+Admitted.
 
 
 Lemma EvalRel_wk {n} (M : Tm n) (ρ : Env n) u v :
@@ -181,11 +184,19 @@ Proof.
     destruct (is_bot u); try done.
     move: E => [h1 [a [L1 E1]]].
     eauto.
+  - (* ncase *)
+    move: E => [w [EM Hb]]. exists w. split.
+    + eapply IHM1; eauto.
+    + destruct w as [ | | | | v | | ]; try contradiction.
+      * exact Hb.
+      * eapply IHM2; eauto.
+      * have Vv : valid v := EvalRel_valid EM.
+        eapply IHM3; [ | | | exact Hb ]; eauto using valid_cons, SubRel_lift.
   - (* tpi *)
     destruct u; try done.
     move: E => [Vu [Vf [E1 [a0 [E0 h1]]]]].
     all: repeat split; eauto.
-    exists a0. 
+    exists a0.
     split. eapply IHM1; eauto.
 
     move=> ui vi Vui APP.
@@ -302,6 +313,14 @@ Proof.
     destruct (is_bot u); try done.
     move: E => [h1 [a [L1 E1]]].
     eauto.
+  - (* ncase *)
+    move: E => [w [EM Hb]]. exists w. split.
+    + eapply IHM1; eauto.
+    + destruct w as [ | | | | v | | ]; try contradiction.
+      * exact Hb.
+      * eapply IHM2; eauto.
+      * have Vv : valid v := EvalRel_valid EM.
+        eapply IHM3; [ | | | exact Hb ]; eauto using valid_cons, MaxSubRel_lift.
   - (* tpi *)
     destruct u; try done.
     move: E => [Vf [Vu [E1 [a0 [E0 h1]]]]].
@@ -709,12 +728,10 @@ Proof.
     move: (IHM _ _ _ _ Vρ ER1) => [ρ' [Vρ' [SR' ER']]].
     exists ρ'. split; [|split]; auto.
     cbn. rewrite Hb. split; auto. by exists a.
-  - (* nrec — no non-bot result *)
-    destruct (is_bot u) eqn:Hb; try done.
-    exists bot_env. split; [|split].
-    + by apply bot_env_valid.
-    + by apply SubRel_bot_env.
-    + cbn. by rewrite Hb.
+  - (* ncase — TODO: forward witness for case.  Unlike the old bot-only
+       recursor, ncase has non-bot results (the zero/succ branches), so the
+       witness environment must be assembled from the selected branch. *)
+    admit.
   - (* tnat *)
     exists bot_env. split; [|split].
     + by apply bot_env_valid.
@@ -769,7 +786,13 @@ Proof.
     + by apply bot_env_valid.
     + by apply SubRel_bot_env.
     + cbn. exact E.
-Qed.
+  - (* fix_ — bot-only placeholder *)
+    destruct (is_bot u) eqn:Hb; try done.
+    exists bot_env. split; [|split].
+    + by apply bot_env_valid.
+    + by apply SubRel_bot_env.
+    + cbn. by rewrite Hb.
+Admitted.
 
 (** ** EvalRel_subst1_forward as a corollary *)
 

@@ -294,6 +294,7 @@ Proof.
     | n0 Γ0 cv                            (* t_nat *)
     | n0 Γ0 cv                            (* t_zero *)
     | n0 Γ0 M0 hM                         (* t_succ *)
+    | n0 Γ0 T0 Mc Mc0 Mc1 hTc hMc hMc0 hMc1 (* t_case *)
     | n0 Γ0 A0 B0 hA hB                   (* t_tpi *)
     | n0 Γ0 cv ];                         (* t_univ *)
   move=> m Δ σ σ' CΔ TS TS' CS.
@@ -377,6 +378,8 @@ Proof.
   - (* t_succ *)
     cbn. eapply c_succ.
     exact (subst_conv_cross _ _ _ _ hM m Δ σ σ' CΔ TS TS' CS).
+  - (* t_case — substitution congruence for ncase (uses c_ncase); TODO. *)
+    admit.
   - (* t_tpi *)
     have CAσ : typing Δ A0[σ] Core.tuniv
       by (eapply substitution_tm with (A := Core.tuniv); eauto).
@@ -403,7 +406,7 @@ Proof.
     cbn. eapply c_tpi;
       [ exact CAσ | exact CAσ' | exact TBσ | exact TBσ' | exact convA | exact convB ].
   - (* t_univ *) cbn. eapply c_refl. eapply t_univ. exact CΔ.
-Qed.
+Admitted.
 
 (** [semantic_typing Γ M A] (≈ Agda [AdqV2]) bundles the two value results over
     a well-typed [M : A]: for any pair of related substitutions, [Val] at [M[σ]]
@@ -2498,10 +2501,11 @@ Proof.
     + eapply st_nat; eauto.
     + eapply st_zero; eauto.
     + eapply st_succ; eauto.
+    + (* st_case: adequacy for ncase — TODO *) admit.
     + eapply st_tpi; eauto.
     + eapply st_univ; eauto.
   - move=> h. dependent destruction h.
-    + eapply sc_conv; eauto. 
+    + eapply sc_conv; eauto.
     + eapply sc_refl; eauto. 
     + eapply sc_sym; eauto.
     + eapply sc_trans; eauto.
@@ -2509,10 +2513,13 @@ Proof.
     + eapply sc_app2; eauto.
     + eapply sc_beta; eauto.
     + eapply sc_eta; eauto.
+    + (* sc_ncase_Z — TODO *) admit.
+    + (* sc_ncase_S — TODO *) admit.
+    + (* sc_ncase — TODO *) admit.
     + eapply sc_succ; eauto.
     + eapply sc_abs; eauto.
     + eapply sc_tpi; eauto.
-Qed.
+Admitted.
 
 Definition empty {n} : fin 0 -> Tm n := 
   fun f => match f with end. 
@@ -2724,6 +2731,7 @@ Proof.
     | n Γ cΓ
     | n Γ cΓ
     | n Γ P tP IHP
+    | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ]; intros N' hr.
   all: try solve [ inversion hr ].
@@ -2749,7 +2757,10 @@ Proof.
       * eapply typing_ctx; exact ta.
     + (* congruence: the function reduces. *)
       eapply t_app; [ exact tA | exact tB | eapply IHF; exact hrF | exact ta ].
-Qed.
+  - (* t_case — subject reduction for ncase (hr_zero/hr_succ/hr_case): the
+       branches are typed and substituted, mirroring the Agda Case cases.  TODO. *)
+    admit.
+Admitted.
 
 (* Subject reduction for multi-step head reduction. *)
 Lemma subject_red {n} (Γ : Ctx n) (M N A : Tm n) :
@@ -2843,6 +2854,7 @@ Proof.
     | n Γ cΓ
     | n Γ cΓ
     | n Γ P tP IHP
+    | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ].
   - right; left; constructor.
@@ -2856,9 +2868,12 @@ Proof.
   - left; constructor.
   - left; constructor.
   - left; constructor.
+  - (* t_case: ncase is not a value/neutral in these defs; for closed terms it
+       steps (hr_zero/hr_succ), but progress_gen is general — TODO. *)
+    admit.
   - left; constructor.
   - left; constructor.
-Qed.
+Admitted.
 
 (* A closed term has no neutral (variable-headed) subterm. *)
 Lemma neutral_not_closed (M : Tm 0) : neutral M -> False.

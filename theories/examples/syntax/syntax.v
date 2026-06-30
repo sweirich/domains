@@ -11,10 +11,11 @@ Inductive Tm (n_Tm : nat) : Type :=
   | app : Tm n_Tm -> Tm n_Tm -> Tm n_Tm
   | zero : Tm n_Tm
   | succ : Tm n_Tm -> Tm n_Tm
-  | nrec : Tm (S n_Tm) -> Tm n_Tm -> Tm n_Tm -> Tm n_Tm
+  | ncase : Tm n_Tm -> Tm n_Tm -> Tm (S n_Tm) -> Tm n_Tm
   | tnat : Tm n_Tm
   | tpi : Tm n_Tm -> Tm (S n_Tm) -> Tm n_Tm
-  | tuniv : Tm n_Tm.
+  | tuniv : Tm n_Tm
+  | fix_ : Tm n_Tm -> Tm n_Tm.
 
 Lemma congr_abs {m_Tm : nat} {s0 : Tm m_Tm} {s1 : Tm (S m_Tm)} {t0 : Tm m_Tm}
   {t1 : Tm (S m_Tm)} (H0 : s0 = t0) (H1 : s1 = t1) :
@@ -43,15 +44,15 @@ Proof.
 exact (eq_trans eq_refl (ap (fun x => succ m_Tm x) H0)).
 Qed.
 
-Lemma congr_nrec {m_Tm : nat} {s0 : Tm (S m_Tm)} {s1 : Tm m_Tm}
-  {s2 : Tm m_Tm} {t0 : Tm (S m_Tm)} {t1 : Tm m_Tm} {t2 : Tm m_Tm}
+Lemma congr_ncase {m_Tm : nat} {s0 : Tm m_Tm} {s1 : Tm m_Tm}
+  {s2 : Tm (S m_Tm)} {t0 : Tm m_Tm} {t1 : Tm m_Tm} {t2 : Tm (S m_Tm)}
   (H0 : s0 = t0) (H1 : s1 = t1) (H2 : s2 = t2) :
-  nrec m_Tm s0 s1 s2 = nrec m_Tm t0 t1 t2.
+  ncase m_Tm s0 s1 s2 = ncase m_Tm t0 t1 t2.
 Proof.
 exact (eq_trans
-         (eq_trans (eq_trans eq_refl (ap (fun x => nrec m_Tm x s1 s2) H0))
-            (ap (fun x => nrec m_Tm t0 x s2) H1))
-         (ap (fun x => nrec m_Tm t0 t1 x) H2)).
+         (eq_trans (eq_trans eq_refl (ap (fun x => ncase m_Tm x s1 s2) H0))
+            (ap (fun x => ncase m_Tm t0 x s2) H1))
+         (ap (fun x => ncase m_Tm t0 t1 x) H2)).
 Qed.
 
 Lemma congr_tnat {m_Tm : nat} : tnat m_Tm = tnat m_Tm.
@@ -70,6 +71,12 @@ Qed.
 Lemma congr_tuniv {m_Tm : nat} : tuniv m_Tm = tuniv m_Tm.
 Proof.
 exact (eq_refl).
+Qed.
+
+Lemma congr_fix_ {m_Tm : nat} {s0 : Tm m_Tm} {t0 : Tm m_Tm} (H0 : s0 = t0) :
+  fix_ m_Tm s0 = fix_ m_Tm t0.
+Proof.
+exact (eq_trans eq_refl (ap (fun x => fix_ m_Tm x) H0)).
 Qed.
 
 Lemma upRen_Tm_Tm {m : nat} {n : nat} (xi : fin m -> fin n) :
@@ -92,12 +99,13 @@ Fixpoint ren_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
   | app _ s0 s1 => app n_Tm (ren_Tm xi_Tm s0) (ren_Tm xi_Tm s1)
   | zero _ => zero n_Tm
   | succ _ s0 => succ n_Tm (ren_Tm xi_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      nrec n_Tm (ren_Tm (upRen_Tm_Tm xi_Tm) s0) (ren_Tm xi_Tm s1)
-        (ren_Tm xi_Tm s2)
+  | ncase _ s0 s1 s2 =>
+      ncase n_Tm (ren_Tm xi_Tm s0) (ren_Tm xi_Tm s1)
+        (ren_Tm (upRen_Tm_Tm xi_Tm) s2)
   | tnat _ => tnat n_Tm
   | tpi _ s0 s1 => tpi n_Tm (ren_Tm xi_Tm s0) (ren_Tm (upRen_Tm_Tm xi_Tm) s1)
   | tuniv _ => tuniv n_Tm
+  | fix_ _ s0 => fix_ n_Tm (ren_Tm xi_Tm s0)
   end.
 
 Lemma up_Tm_Tm {m : nat} {n_Tm : nat} (sigma : fin m -> Tm n_Tm) :
@@ -122,13 +130,14 @@ Fixpoint subst_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
   | app _ s0 s1 => app n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1)
   | zero _ => zero n_Tm
   | succ _ s0 => succ n_Tm (subst_Tm sigma_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      nrec n_Tm (subst_Tm (up_Tm_Tm sigma_Tm) s0) (subst_Tm sigma_Tm s1)
-        (subst_Tm sigma_Tm s2)
+  | ncase _ s0 s1 s2 =>
+      ncase n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1)
+        (subst_Tm (up_Tm_Tm sigma_Tm) s2)
   | tnat _ => tnat n_Tm
   | tpi _ s0 s1 =>
       tpi n_Tm (subst_Tm sigma_Tm s0) (subst_Tm (up_Tm_Tm sigma_Tm) s1)
   | tuniv _ => tuniv n_Tm
+  | fix_ _ s0 => fix_ n_Tm (subst_Tm sigma_Tm s0)
   end.
 
 Lemma upId_Tm_Tm {m_Tm : nat} (sigma : fin m_Tm -> Tm m_Tm)
@@ -163,14 +172,16 @@ subst_Tm sigma_Tm s = s :=
       congr_app (idSubst_Tm sigma_Tm Eq_Tm s0) (idSubst_Tm sigma_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (idSubst_Tm sigma_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec (idSubst_Tm (up_Tm_Tm sigma_Tm) (upId_Tm_Tm _ Eq_Tm) s0)
-        (idSubst_Tm sigma_Tm Eq_Tm s1) (idSubst_Tm sigma_Tm Eq_Tm s2)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (idSubst_Tm sigma_Tm Eq_Tm s0)
+        (idSubst_Tm sigma_Tm Eq_Tm s1)
+        (idSubst_Tm (up_Tm_Tm sigma_Tm) (upId_Tm_Tm _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (idSubst_Tm sigma_Tm Eq_Tm s0)
         (idSubst_Tm (up_Tm_Tm sigma_Tm) (upId_Tm_Tm _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (idSubst_Tm sigma_Tm Eq_Tm s0)
   end.
 
 Lemma upExtRen_Tm_Tm {m : nat} {n : nat} (xi : fin m -> fin n)
@@ -206,17 +217,18 @@ Fixpoint extRen_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
         (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
+        (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1)
         (extRen_Tm (upRen_Tm_Tm xi_Tm) (upRen_Tm_Tm zeta_Tm)
-           (upExtRen_Tm_Tm _ _ Eq_Tm) s0)
-        (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s2)
+           (upExtRen_Tm_Tm _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
         (extRen_Tm (upRen_Tm_Tm xi_Tm) (upRen_Tm_Tm zeta_Tm)
            (upExtRen_Tm_Tm _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
   end.
 
 Lemma upExt_Tm_Tm {m : nat} {n_Tm : nat} (sigma : fin m -> Tm n_Tm)
@@ -254,17 +266,18 @@ Fixpoint ext_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
         (ext_Tm sigma_Tm tau_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
+        (ext_Tm sigma_Tm tau_Tm Eq_Tm s1)
         (ext_Tm (up_Tm_Tm sigma_Tm) (up_Tm_Tm tau_Tm) (upExt_Tm_Tm _ _ Eq_Tm)
-           s0)
-        (ext_Tm sigma_Tm tau_Tm Eq_Tm s1) (ext_Tm sigma_Tm tau_Tm Eq_Tm s2)
+           s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
         (ext_Tm (up_Tm_Tm sigma_Tm) (up_Tm_Tm tau_Tm) (upExt_Tm_Tm _ _ Eq_Tm)
            s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
   end.
 
 Lemma up_ren_ren_Tm_Tm {k : nat} {l : nat} {m : nat} (xi : fin k -> fin l)
@@ -302,18 +315,18 @@ ren_Tm zeta_Tm (ren_Tm xi_Tm s) = ren_Tm rho_Tm s :=
         (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
-        (compRenRen_Tm (upRen_Tm_Tm xi_Tm) (upRen_Tm_Tm zeta_Tm)
-           (upRen_Tm_Tm rho_Tm) (up_ren_ren _ _ _ Eq_Tm) s0)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
         (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1)
-        (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s2)
+        (compRenRen_Tm (upRen_Tm_Tm xi_Tm) (upRen_Tm_Tm zeta_Tm)
+           (upRen_Tm_Tm rho_Tm) (up_ren_ren _ _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
         (compRenRen_Tm (upRen_Tm_Tm xi_Tm) (upRen_Tm_Tm zeta_Tm)
            (upRen_Tm_Tm rho_Tm) (up_ren_ren _ _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
   end.
 
 Lemma up_ren_subst_Tm_Tm {k : nat} {l : nat} {m_Tm : nat}
@@ -360,18 +373,18 @@ subst_Tm tau_Tm (ren_Tm xi_Tm s) = subst_Tm theta_Tm s :=
         (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
-        (compRenSubst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm tau_Tm)
-           (up_Tm_Tm theta_Tm) (up_ren_subst_Tm_Tm _ _ _ Eq_Tm) s0)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
         (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1)
-        (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s2)
+        (compRenSubst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm tau_Tm)
+           (up_Tm_Tm theta_Tm) (up_ren_subst_Tm_Tm _ _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
         (compRenSubst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm tau_Tm)
            (up_Tm_Tm theta_Tm) (up_ren_subst_Tm_Tm _ _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
   end.
 
 Lemma up_subst_ren_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -440,18 +453,19 @@ ren_Tm zeta_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
   | zero _ => congr_zero
   | succ _ s0 =>
       congr_succ (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
-        (compSubstRen_Tm (up_Tm_Tm sigma_Tm) (upRen_Tm_Tm zeta_Tm)
-           (up_Tm_Tm theta_Tm) (up_subst_ren_Tm_Tm _ _ _ Eq_Tm) s0)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
         (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s1)
-        (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s2)
+        (compSubstRen_Tm (up_Tm_Tm sigma_Tm) (upRen_Tm_Tm zeta_Tm)
+           (up_Tm_Tm theta_Tm) (up_subst_ren_Tm_Tm _ _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
         (compSubstRen_Tm (up_Tm_Tm sigma_Tm) (upRen_Tm_Tm zeta_Tm)
            (up_Tm_Tm theta_Tm) (up_subst_ren_Tm_Tm _ _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 =>
+      congr_fix_ (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
   end.
 
 Lemma up_subst_subst_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -521,18 +535,19 @@ subst_Tm tau_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
   | zero _ => congr_zero
   | succ _ s0 =>
       congr_succ (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
-        (compSubstSubst_Tm (up_Tm_Tm sigma_Tm) (up_Tm_Tm tau_Tm)
-           (up_Tm_Tm theta_Tm) (up_subst_subst_Tm_Tm _ _ _ Eq_Tm) s0)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
         (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s1)
-        (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s2)
+        (compSubstSubst_Tm (up_Tm_Tm sigma_Tm) (up_Tm_Tm tau_Tm)
+           (up_Tm_Tm theta_Tm) (up_subst_subst_Tm_Tm _ _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
         (compSubstSubst_Tm (up_Tm_Tm sigma_Tm) (up_Tm_Tm tau_Tm)
            (up_Tm_Tm theta_Tm) (up_subst_subst_Tm_Tm _ _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 =>
+      congr_fix_ (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
   end.
 
 Lemma renRen_Tm {k_Tm : nat} {l_Tm : nat} {m_Tm : nat}
@@ -640,18 +655,18 @@ Fixpoint rinst_inst_Tm {m_Tm : nat} {n_Tm : nat}
         (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1)
   | zero _ => congr_zero
   | succ _ s0 => congr_succ (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
-  | nrec _ s0 s1 s2 =>
-      congr_nrec
-        (rinst_inst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm sigma_Tm)
-           (rinstInst_up_Tm_Tm _ _ Eq_Tm) s0)
+  | ncase _ s0 s1 s2 =>
+      congr_ncase (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
         (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1)
-        (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s2)
+        (rinst_inst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm sigma_Tm)
+           (rinstInst_up_Tm_Tm _ _ Eq_Tm) s2)
   | tnat _ => congr_tnat
   | tpi _ s0 s1 =>
       congr_tpi (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
         (rinst_inst_Tm (upRen_Tm_Tm xi_Tm) (up_Tm_Tm sigma_Tm)
            (rinstInst_up_Tm_Tm _ _ Eq_Tm) s1)
   | tuniv _ => congr_tuniv
+  | fix_ _ s0 => congr_fix_ (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
   end.
 
 Lemma rinstInst'_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
@@ -843,13 +858,15 @@ Core.
 
 Arguments var {n_Tm}.
 
+Arguments fix_ {n_Tm}.
+
 Arguments tuniv {n_Tm}.
 
 Arguments tpi {n_Tm}.
 
 Arguments tnat {n_Tm}.
 
-Arguments nrec {n_Tm}.
+Arguments ncase {n_Tm}.
 
 Arguments succ {n_Tm}.
 

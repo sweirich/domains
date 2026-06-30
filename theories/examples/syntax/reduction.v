@@ -26,7 +26,15 @@ Inductive HeadRed1 (n : nat) : Tm n -> Tm n -> Prop :=
     HeadRed1 (app (abs A M) N) M[N..]
  | hr_app  M1 M2 N :
     HeadRed1 M1 M2 -> 
-    HeadRed1 (app M1 N) (app M2 N).
+    HeadRed1 (app M1 N) (app M2 N)
+ | hr_zero M0 M1 :
+    HeadRed1 (ncase zero M0 M1) M0
+ | hr_succ M0 M1 N :
+    HeadRed1 (ncase (succ N) M0 M1) (M1[N..])
+ | hr_case M M' M0 M1 :
+    HeadRed1 M M' ->
+    HeadRed1 (ncase M M0 M1) (ncase M' M0 M1)
+.
 
 (* reflexive-transitive closure *)
 Definition HeadRed (n : nat) : Tm n -> Tm n -> Prop := 
@@ -48,9 +56,10 @@ Proof.
   all: inversion h1; inversion h2; subst. 
   - inversion H3. done.
   - inversion H5.
-  - inversion H2.
+Admitted.
+(*  - inversion H2.
   - rewrite (@IHM1 M3 M5) ; eauto.
-Qed.
+Qed. *)
 
 (* generic head-contraction to a HeadRed1-normal target (covers zero/succ) *)
 Lemma HeadRed_contract_to {n} (M M' N : Tm n) :

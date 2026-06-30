@@ -1572,11 +1572,9 @@ Proof.
         split; first by rewrite Vv.
         exists v. split; first by eapply le_refl. exact EMv. }
       cbn. done.
-(*
-    + (* t_nrec — nrec is a fake case in EvalRel: only produces bot. *)
-      move=> u Eu. cbn in Eu.
-      destruct (Raw.is_bot u) eqn:HU; first by destruct u; try done; apply Typed_bot.
-      done. *)
+    + (* t_case — soundness of case analysis (InvTyped for ncase).  Depends on
+         the scrutinee/branch structure of [EvalRel (ncase ...)]; admitted. *)
+      admit.
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1593,8 +1591,9 @@ Proof.
       | ?n ?Γ ?A ?B ?N ?M ?M' hA hB hN hMM'
       | ?n ?Γ ?A ?B ?M ?N hA hB hM hN
       | ?n ?Γ ?A ?B ?N ?N' hA hN hN' hbody
-(*      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
-      | ?n ?Γ ?T ?M0 ?M1 ?z hT hM0 hM1 *)
+      | ?n ?Γ ?M0 ?M1 ?T hT hM0 hM1
+      | ?n ?Γ ?T ?M0 ?M1 ?N hT hN hM0 hM1
+      | ?n ?Γ ?T ?M ?M0 ?M1 ?M' ?M0' ?M1' hT hMc hM0c hM1c
       | ?n ?Γ ?M ?N hMN
       | ?n ?Γ ?A ?A' ?B ?M ?M' TAc TA'c TBc TMc TM'c hAconv hMconv
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
@@ -1635,17 +1634,13 @@ Proof.
         | exact (typing_EvalRel _ _ _ _ hN)
         | exact (typing_EvalRel _ _ _ _ hN')
         | exact (conv_EvalRel _ _ _ _ _ hbody) ].
-(*
-    + (* c_nrec_Z: app (nrec ...) zero ≡ M0 : T[zero..].  Forward direction
-         (app ... → M0): EvalRel of app (nrec ...) ρ u forces u = bot, and
-         EvalRel _ ρ bot is always trivially True.  Backward direction:
-         requires the converse, which only holds when the actual application
-         is bot — needs more structure.  Admit. *)
-      move: ρ Fρ.
-      eapply InvConv_nrec_Z; eauto.      
-    + (* c_nrec_S: similar — nrec is fake. *)
-      move: ρ Fρ.
-      eapply InvConv_nrec_S; eauto. *)
+    + (* c_ncase_Z: ncase zero M0 M1 ≡ M0 : T[zero..].  Conversion soundness for
+         case reduction — TODO (mirrors the InvConv computation lemmas). *)
+      admit.
+    + (* c_ncase_S: ncase (succ N) M0 M1 ≡ M1[N..] : T[(succ N)..].  TODO. *)
+      admit.
+    + (* c_ncase: congruence on the scrutinee/branches.  TODO. *)
+      admit.
     + (* c_succ *)
       apply InvConv_succ. exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
     + (* c_abs: lambda congruence *)
@@ -1656,5 +1651,7 @@ Proof.
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.
       eapply InvConv_tpi; eauto.
-Qed.
+(* [c_nrec_Z]/[c_nrec_S] cases admitted: nrec's EvalRel is a bot-only
+   placeholder, so conversion soundness for nrec is not yet available. *)
+Admitted.
 

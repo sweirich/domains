@@ -109,8 +109,23 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
 
          | _ => False
          end
-  | nrec T M0 M1 => fun ρ b =>
-         if is_bot b then True else False
+  | ncase M M0 M1 => fun ρ c =>
+        (* caseNat semantics (Agda NAT [CaseBranch]): the scrutinee [M] takes
+           some value [w], and [c] lies below the corresponding branch.
+           [w = zero] selects the zero-branch [M0]; [w = succ v] selects the
+           succ-branch [M1] with the predecessor [v] bound; [w = bot] forces
+           [c] below [bot]. *)
+        exists w, EvalRel M ρ w /\
+          match w with
+          | bot    => valid c /\ le c bot
+          | zero   => EvalRel M0 ρ c
+          | succ v => EvalRel M1 (v .: ρ) c
+          | _      => False
+          end
+  | fix_ M => fun ρ b =>
+        (* fixpoint: placeholder (bot only) pending the Kleene-approximant
+           semantics (Agda NAT [Y]/[Approx]). *)
+        if is_bot b then True else False
   end.
 
 
@@ -183,15 +198,19 @@ Proof.
   - destruct (is_bot u) eqn:h.
     destruct u; try done.
     eauto.
-  - (* nrec (fake case) *)
-    destruct (is_bot u) eqn:h; try done.
-    destruct u; try done.
-  - destruct u; try done.
+  - (* ncase *)
+    move=> [w [_ Hb]]. destruct w; try done.
+    + exact (proj1 Hb).
+    + exact (IHM2 _ _ Hb).
+    + exact (IHM3 _ _ Hb).
+  - (* tnat *) destruct u; try done.
   - (* tpi *)
     destruct u; try done.
     move=> [Vu [Vf [WTu [E1 _]]]].
     eapply valid_tpi_intro; eauto.
-  - destruct u; try done.
+  - (* tuniv *) destruct u; try done.
+  - (* fix_ *) destruct (is_bot u) eqn:h; try done.
+    destruct u; try done.
 Qed.
 
 (** * monotonicity *)
@@ -240,8 +259,14 @@ Proof.
     destruct (is_bot u); try done.
     destruct h1 as [Vu [a [LE E]]].
     eapply IHM in E; eauto.
-  - (* M = nrec *)
-    destruct (is_bot u); try done.
+  - (* M = ncase *)
+    destruct h1 as [w [EM Hb]]. exists w. split.
+    + eapply IHM1; eauto.
+    + destruct w as [ | | | | v | | ]; try contradiction.
+      * exact Hb.
+      * eapply IHM2; eauto.
+      * have Vv : valid v := EvalRel_valid EM.
+        eapply IHM3; eauto using le_env_cons, le_refl, valid_cons.
   - (* M = tnat *)
     destruct (is_bot u); try done.
   - (* M = tpi M1 M2 *)
@@ -259,6 +284,8 @@ Proof.
     eapply le_refl; eauto with valid.
   - (* M = tuniv n *)
     destruct u; try done.
+  - (* M = fix_ *)
+    exact h1.
 Qed.
 
 
@@ -266,8 +293,12 @@ Qed.
 Lemma EvalRel_bot {n} (M : Tm n) (ρ : Env n) :
   EvalRel M ρ bot.
 Proof.
-  destruct M eqn:EQ; cbn; try done.
-  (* var *) all: split; [done | apply le_bot'].
+  move: ρ. induction M; intro ρ; cbn.
+  all: try solve [ split; [done | apply le_bot'] ].
+  all: try solve [ apply le_bot' ].
+  all: try solve [ done ].
+  (* ncase *)
+  exists bot. split; [ apply IHM1 | split; [ done | apply le_bot' ] ].
 Qed.
 
 (** Downward closure: any valid element below an approximation is itself an
@@ -361,13 +392,18 @@ Proof.
          exists a. split; last by [].
          eapply (le_trans (v := u)); eauto.
 
-  - (* nrec *)
-    destruct (is_bot u') eqn:Hu'.
-    + destruct u'; done.
-    + destruct (is_bot u) eqn:Hu.
-      ++ destruct u; try done. apply le_bot_inv in LE. subst u'.
-         cbn in Hu'. done.
-      ++ done.
+  - (* ncase *)
+    destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
+    destruct w as [ | | | | v | | ]; try contradiction.
+    + (* bot: branch [valid u /\ le u bot] descends to [valid u' /\ le u' bot] *)
+      move: Hb => [_ Lub]. split; [ exact Vu' | ].
+      have Vb : valid bot by done.
+      eapply le_trans; [ exact Vu' | exact Vu1 | exact Vb | exact LE | exact Lub ].
+    + (* zero: descend the zero-branch [M2] *)
+      eapply IHM2; eauto.
+    + (* succ v: descend the succ-branch [M3] in the extended env *)
+      have Vv : valid v := EvalRel_valid EM.
+      eapply IHM3; eauto using valid_cons.
 
   - (* tnat *)
     have Vt: valid tnat by done.
@@ -406,6 +442,13 @@ Proof.
   - (* tuniv *)
     have Vt: valid tuniv by done.
     eapply (le_trans (v := u)); eauto.
+  - (* fix_ (bot-only placeholder) *)
+    destruct (is_bot u') eqn:Hu'.
+    + destruct u'; done.
+    + destruct (is_bot u) eqn:Hu.
+      ++ destruct u; try done. apply le_bot_inv in LE. subst u'.
+         cbn in Hu'. done.
+      ++ done.
 Qed.
 
 
@@ -735,12 +778,12 @@ Proof.
       cbn. split.
       by rewrite Ve.
       exists w. rewrite le_succ. split; eauto.
-  - (* nrec *)
-    move=> H1 H2.
-    destruct a; cbn in H1; try done.
-    destruct b; cbn in H2; try done.
-    split; first done.
-    move=> c h. cbn in h. inversion h; subst c. cbn. done.
+  - (* ncase — compatibility + lub of two case-approximations.
+       The scrutinee approximations combine via [IHM1]; the zero/zero and
+       succ/succ branches need [IHM2]/[IHM3].  The succ/succ sub-case requires
+       an env-lub step (the two approximations carry different predecessors),
+       so this is the one outstanding ncase obligation.  TODO. *)
+    move=> H1 H2. admit.
   - (* tnat *)
     move=> L1 L2.
     destruct a; try done; destruct b; try done.
@@ -783,7 +826,13 @@ Proof.
     all: cbn.
     all: split; auto.
     all: move=> c h; inversion h; subst c; done.
-Qed.
+  - (* fix_ (bot-only placeholder) *)
+    move=> H1 H2.
+    destruct a; cbn in H1; try done.
+    destruct b; cbn in H2; try done.
+    split; first done.
+    move=> c h. cbn in h. inversion h; subst c. cbn. done.
+Admitted.
 
 (** Any two approximations of a term are compatible. *)
 Lemma EvalRel_compatible {n} (M : Tm n) :
