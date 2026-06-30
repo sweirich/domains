@@ -103,61 +103,6 @@ Import typing.Notations.
 (* A substitution: σ *)
 Definition Sub m n := fin m -> Tm n.
 
-(* ============================================================
-   Cross-fuel bridges (from the above-rank fuel-stability lemmas
-   [Val_fuel_up]/[Val_fuel_down] in raw_validity.v).  Between any two
-   fuels that are BOTH above the ranks of [u] and [a], [Val]/[EqVal] are
-   interchangeable.  These let the [forall RB] substitution relations be
-   threaded at any above-rank fuel — the Coq counterpart of Agda's
-   single canonical stage [Stage (suc (max (RANK u) (RANK a)))].
-   ============================================================ *)
-(** Cross-fuel bridge: between any two fuels both above the ranks of [u] and
-    [a], [Val] is interchangeable (here: raise the fuel).  These bridges are
-    what let the [forall RB] substitution relations be threaded at any
-    above-rank fuel, the Coq counterpart of Agda's single canonical [Stage]. *)
-Lemma Val_fuel_up_to {n} (Γ : Ctx n) (M T : Tm n) u a (h : wt u a) k k' :
-  k <= k' -> rk u < k -> rk a < k -> Val k Γ M T h -> Val k' Γ M T h.
-Proof.
-  move=> Hle Hu Ha V. induction Hle as [|k' Hle IH]; first exact V.
-  apply Val_fuel_up; [ lia | lia | exact IH ].
-Qed.
-
-Lemma Val_fuel_down_to {n} (Γ : Ctx n) (M T : Tm n) u a (h : wt u a) k k' :
-  k' <= k -> rk u < k' -> rk a < k' -> Val k Γ M T h -> Val k' Γ M T h.
-Proof.
-  move=> Hle Hu Ha. induction Hle as [|k Hle IH]; first (move=> V; exact V).
-  move=> V. apply IH. apply Val_fuel_down; [ lia | lia | exact V ].
-Qed.
-
-Lemma Val_fuel_any {n} (Γ : Ctx n) (M T : Tm n) u a (h : wt u a) k k' :
-  rk u < k -> rk a < k -> rk u < k' -> rk a < k' -> Val k Γ M T h -> Val k' Γ M T h.
-Proof.
-  move=> Hu Ha Hu' Ha' V. destruct (Nat.le_ge_cases k k') as [Hle|Hge].
-  - exact (Val_fuel_up_to Hle Hu Ha V).
-  - exact (Val_fuel_down_to Hge Hu' Ha' V).
-Qed.
-
-Lemma EqVal_fuel_up_to {n} (Γ : Ctx n) (M N T : Tm n) u a (h : wt u a) k k' :
-  k <= k' -> rk u < k -> rk a < k -> EqVal k Γ M N T h -> EqVal k' Γ M N T h.
-Proof.
-  move=> Hle Hu Ha V. induction Hle as [|k' Hle IH]; first exact V.
-  apply EqVal_fuel_up; [ lia | lia | exact IH ].
-Qed.
-
-Lemma EqVal_fuel_down_to {n} (Γ : Ctx n) (M N T : Tm n) u a (h : wt u a) k k' :
-  k' <= k -> rk u < k' -> rk a < k' -> EqVal k Γ M N T h -> EqVal k' Γ M N T h.
-Proof.
-  move=> Hle Hu Ha. induction Hle as [|k Hle IH]; first (move=> V; exact V).
-  move=> V. apply IH. apply EqVal_fuel_down; [ lia | lia | exact V ].
-Qed.
-
-Lemma EqVal_fuel_any {n} (Γ : Ctx n) (M N T : Tm n) u a (h : wt u a) k k' :
-  rk u < k -> rk a < k -> rk u < k' -> rk a < k' -> EqVal k Γ M N T h -> EqVal k' Γ M N T h.
-Proof.
-  move=> Hu Ha Hu' Ha' V. destruct (Nat.le_ge_cases k k') as [Hle|Hge].
-  - exact (EqVal_fuel_up_to Hle Hu Ha V).
-  - exact (EqVal_fuel_down_to Hge Hu' Ha' V).
-Qed.
 
 (* A valid substitution σ maps every term in ρ to one that
    can be interpreted in Δ. *)
@@ -513,131 +458,6 @@ Proof.
   auto.
 Qed.
 
-(* ============================================================
-   Bridging lemmas needed by st_app.
-
-   These mirror Adequacy2.agda's helpers:
-   - Val_transport ≈ app-transport-Val2  (combines restrictVal + downVal)
-   - EvalRel_Pi_app_type ≈ EvalRel-Pi-app-type
-   - EvalRel_app_Comp    ≈ EvalRel-Comp
-   ============================================================ *)
-
-(* Val_transport: bridge Val along both a u-decrease AND an a-decrease.
-   Internally chains:
-     - wt_le on h' to get an intermediate witness wt u' a,
-     - restrictVal to drop u: from h (wt u a) → intermediate (wt u' a),
-     - downVal to drop a: from intermediate (wt u' a) → h' (wt u' a'). *)
-Lemma Val_transport {n} (Γ : Ctx n) (M T : Tm n) u u' a a'
-  (h : wt u a) (h' : wt u' a')
-  (hUa : wt a tuniv) (hUa' : wt a' tuniv) :
-  le u' u -> le a' a ->
-  forall RB, Val RB Γ M T h -> Val RB Γ M T h'.
-Proof.
-  move=> LEu LEa RB VH.
-  have h'' : wt u' a by eapply wt_le; eauto.
-  have VH'' : Val RB Γ M T h'' by eapply (@restrictVal RB _ Γ M T u u' a h'' h); eauto.
-  eapply (@downVal RB _ Γ M T u' a' a h' h''); eauto.
-Qed.
-
-(* Val_transport_up: bridge Val along a u-decrease AND a TYPE-increase
-   ([le a a']).  This is the [App]-codomain transport: the codomain type
-   at the selection key [ef_usel = app g u_sel] is *below* the codomain
-   type at the actual argument [ac1 = app g v0] (argument monotonicity),
-   so the type goes up.  Coq's discrete order lets us replace Agda's
-   [Sup]-join transport ([app-transport-Val2]) with [upVal]+[restrictVal]:
-     - [wt_le] on [h] gives the intermediate witness [wt u a'],
-     - [upVal] raises the type [a -> a'] (needs [ValTy a']),
-     - [restrictVal] drops the element [u -> u']. *)
-Lemma Val_transport_up {n} (Γ : Ctx n) (M T : Tm n) u u' a a'
-  (h : wt u a) (h' : wt u' a')
-  (hUa : wt a tuniv) (hUa' : wt a' tuniv) :
-  le u' u -> le a a' ->
-  forall RB, Val RB Γ T Core.tuniv hUa' -> Val RB Γ M T h -> Val RB Γ M T h'.
-Proof.
-  move=> LEu LEa RB VT VH.
-  have hmid : wt u a' by eapply wt_le; eauto.
-  have Vmid : Val RB Γ M T hmid
-    by eapply (@upVal RB _ Γ M T u a a' h hmid hUa hUa'); eauto.
-  eapply (@restrictVal RB _ Γ M T u u' a' h' hmid); eauto.
-Qed.
-
-Lemma EqVal_transport_up {n} (Γ : Ctx n) (M N T : Tm n) u u' a a'
-  (h : wt u a) (h' : wt u' a')
-  (hUa : wt a tuniv) (hUa' : wt a' tuniv) :
-  le u' u -> le a a' ->
-  forall RB, Val RB Γ T Core.tuniv hUa' -> EqVal RB Γ M N T h -> EqVal RB Γ M N T h'.
-Proof.
-  move=> LEu LEa RB VT VH.
-  have hmid : wt u a' by eapply wt_le; eauto.
-  have Vmid : EqVal RB Γ M N T hmid
-    by eapply (@upEqVal RB _ Γ M N T u a a' h hmid hUa hUa'); eauto.
-  eapply (@restrictEqVal RB _ Γ M N T u u' a' h' hmid); eauto.
-Qed.
-
-(* ------------------------------------------------------------------
-   Val_app_transport / EqVal_app_transport: the App-codomain [Sup]-join
-   transport — Agda [app-transport-Val2] / [app-transport-EqVal2].
-
-   Moves a [Val]/[EqVal] from the edge's codomain type [af = app f u_sel]
-   (at element [v = v_sel]) to the environment-given codomain type [a] (at
-   element [u]).  Because [a] and [af] are only *compatible* (both evaluate
-   the codomain [B[N..]]) and need not be ordered, this goes through their
-   join [lub a af] and relies on the type-validity join [ValTy_Sup] /
-   [EqValTy_Sup] (Agda [ValTy2-Sup] / [EqValTy2-Sup]; the corresponding
-   [ValTy_Sup] in raw_validity.v is currently Aborted).
-
-   ADMITTED: these isolate exactly that Sup machinery.  Discharging them
-   amounts to porting Agda's SupPack (stage induction over the Pi type-code
-   join) and threading the codomain [ValTy] at [a] from the codomain IH.
-   See [[finelt-adequacy-coq-gotchas]]. *)
-(* Discrete-order transport via the join [c = lub a af]: with [ValTy] at [c]
-   in hand ([VTc]), [Val] moves [af -> c] ([upVal], the only step needing
-   [ValTy]), restricts the element [v -> u] ([restrictVal]), then drops
-   [c -> a] ([downVal]).  No [ValTy_Sup] is needed because [ValTy] at the
-   join is supplied as a hypothesis (threaded by the caller from the
-   function's own [ValTy]).  This is the Coq-discrete replacement for Agda's
-   [app-transport-Val2]. *)
-Lemma Val_app_transport {n} (Γ : Ctx n) (MN T : Tm n) u v a af
-  (h : wt v af) (h' : wt u a) (hUc : wt (lub a af) tuniv) :
-  compatible a af -> le u v ->
-  forall RB, Val RB Γ T Core.tuniv hUc -> Val RB Γ MN T h -> Val RB Γ MN T h'.
-Proof.
-  move=> Caf LEuv RB VTc VH.
-  have Wa  : wt a  tuniv := wt_ty_tuniv h'.
-  have Waf : wt af tuniv := wt_ty_tuniv h.
-  have Va  : valid a  := wt_valid_tm Wa.
-  have Vaf : valid af := wt_valid_tm Waf.
-  have LEac  : le a  (lub a af) := le_lub_left  Caf Va Vaf.
-  have LEafc : le af (lub a af) := le_lub_right Caf Va Vaf.
-  have hvc : wt v (lub a af) by (eapply wt_le; [ exact h | exact LEafc | exact Waf | exact hUc ]).
-  have VHc : Val RB Γ MN T hvc
-    by (eapply (@upVal RB _ Γ MN T v af (lub a af) h hvc Waf hUc); [ exact LEafc | exact VH | exact VTc ]).
-  have huc : wt u (lub a af) by (eapply wt_le; [ exact h' | exact LEac | exact Wa | exact hUc ]).
-  have VHuc : Val RB Γ MN T huc
-    by (eapply (@restrictVal RB _ Γ MN T v u (lub a af) huc hvc); [ exact LEuv | exact VHc ]).
-  eapply (@downVal RB _ Γ MN T u a (lub a af) h' huc); [ exact LEac | exact VHuc ].
-Qed.
-
-Lemma EqVal_app_transport {n} (Γ : Ctx n) (M N T : Tm n) u v a af
-  (h : wt v af) (h' : wt u a) (hUc : wt (lub a af) tuniv) :
-  compatible a af -> le u v ->
-  forall RB, Val RB Γ T Core.tuniv hUc -> EqVal RB Γ M N T h -> EqVal RB Γ M N T h'.
-Proof.
-  move=> Caf LEuv RB VTc VH.
-  have Wa  : wt a  tuniv := wt_ty_tuniv h'.
-  have Waf : wt af tuniv := wt_ty_tuniv h.
-  have Va  : valid a  := wt_valid_tm Wa.
-  have Vaf : valid af := wt_valid_tm Waf.
-  have LEac  : le a  (lub a af) := le_lub_left  Caf Va Vaf.
-  have LEafc : le af (lub a af) := le_lub_right Caf Va Vaf.
-  have hvc : wt v (lub a af) by (eapply wt_le; [ exact h | exact LEafc | exact Waf | exact hUc ]).
-  have VHc : EqVal RB Γ M N T hvc
-    by (eapply (@upEqVal RB _ Γ M N T v af (lub a af) h hvc Waf hUc); [ exact LEafc | exact VH | exact VTc ]).
-  have huc : wt u (lub a af) by (eapply wt_le; [ exact h' | exact LEac | exact Wa | exact hUc ]).
-  have VHuc : EqVal RB Γ M N T huc
-    by (eapply (@restrictEqVal RB _ Γ M N T v u (lub a af) huc hvc); [ exact LEuv | exact VHc ]).
-  eapply (@downEqVal RB _ Γ M N T u a (lub a af) h' huc); [ exact LEac | exact VHuc ].
-Qed.
 
 
 
@@ -718,12 +538,6 @@ Proof.
     [ exact HleR | lia | lia | exact Etr ].
 Qed.
 
-
-(* (Val_ty_conv removed: transporting [Val] across a *syntactic* type conversion
-   has no Agda analog — Agda transports along the *semantic* type-equality
-   [EqValTy] (= Coq's [Val_EqVal_fwd]).  Its two former uses now build the
-   semantic equality from the domain/Pi IH [STA]/[st_tpi_EqVal_edge] and apply
-   [Val_EqVal_fwd] directly.) *)
 
 (* cod_subst_conv: the codomain-level instance of [subst_conv_cross] — a body
    [B] typed in [Γ++A] is convertible under the two lifted substitutions, in
@@ -808,48 +622,6 @@ Proof.
   rewrite (subst_cons_eq B (N[σ]) σ) in HvB.
   exact HvB.
 Qed.
-
-
-(* EvalRel_Pi_app_type: from EvalRel of a (Core.tpi A B) at semantic
-   (tpi b f), the codomain B[N..] evaluates to the appropriate element
-   of f for any compatible N.
-
-   Statement mirrors Agda EvalRel-Pi-app-type:
-     EvalRel (Core.tpi A B) ρ (tpi b f) →
-     valid u → app f u = Some v → ¬ is_bot v → wt u b →
-     EvalRel B[N..] ρ v
-   where N evaluates appropriately to u in ρ.
-   The exact phrasing depends on how we connect the syntactic substitution
-   B[N..] with the semantic-function image (EvalFun f u). *)
-Lemma EvalRel_Pi_app_type {n} (A : Tm n) (B : Tm (S n)) (ρ : Env n)
-  (b : elt) (f : list (elt * elt)) :
-  EvalRel (Core.tpi A B) ρ (tpi b f) ->
-  valid_env ρ ->
-  forall u v,
-    valid u -> app f u = v -> ~ is_bot v ->
-    forall N, EvalRel N ρ u ->
-    EvalRel B[N..] ρ v.
-Proof.
-  move=> h Vρ u v Vu APP _ N ER.
-  cbn in h.
-  move: h => [_ [_ [_ [a' [_ EFun]]]]].
-  move: (EFun u v Vu APP) => [x [wtx [Lex EB]]].
-  have Vx : valid x by eapply wt_valid_tm; eauto.
-  have ER_x : EvalRel N ρ x by eapply EvalRel_down; eauto.
-  eapply EvalRel_subst1_backwards; eauto.
-Qed.
-
-(* EvalRel_app_Comp: two EvalRel results of the same term in the same
-   environment are compatible (i.e., their lub exists).
-
-   Mirrors Agda's EvalRel-Comp.  Specialized for applications, but the
-   general statement applies to any term. *)
-Lemma EvalRel_app_Comp {n} (M : Tm n) (ρ : Env n) (u v : elt) :
-  valid_env ρ ->
-  EvalRel M ρ u ->
-  EvalRel M ρ v ->
-  compatible u v.
-Proof. intros; eapply EvalRel_compatible; eauto. Qed.
 
 
 (** ** Semantic typing/conversion rules (the fundamental theorem, rule by rule)
@@ -1003,7 +775,7 @@ Proof.
           eapply EvalRel_Pi_app_type;
             [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evN_usel ]. }
       have Caaf : compatible a (app f u_sel)
-        by (eapply EvalRel_app_Comp; [ exact Vρ | exact evBN | exact evB_af ]).
+        by (eapply EvalRel_compatible; [ exact Vρ | exact evBN | exact evB_af ]).
       (* the join [lub a (app f u_sel)] is itself an evaluation of [B[N..]] *)
       have ELub : EvalRel B[N..] ρ (lub a (app f u_sel))
         by (exact (proj2 (EvalRel_compatible_lub Vρ evBN evB_af) _ erefl)).
@@ -1108,7 +880,7 @@ Proof.
           eapply EvalRel_Pi_app_type;
             [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evN_usel ]. }
       have Caaf : compatible a (app f u_sel)
-        by (eapply EvalRel_app_Comp; [ exact Vρ | exact evBN | exact evB_af ]).
+        by (eapply EvalRel_compatible; [ exact Vρ | exact evBN | exact evB_af ]).
       have ELub : EvalRel B[N..] ρ (lub a (app f u_sel))
         by (exact (proj2 (EvalRel_compatible_lub Vρ evBN evB_af) _ erefl)).
       have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
@@ -2118,7 +1890,7 @@ Proof.
       eapply EvalRel_Pi_app_type;
         [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evM_usel ]. }
   have Caaf : compatible a (app f u_sel)
-    by (eapply EvalRel_app_Comp; [ exact Vρ | exact EBM | exact evB_af ]).
+    by (eapply EvalRel_compatible; [ exact Vρ | exact EBM | exact evB_af ]).
   have ELub : EvalRel B[M..] ρ (lub a (app f u_sel))
     by (exact (proj2 (EvalRel_compatible_lub Vρ EBM evB_af) _ erefl)).
   have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
@@ -2213,7 +1985,7 @@ Proof.
       eapply EvalRel_Pi_app_type;
         [ exact evTpi | exact Vρ | exact Vusel | reflexivity | exact NB | exact evM_usel ]. }
   have Caaf : compatible a (app f u_sel)
-    by (eapply EvalRel_app_Comp; [ exact Vρ | exact EBM | exact evB_af ]).
+    by (eapply EvalRel_compatible; [ exact Vρ | exact EBM | exact evB_af ]).
   have ELub : EvalRel B[M..] ρ (lub a (app f u_sel))
     by (exact (proj2 (EvalRel_compatible_lub Vρ EBM evB_af) _ erefl)).
   have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).

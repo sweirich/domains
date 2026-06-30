@@ -214,6 +214,39 @@ Proof.
   eauto using le_refl.
 Qed.
 
+
+(* EvalRel_Pi_app_type: from EvalRel of a (Core.tpi A B) at semantic
+   (tpi b f), the codomain B[N..] evaluates to the appropriate element
+   of f for any compatible N.
+
+   Statement mirrors Agda EvalRel-Pi-app-type:
+     EvalRel (Core.tpi A B) ρ (tpi b f) →
+     valid u → app f u = Some v → ¬ is_bot v → wt u b →
+     EvalRel B[N..] ρ v
+   where N evaluates appropriately to u in ρ.
+   The exact phrasing depends on how we connect the syntactic substitution
+   B[N..] with the semantic-function image (EvalFun f u). *)
+Lemma EvalRel_Pi_app_type {n} (A : Tm n) (B : Tm (S n)) (ρ : Env n)
+  (b : elt) (f : list (elt * elt)) :
+  EvalRel (Core.tpi A B) ρ (tpi b f) ->
+  valid_env ρ ->
+  forall u v,
+    valid u -> app f u = v -> ~ is_bot v ->
+    forall N, EvalRel N ρ u ->
+    EvalRel B[N..] ρ v.
+Proof.
+  move=> h Vρ u v Vu APP _ N ER.
+  cbn in h.
+  move: h => [_ [_ [_ [a' [_ EFun]]]]].
+  move: (EFun u v Vu APP) => [x [wtx [Lex EB]]].
+  have Vx : valid x by eapply wt_valid_tm; eauto.
+  have ER_x : EvalRel N ρ x by eapply EvalRel_down; eauto.
+  eapply EvalRel_subst1_backwards; eauto.
+Qed.
+
+
+
+
 (** * MaxRel *)
 
 (** [MaxSubRel σ ρ' ρ]: [ρ' i] is an upper bound of *every* approximation of

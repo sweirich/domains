@@ -867,3 +867,5 @@ Lemma EvalRel_ideal {n} (M : Tm (S n)) ρ x1 x2 y1 y2 :
   eapply EvalRel_compatible; eauto.
 Qed.
 
+
+
