@@ -739,10 +739,47 @@ Proof.
     move: (IHM _ _ _ _ Vρ ER1) => [ρ' [Vρ' [SR' ER']]].
     exists ρ'. split; [|split]; auto.
     cbn. rewrite Hb. split; auto. by exists a.
-  - (* ncase — TODO: forward witness for case.  Unlike the old bot-only
-       recursor, ncase has non-bot results (the zero/succ branches), so the
-       witness environment must be assembled from the selected branch. *)
-    admit.
+  - (* ncase — forward witness for case, assembled from the selected branch *)
+    move: E => [w [EM Hb]].
+    destruct w as [ | | | | v | | ]; cbn in Hb; try contradiction.
+    + (* bot: u = bot *)
+      move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u.
+      exists bot_env. split; [|split].
+      * by apply bot_env_valid.
+      * by apply SubRel_bot_env.
+      * apply EvalRel_bot.
+    + (* zero *)
+      move: (IHM1 _ _ _ _ Vρ EM) => [ρ0 [V0 [SR0 E0]]].
+      move: (IHM2 _ _ _ _ Vρ Hb) => [ρ1 [V1 [SR1 E1]]].
+      move: (@combine_fwd _ _ σ ρ ρ0 ρ1 Vρ V0 V1 SR0 SR1)
+        => [ρ' [Vρ' [SR' [LE0 LE1]]]].
+      exists ρ'. split; [ exact Vρ' | split; [ exact SR' | ] ].
+      cbn. exists zero. split.
+      * eapply EvalRel_mono_env; [ exact E0 | exact V0 | exact Vρ' | exact LE0 ].
+      * cbn. eapply EvalRel_mono_env; [ exact E1 | exact V1 | exact Vρ' | exact LE1 ].
+    + (* succ v *)
+      have Vv : valid v := EvalRel_valid EM.
+      move: (IHM1 _ _ _ _ Vρ EM) => [ρ0 [V0 [SR0 E0]]].
+      move: (IHM3 _ _ _ _ (valid_cons Vv Vρ) Hb) => [ρx [Vx [SRx Ex]]].
+      pose ρ_uv := fun y => ρx (Some y).
+      have Vρuv : valid_env ρ_uv by (move=> y; apply Vx).
+      have SRtail : SubRel σ ρ_uv ρ by (eapply SubRel_lift_inv; eauto).
+      move: (SubRel_lift_head SRx) => [Vp Lp].
+      have Vsp : valid (succ (ρx var_zero)) := Vp.
+      have Lsp : le (succ (ρx var_zero)) (succ v) by (rewrite le_succ; exact Lp).
+      have Ep : EvalRel M1 ρ0 (succ (ρx var_zero)) := EvalRel_down V0 Vsp E0 Lsp.
+      move: (@combine_fwd _ _ σ ρ ρ0 ρ_uv Vρ V0 Vρuv SR0 SRtail)
+        => [ρ' [Vρ' [SR' [LE0 LEuv]]]].
+      exists ρ'. split; [ exact Vρ' | split; [ exact SR' | ] ].
+      cbn. exists (succ (ρx var_zero)). split.
+      * eapply EvalRel_mono_env; [ exact Ep | exact V0 | exact Vρ' | exact LE0 ].
+      * cbn.
+        have V1' : valid_env ((ρx var_zero) .: ρ') := valid_cons Vp Vρ'.
+        have LEx : le_env ρx ((ρx var_zero) .: ρ').
+        { move=> [k|]; cbn.
+          - exact (LEuv k).
+          - apply le_refl; exact Vp. }
+        exact (EvalRel_mono_env Ex Vx V1' LEx).
   - (* tnat *)
     exists bot_env. split; [|split].
     + by apply bot_env_valid.
@@ -803,7 +840,7 @@ Proof.
     + by apply bot_env_valid.
     + by apply SubRel_bot_env.
     + cbn. by rewrite Hb.
-Admitted.
+Qed.
 
 (** ** EvalRel_subst1_forward as a corollary *)
 
