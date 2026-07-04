@@ -378,8 +378,35 @@ Proof.
   - (* t_succ *)
     cbn. eapply c_succ.
     exact (subst_conv_cross _ _ _ _ hM m Δ σ σ' CΔ TS TS' CS).
-  - (* t_case — substitution congruence for ncase (uses c_ncase); TODO. *)
-    admit.
+  - (* t_case — substitution congruence for ncase, via c_ncase *)
+    have convMc : conv Δ Mc[σ] Mc[σ'] Core.tnat
+      := subst_conv_cross _ _ _ _ hMc m Δ σ σ' CΔ TS TS' CS.
+    have convMc0 : conv Δ Mc0[σ] Mc0[σ'] (T0[Core.zero..])[σ]
+      := subst_conv_cross _ _ _ _ hMc0 m Δ σ σ' CΔ TS TS' CS.
+    have Ctn : ctx (Δ ++ Core.tnat)
+      by (eapply c_cons; [ exact CΔ | eapply t_nat; exact CΔ ]).
+    have convTn : conv Δ Core.tnat[σ] Core.tnat[σ'] Core.tuniv
+      by (cbn; eapply c_refl; eapply t_nat; exact CΔ).
+    have TSl : typing_subst (Δ ++ Core.tnat) (⇑ σ) (Γ0 ++ Core.tnat)
+      by (eapply typing_subst_lift with (τ := Core.tnat); [ exact Ctn | exact TS ]).
+    have TSl' : typing_subst (Δ ++ Core.tnat) (⇑ σ') (Γ0 ++ Core.tnat)
+      by (eapply typing_subst_lift_conv with (A := Core.tnat);
+            [ exact Ctn | exact TS' | exact convTn ]).
+    have CSl : ConvSub (Δ ++ Core.tnat) (Γ0 ++ Core.tnat) (⇑ σ) (⇑ σ')
+      by (eapply ConvSub_lift with (A := Core.tnat); [ exact Ctn | exact TS | exact CS ]).
+    have TT : typing (Δ ++ Core.tnat) (T0[⇑ σ]) Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); [ exact hTc | exact TSl | exact Ctn ]).
+    have convMc1 : conv (Δ ++ Core.tnat) Mc1[⇑ σ] Mc1[⇑ σ'] (T0[rho])[⇑ σ]
+      := subst_conv_cross _ _ _ _ hMc1 _ (Δ ++ Core.tnat) (⇑ σ) (⇑ σ') Ctn TSl TSl' CSl.
+    cbn.
+    have EQg : (T0[Mc..])[σ] = (T0[⇑ σ])[Mc[σ]..] by asimpl.
+    rewrite EQg.
+    eapply c_ncase; [ exact TT | exact convMc | | ].
+    + have EQ0 : (T0[⇑ σ])[Core.zero..] = (T0[Core.zero..])[σ] by asimpl.
+      rewrite EQ0; exact convMc0.
+    + have EQ1 : (T0[⇑ σ])[rho] = (T0[rho])[⇑ σ].
+      { unfold rho. asimpl. setoid_rewrite rinstInst'_Tm_pointwise. reflexivity. }
+      rewrite EQ1; exact convMc1.
   - (* t_tpi *)
     have CAσ : typing Δ A0[σ] Core.tuniv
       by (eapply substitution_tm with (A := Core.tuniv); eauto).
@@ -406,7 +433,7 @@ Proof.
     cbn. eapply c_tpi;
       [ exact CAσ | exact CAσ' | exact TBσ | exact TBσ' | exact convA | exact convB ].
   - (* t_univ *) cbn. eapply c_refl. eapply t_univ. exact CΔ.
-Admitted.
+Qed.
 
 (** [semantic_typing Γ M A] (≈ Agda [AdqV2]) bundles the two value results over
     a well-typed [M : A]: for any pair of related substitutions, [Val] at [M[σ]]
