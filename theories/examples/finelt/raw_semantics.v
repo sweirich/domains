@@ -778,12 +778,71 @@ Proof.
       cbn. split.
       by rewrite Ve.
       exists w. rewrite le_succ. split; eauto.
-  - (* ncase — compatibility + lub of two case-approximations.
-       The scrutinee approximations combine via [IHM1]; the zero/zero and
-       succ/succ branches need [IHM2]/[IHM3].  The succ/succ sub-case requires
-       an env-lub step (the two approximations carry different predecessors),
-       so this is the one outstanding ncase obligation.  TODO. *)
-    move=> H1 H2. admit.
+  - (* ncase — compatibility + lub of two case-approximations.  The scrutinee
+       approximations combine via [IHM1]; the zero/zero and succ/succ branches
+       via [IHM2]/[IHM3], the succ/succ case first joining the two predecessor
+       environments with [EvalRel_mono_env]. *)
+    move=> H1 H2.
+    move: H1 => [wa [EMa Hba]].
+    move: H2 => [wb [EMb Hbb]].
+    move: (IHM1 _ _ _ Vρ EMa EMb) => [Cw hlubw].
+    destruct wa as [ | | | | va | | ], wb as [ | | | | vb | | ];
+      cbn in Hba, Hbb, Cw; try contradiction; try done.
+    + (* bot, bot *)
+      move: Hba => [_ La]; move: Hbb => [_ Lb].
+      apply le_bot_inv in La; apply le_bot_inv in Lb; subst a b.
+      split; first done.
+      move=> c LUB; rewrite lub_bot_l in LUB; subst c.
+      exists bot; split; [ apply EvalRel_bot | cbn; split; [ done | apply le_bot' ] ].
+    + (* bot, zero *)
+      move: Hba => [_ La]; apply le_bot_inv in La; subst a.
+      split; first done.
+      move=> c LUB; rewrite lub_bot_l in LUB; subst c.
+      exists zero; split; [ exact EMb | exact Hbb ].
+    + (* bot, succ *)
+      move: Hba => [_ La]; apply le_bot_inv in La; subst a.
+      split; first done.
+      move=> c LUB; rewrite lub_bot_l in LUB; subst c.
+      exists (succ vb); split; [ exact EMb | exact Hbb ].
+    + (* zero, bot *)
+      move: Hbb => [_ Lb]; apply le_bot_inv in Lb; subst b.
+      split; first by apply compatible_bot.
+      move=> c LUB; rewrite lub_bot_r in LUB; subst c.
+      exists zero; split; [ exact EMa | exact Hba ].
+    + (* zero, zero *)
+      move: (IHM2 _ _ _ Vρ Hba Hbb) => [Cab hlub].
+      split; [ exact Cab | ].
+      move=> c LUB; subst c.
+      exists zero; split; [ exact EMa | exact (hlub _ erefl) ].
+    + (* succ, bot *)
+      move: Hbb => [_ Lb]; apply le_bot_inv in Lb; subst b.
+      split; first by apply compatible_bot.
+      move=> c LUB; rewrite lub_bot_r in LUB; subst c.
+      exists (succ va); split; [ exact EMa | exact Hba ].
+    + (* succ, succ — join the two predecessor environments *)
+      have Vva : valid va := EvalRel_valid EMa.
+      have Vvb : valid vb := EvalRel_valid EMb.
+      have Vlub : valid (lub va vb) := valid_lub Cw Vva Vvb.
+      have Va' : valid_env ((lub va vb) .: ρ) := valid_cons Vlub Vρ.
+      have LEρ : le_env ρ ρ by (unfold le_env; move=> x; apply le_refl; apply Vρ).
+      have Ea : EvalRel M3 ((lub va vb) .: ρ) a.
+      { eapply EvalRel_mono_env;
+          [ exact Hba
+          | apply valid_cons; [ exact Vva | exact Vρ ]
+          | exact Va'
+          | apply le_env_cons; [ apply le_lub_left; assumption | exact LEρ ] ]. }
+      have Eb : EvalRel M3 ((lub va vb) .: ρ) b.
+      { eapply EvalRel_mono_env;
+          [ exact Hbb
+          | apply valid_cons; [ exact Vvb | exact Vρ ]
+          | exact Va'
+          | apply le_env_cons; [ apply le_lub_right; assumption | exact LEρ ] ]. }
+      move: (IHM3 _ _ _ Va' Ea Eb) => [Cab hlub].
+      split; [ exact Cab | ].
+      move=> c LUB; subst c.
+      exists (succ (lub va vb)); split.
+      * exact (hlubw _ erefl).
+      * exact (hlub _ erefl).
   - (* tnat *)
     move=> L1 L2.
     destruct a; try done; destruct b; try done.
@@ -832,7 +891,7 @@ Proof.
     destruct b; cbn in H2; try done.
     split; first done.
     move=> c h. cbn in h. inversion h; subst c. cbn. done.
-Admitted.
+Qed.
 
 (** Any two approximations of a term are compatible. *)
 Lemma EvalRel_compatible {n} (M : Tm n) :

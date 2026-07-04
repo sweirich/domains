@@ -85,9 +85,20 @@ Proof.
     all: split; auto.
     rewrite -> IHM in E1; eauto.
     rewrite -> IHM ; eauto.
-  - (* ncase — TODO: renaming commutes through the case branches (scrutinee via
-       IHM1, zero via IHM2, succ via IHM3 with a lifted env). *)
-    admit.
+  - (* ncase — renaming commutes through the case branches *)
+    cbn. split.
+    + move=> [w [EM Hb]]. exists w. split.
+      * rewrite -> IHM1 in EM; eauto.
+      * destruct w as [ | | | | v | | ]; cbn in Hb |- *; try contradiction.
+        -- exact Hb.
+        -- rewrite -> IHM2 in Hb; eauto.
+        -- rewrite <- (IHM3 _ (up_ren ξ) _ (v .: ρ')). exact Hb. auto_case.
+    + move=> [w [EM Hb]]. exists w. split.
+      * rewrite -> IHM1; eauto.
+      * destruct w as [ | | | | v | | ]; cbn in Hb |- *; try contradiction.
+        -- exact Hb.
+        -- rewrite -> IHM2; eauto.
+        -- rewrite -> (IHM3 _ (up_ren ξ) (v .: ρ) (v .: ρ')). exact Hb. auto_case.
   - (* tpi *)
     cbn.
     destruct a; try done.
@@ -103,7 +114,7 @@ Proof.
     all: exists x; repeat split; auto.
     all: try rewrite IHM2 in E2; auto; try rewrite IHM2; eauto.
     all: auto_case.
-Admitted.
+Qed.
 
 
 Lemma EvalRel_wk {n} (M : Tm n) (ρ : Env n) u v :
