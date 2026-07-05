@@ -1484,6 +1484,23 @@ Qed.
    See TypingSemantics.agda's mutual block.
    ===================================================================== *)
 
+(** Downward closure of [wt _ tnat]: anything below a well-typed natural is
+    itself a well-typed natural.  Used in the [c_ncase] congruence case to
+    recover [wt vp tnat] for the successor predecessor, so that the extended
+    environment [vp .: ρ] fits [Γ ++ tnat] and the branch conversion IH applies. *)
+Lemma wt_tnat_down : forall v, wt v tnat -> forall u, le u v -> wt u tnat.
+Proof.
+  have gen : forall v a, wt v a -> a = tnat -> forall u, le u v -> wt u tnat.
+  { move=> v a h. induction h; move=> Ea u' L; try discriminate Ea.
+    - (* wt_bot *) destruct u'; cbn in L; try done; apply wt_bot, wt_tnat.
+    - (* wt_zero *) destruct u'; cbn in L; try done;
+        [ apply wt_bot, wt_tnat | apply wt_zero ].
+    - (* wt_succ *) destruct u' as [ | | | | w | | ]; cbn in L; try done.
+      + apply wt_bot, wt_tnat.
+      + rewrite le_succ in L. apply wt_succ. exact (IHh Ea w L). }
+  move=> v h u L. exact (gen v tnat h eq_refl u L).
+Qed.
+
 (** Theorem 1 — typing soundness (Agda: [theorem1]): a typing derivation
     [Γ ⊢ M : A] yields [Γ ⊨ M ∈ A], i.e. [M] is invertibly typed under every
     fitting environment.  Mutually defined with [conv_EvalRel] — conversion
@@ -1704,8 +1721,55 @@ Proof.
         -- cbn. split; [ by rewrite Vv | ].
            exists v. split; [ rewrite le_succ; apply le_refl; exact Vv | exact ENv ].
         -- exact EM1v.
-    + (* c_ncase: congruence on the scrutinee/branches.  TODO. *)
-      admit.
+    + (* c_ncase: congruence on the scrutinee/branches. *)
+      have ctxΓ : ctx Γ := fits_ctx Fρ.
+      have [TM TM'] := conv_typing hMc.
+      have [TM0 TM0'] := conv_typing hM0c.
+      have [TM1 TM1'] := conv_typing hM1c.
+      have soundM  : InvTyped Γ M  Core.tnat ρ := typing_EvalRel _ _ _ _ TM  ρ Fρ.
+      have soundM' : InvTyped Γ M' Core.tnat ρ := typing_EvalRel _ _ _ _ TM' ρ Fρ.
+      move: (conv_EvalRel _ _ _ _ _ hMc  ρ Fρ) => [_ [_ [fwdM  bwdM]]].
+      move: (conv_EvalRel _ _ _ _ _ hM0c ρ Fρ) => [_ [_ [fwdM0 bwdM0]]].
+      have Tlhs : typing Γ (ncase M M0 M1) (T[M..])
+        by (eapply t_case; [ exact hT | exact TM | exact TM0 | exact TM1 ]).
+      have Trhs : typing Γ (ncase M' M0' M1') (T[M..]).
+      { eapply t_conv;
+          [ eapply t_case; [ exact hT | exact TM' | exact TM0' | exact TM1' ]
+          | apply c_sym; eapply conv_subst_arg;
+              [ apply t_nat; exact ctxΓ | exact hT | exact TM | exact TM' | exact hMc ] ]. }
+      unfold InvConv. split; [ | split; [ | split ] ].
+      * exact (typing_EvalRel _ _ _ _ Tlhs ρ Fρ).
+      * exact (typing_EvalRel _ _ _ _ Trhs ρ Fρ).
+      * (* forward: EvalRel (ncase M M0 M1) ρ u -> EvalRel (ncase M' M0' M1') ρ u *)
+        move=> u [w [EM Hb]].
+        have EMw' : EvalRel M' ρ w := fwdM w EM.
+        destruct w as [ | | | | vp | | ]; cbn in Hb; try contradiction.
+        -- cbn; exists bot; split; [ exact EMw' | cbn; exact Hb ].
+        -- cbn; exists zero; split; [ exact EMw' | cbn; exact (fwdM0 u Hb) ].
+        -- move: (soundM _ EM) => [vv [aa [hwt [Lsv [_ Etn]]]]].
+           cbn in Etn;
+           have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+           have wtvp : wt vp tnat := wt_succ_inv (wt_tnat_down wtvv Lsv).
+           have Fρ' : fits (Γ ++ Core.tnat) (vp .: ρ)
+             by (eapply fits_cons with (a := tnat);
+                 [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done | apply wt_tnat | exact wtvp | exact Fρ ]).
+           move: (conv_EvalRel _ _ _ _ _ hM1c (vp .: ρ) Fρ') => [_ [_ [fwdM1 _]]].
+           cbn; exists (succ vp); split; [ exact EMw' | cbn; exact (fwdM1 u Hb) ].
+      * (* backward: EvalRel (ncase M' M0' M1') ρ u -> EvalRel (ncase M M0 M1) ρ u *)
+        move=> u [w [EM' Hb]].
+        have EMw : EvalRel M ρ w := bwdM w EM'.
+        destruct w as [ | | | | vp | | ]; cbn in Hb; try contradiction.
+        -- cbn; exists bot; split; [ exact EMw | cbn; exact Hb ].
+        -- cbn; exists zero; split; [ exact EMw | cbn; exact (bwdM0 u Hb) ].
+        -- move: (soundM' _ EM') => [vv [aa [hwt [Lsv [_ Etn]]]]].
+           cbn in Etn;
+           have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+           have wtvp : wt vp tnat := wt_succ_inv (wt_tnat_down wtvv Lsv).
+           have Fρ' : fits (Γ ++ Core.tnat) (vp .: ρ)
+             by (eapply fits_cons with (a := tnat);
+                 [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done | apply wt_tnat | exact wtvp | exact Fρ ]).
+           move: (conv_EvalRel _ _ _ _ _ hM1c (vp .: ρ) Fρ') => [_ [_ [_ bwdM1]]].
+           cbn; exists (succ vp); split; [ exact EMw | cbn; exact (bwdM1 u Hb) ].
     + (* c_succ *)
       apply InvConv_succ. exact (conv_EvalRel _ _ _ _ _ hMN ρ Fρ).
     + (* c_abs: lambda congruence *)
