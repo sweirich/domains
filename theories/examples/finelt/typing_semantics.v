@@ -1572,9 +1572,28 @@ Proof.
         split; first by rewrite Vv.
         exists v. split; first by eapply le_refl. exact EMv. }
       cbn. done.
-    + (* t_case — soundness of case analysis (InvTyped for ncase).  Depends on
-         the scrutinee/branch structure of [EvalRel (ncase ...)]; admitted. *)
-      admit.
+    + (* t_case — soundness of case analysis (InvTyped for ncase). *)
+      have Vρ : valid_env ρ := fits_valid_env Fρ.
+      move=> u Eu.
+      move: Eu => [w [EM Hb]].
+      destruct w as [ | | | | vp | | ]; cbn in Hb; try contradiction.
+      * (* bot: u = bot *)
+        move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u. apply Typed_bot.
+      * (* zero: use the zero-branch soundness, bridging T[M..] <-> T[zero..]
+           since the scrutinee M evaluates to zero. *)
+        have ihM0 : InvTyped Γ M0 (T[Core.zero..]) ρ by (eapply typing_EvalRel; eauto).
+        move: (ihM0 u Hb) => [v0 [a0 [h0 [Lu0 [EM0v0 ETa0]]]]].
+        move: (EvalRel_subst1_forward Vρ ETa0) => [vz [Ezvz ETvz]].
+        have Vvz : valid vz := EvalRel_valid Ezvz.
+        cbn in Ezvz.
+        have EMvz : EvalRel M ρ vz
+          by (eapply EvalRel_down; [ exact Vρ | exact Vvz | exact EM | exact Ezvz ]).
+        have ETM : EvalRel (T[M..]) ρ a0 := EvalRel_subst1_backwards Vρ EMvz ETvz.
+        exists v0, a0, h0. split; [ exact Lu0 | split; [ | exact ETM ] ].
+        cbn. eexists. split; [ exact EM | exact EM0v0 ].
+      * (* succ vp — TODO: needs the [rho] lift-substitution semantics
+           (T[rho] at (vp .: ρ) vs T[M..] at ρ) and the predecessor's typing. *)
+        admit.
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
