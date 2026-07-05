@@ -1653,9 +1653,17 @@ Proof.
         | exact (typing_EvalRel _ _ _ _ hN)
         | exact (typing_EvalRel _ _ _ _ hN')
         | exact (conv_EvalRel _ _ _ _ _ hbody) ].
-    + (* c_ncase_Z: ncase zero M0 M1 ≡ M0 : T[zero..].  Conversion soundness for
-         case reduction — TODO (mirrors the InvConv computation lemmas). *)
-      admit.
+    + (* c_ncase_Z: ncase zero M0 M1 ≡ M0 : T[zero..] *)
+      have ctxΓ : ctx Γ := fits_ctx Fρ.
+      have Tncase : typing Γ (ncase Core.zero M0 M1) (T[Core.zero..])
+        by (eapply t_case; [ exact hT | eapply t_zero; exact ctxΓ | exact hM0 | exact hM1 ]).
+      unfold InvConv. split; [ | split; [ | split ] ].
+      * exact (typing_EvalRel _ _ _ _ Tncase ρ Fρ).
+      * exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ).
+      * move=> u [w [Ez Hb]]; destruct w as [ | | | | v | | ];
+          cbn in Ez, Hb; try done; try exact Hb.
+        move: Hb => [_ Lu]. apply le_bot_inv in Lu. subst u. apply EvalRel_bot.
+      * move=> u Hu. cbn. exists zero. split; [ cbn; apply le_refl; done | exact Hu ].
     + (* c_ncase_S: ncase (succ N) M0 M1 ≡ M1[N..] : T[(succ N)..].  TODO. *)
       admit.
     + (* c_ncase: congruence on the scrutinee/branches.  TODO. *)
