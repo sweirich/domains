@@ -1664,8 +1664,46 @@ Proof.
           cbn in Ez, Hb; try done; try exact Hb.
         move: Hb => [_ Lu]. apply le_bot_inv in Lu. subst u. apply EvalRel_bot.
       * move=> u Hu. cbn. exists zero. split; [ cbn; apply le_refl; done | exact Hu ].
-    + (* c_ncase_S: ncase (succ N) M0 M1 ≡ M1[N..] : T[(succ N)..].  TODO. *)
-      admit.
+    + (* c_ncase_S: ncase (succ N) M0 M1 ≡ M1[N..] : T[(succ N)..] *)
+      have ctxΓ : ctx Γ := fits_ctx Fρ.
+      have Vρ : valid_env ρ := fits_valid_env Fρ.
+      have Trho_id : (T[rho])[N..] = T[(Core.succ N)..] by (unfold rho; asimpl).
+      have Tlhs : typing Γ (ncase (Core.succ N) M0 M1) (T[(Core.succ N)..])
+        by (eapply t_case; [ exact hT | eapply t_succ; exact hN | exact hM0 | exact hM1 ]).
+      have Trhs : typing Γ (M1[N..]) (T[(Core.succ N)..]).
+      { rewrite -Trho_id.
+        eapply substitution_tm;
+          [ exact hM1
+          | eapply typing_subst_cons; [ asimpl; exact hN | apply typing_subst_id; exact ctxΓ ]
+          | exact ctxΓ ]. }
+      unfold InvConv. split; [ | split; [ | split ] ].
+      * exact (typing_EvalRel _ _ _ _ Tlhs ρ Fρ).
+      * exact (typing_EvalRel _ _ _ _ Trhs ρ Fρ).
+      * (* forward *)
+        move=> u [w [Ew Hb]].
+        destruct (Raw.is_bot w) eqn:Bw.
+        { destruct w; try done. move: Hb => [_ Lu].
+          apply le_bot_inv in Lu; subst u. apply EvalRel_bot. }
+        cbn in Ew. rewrite Bw in Ew. move: Ew => [Vw [a [Lwa ENa]]].
+        destruct w as [ | | | | vp | | ]; try done.
+        cbn in Hb. rewrite le_succ in Lwa.
+        have Va : valid a := EvalRel_valid ENa.
+        have Vvp : valid vp := Vw.
+        have Hb' : EvalRel M1 (a .: ρ) u.
+        { eapply EvalRel_mono_env;
+            [ exact Hb
+            | apply valid_cons; [ exact Vvp | exact Vρ ]
+            | apply valid_cons; [ exact Va | exact Vρ ]
+            | apply le_env_cons; [ exact Lwa | apply le_env_refl; exact Vρ ] ]. }
+        exact (EvalRel_subst1_backwards Vρ ENa Hb').
+      * (* backward *)
+        move=> u Hu.
+        move: (EvalRel_subst1_forward Vρ Hu) => [v [ENv EM1v]].
+        have Vv : valid v := EvalRel_valid ENv.
+        cbn. exists (succ v). split.
+        -- cbn. split; [ by rewrite Vv | ].
+           exists v. split; [ rewrite le_succ; apply le_refl; exact Vv | exact ENv ].
+        -- exact EM1v.
     + (* c_ncase: congruence on the scrutinee/branches.  TODO. *)
       admit.
     + (* c_succ *)
