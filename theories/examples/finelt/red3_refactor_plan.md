@@ -1,118 +1,91 @@
-# Red3 refactor plan — conv-carrying reductions in `Val`/`EqVal`
+# Plan: unblock `st_case` / `sc_ncase` (dependent `ncase` adequacy)
 
-Status: **planned, not started.** Goal: unblock `adequacy.v` `st_case`,
-`sc_ncase_Z/S/cong` (dependent `ncase` eliminator adequacy).
+Status: **planned, definition-change prototyped & reverted (stays green).**
+Approach chosen: **`ConvNum` conjunct on `semantic_typing`** (below). The earlier
+**Red3-in-`Val`** idea is **superseded** — see "Why not Red3" — it hits a wall in
+`raw_validity`'s Pi-edge machinery.
 
-## Why (the blocker)
+## The blocker (unchanged)
 
-`st_case` must transport `Val`/`EqVal` for the result type `T[M..]` between the
-branch type (`T[zero..]` / `T[rho]`) and `T[M..]`. `EqValTy`'s definition
-([raw_validity.v](raw_validity.v) ~L231) intrinsically bundles the *syntactic*
-conversions between the two pi-reducts, so the transport needs
-`conv M[σ] ≡ numeral` at `tnat`.
+`st_case`'s dependent-motive transport needs `EqValTy ((T[num..])[σ]) ((T[M..])[σ])`,
+whose definition ([raw_validity.v](raw_validity.v) ~L231) bundles *syntactic*
+conversions, so it needs `conv M[σ] ≡ numeral` at `tnat`. Deriving that from
+`HeadRed` (`red1_conv`) has a β-case needing Pi-injectivity → `adequacyEqSub` →
+the adequacy Fixpoint, of which `st_case` is a building block. **Circular.**
+Confirmed: [c_beta](../syntax/typing.v) requires the abs domain/codomain, so
+`red1_conv`'s β-case genuinely needs Pi-injectivity — no early `red⊆conv`.
 
-After substitution `M[σ]` *does* head-reduce to its numeral (the scrutinee's
-`Val` gives `HeadRed M[σ] zero`), but `HeadRed → conv` (`red1_conv`) has a
-β-case that needs Pi-injectivity → `adequacyEqSub` → the whole adequacy
-Fixpoint, of which `st_case` is a *building block*. **Circular.**
+## Chosen approach: `ConvNum` conjunct on `semantic_typing`
 
-Agda escapes this because its reductions carry `Red3` = `HeadRed` **+**
-`ConvTm`, bundled *everywhere*, so `motiveEqValTy2` reads the conversion off the
-scrutinee's `Val`. Coq's `Val` at `tnat` is bare `HeadRed`
-([raw_validity.v](raw_validity.v) ~L317).
-
-**Confirmed empirically (2026-07-06):** bundling `conv` into only the `tnat`
-leaves of `Val`/`EqVal` compiles the unfolding lemmas + `Val_EqVal` +
-`EqVal_Val1/2`, but **dies at `headred_VE_all`** (~L770): Val head-*expansion*
-for `zero` must produce `conv M0 zero` from `conv M zero` + `HeadRed M0 M`,
-i.e. `conv M0 M` from `HeadRed M0 M` = `red⊆conv` again. So leaf-only bundling
-is insufficient; conversions must thread through the whole head-expansion layer.
-
-## Design
-
-Introduce a conv-carrying reduction and thread it through the model's
-head-reduction machinery.
+Thread the numeral conversion **compositionally through the adequacy layer**, not
+through `Val`. Each `st_*`/`sc_*`/`ValSub_cons` builds it from its **local**
+typings via the conv rules (`c_refl`/`c_succ`/`c_beta`/`c_ncase_*`) — **no global
+`red⊆conv`, no Pi-injectivity, non-circular.**
 
 ```coq
-(* "M reduces to N and is convertible to it at A" — Agda Red3. *)
-Record Red {n} (Γ : Ctx n) (M N A : Tm n) : Prop := mkRed
-  { red_hr : HeadRed M N ; red_ct : conv Γ M N A }.
+Definition ConvNum {n} (Δ : Ctx n) (M : Tm n) (u : elt) : Prop :=
+  match u with
+  | Raw.zero   => conv Δ M Core.zero Core.tnat
+  | Raw.succ _ => exists P, HeadRed M (Core.succ P) /\ conv Δ M (Core.succ P) Core.tnat
+  | _          => True   (* non-numeral values carry nothing *)
+  end.
 ```
 
-- `Val` at `tnat`: `zero => Red Γ M Core.zero Core.tnat`;
-  `succ v => exists M1, Red Γ M (succ M1) Core.tnat /\ Val k Γ M1 tnat _`.
-- `EqVal` at `tnat`: both sides carry a `Red`.
-- `Red` is closed under: reflexivity (`ms_refl` + `c_refl`), transitivity
-  (`ms_trans` + `c_trans`), and the head-reduction *rules that are also conv
-  rules* — `hr_beta`↦`c_beta`, `hr_app`↦`c_app1`, `hr_zero`↦`c_ncase_Z`,
-  `hr_succ`↦`c_ncase_S`, `hr_case`↦`c_ncase`. Each such closure lemma takes the
-  typing premises the conv rule needs (available locally at every use site).
+Add to `semantic_typing`'s conclusion: `... /\ ConvNum Δ M[σ] u /\ ConvNum Δ M[σ'] u`
+(both substitutions, since the `EqVal`/cross component needs both). Add the
+analogue to `semantic_conv2` (`ConvNum` for both `M[σ]` and `N[σ]`). `ValSub` /
+`EqValSub` gain a `ConvNum` entry (so `st_var` can read it off the substitution).
 
-The key discipline: **head-EXPANSION never manufactures a conversion generically**
-— every `*_headred_expand` / `Val_beta_expand` caller *supplies* the step-`Red`
-(built from local typings via the rule map above). This is what breaks the
-circularity: no global `red⊆conv` is ever invoked.
+**Key property — no `raw_validity` change.** The *result* `Val` in `st_case` is
+still produced by the existing bare-`HeadRed` `Val_beta_expand` (the result
+numeral-`Val` is just `HeadRed (ncase..)[σ] num` via `ms_trans`). Only the
+*scrutinee's* conversion is new, and it comes from `ConvNum`.
 
-## Work breakdown (ordered; each phase should re-green before the next where possible)
+### `st_case` recipe (zero branch; succ analogous with the `rho` identity)
+1. Scrutinee `SM` gives `Val M[σ] tnat` at `zero` (⇒ `HeadRed M[σ] zero`) **and**
+   `ConvNum Δ M[σ] zero = conv M[σ] zero tnat`.
+2. `conv_subst_arg` on `conv M[σ] ≡ zero` ⇒ `conv (T[zero..])[σ] ≡ (T[M..])[σ]`
+   (modulo `subst`-commutation).
+3. `adequacyEqSub` on that conv ⇒ `EqValTy` between the two motive types.
+4. Branch `SM0` gives `Val M0[σ] (T[zero..])[σ]`; `Val_beta_expand`
+   (`ncase[σ] → M0[σ]`) lifts to `Val (ncase..)[σ] (T[zero..])[σ]`;
+   `Val_EqVal_fwd` transports along the `EqValTy` to `(T[M..])[σ]`.
+5. Succ: same, with `conv M[σ] ≡ succ P`, branch `M1[σ][P..]` at
+   `T[rho][P..] = T[(succ P)..]`, predecessor `P` from `ConvNum`'s witness
+   (typed via `conv_typing`), and `EqVal`/cross side mirrors it.
 
-1. **`syntax/`-adjacent Red infrastructure** (new, in `adequacy.v` or a new
-   `red3.v` to avoid touching `syntax/`):
-   - `Red` record + `Red_refl`, `Red_trans`.
-   - `Red_ncase` (scrutinee congruence, conv via `c_ncase`), `Red_app`
-     (`c_app1`), plus `Red_beta`/`Red_zero`/`Red_succ` builders.
-   - `typing_ncase_inv` (missing today) — needed by any `HeadRed→conv` and by
-     `subject_red1` t_case.
+## Blast radius (all in `adequacy.v`, mechanical, non-circular)
 
-2. **`raw_validity.v` definition change**: bundle `Red` into `Val`/`EqVal`
-   `tnat` leaves; update `Val_zero`/`Val_succ`/`EqVal_zero`/`EqVal_succ`
-   unfolding lemmas. (Done experimentally; ~4 lemmas + 2 defs.)
+- Defs: `ConvNum`, `semantic_typing`, `semantic_conv2`, `ValSub`, `EqValSub`.
+- `ValSub_cons`, `EqValSub_cons`, `ValSub`/`EqValSub` bridges.
+- `st_*` producers: `st_var` (from `ValSub`), `st_zero` (`c_refl`), `st_succ`
+  (`c_succ`), `st_app` (`c_beta` on its *known* `F:tpi A B`, `a:A` — **no
+  inversion**), `st_conv` (from `STA`). Non-numeral producers (`st_nat`,
+  `st_univ`, `st_tpi`, `st_abs`) discharge `ConvNum = True` trivially.
+- Consumers: most use `[valX _]` (first component) and are **unaffected** by a
+  right-associated extra conjunct; only ~2 (`[valMA eqvalMA]` in `st_conv`,
+  ~L722; `[valN eqvalN]`, ~L889) need `[valMA [eqvalMA _]]`.
+- Payoff: `st_case`, then `sc_ncase_Z/S/cong`.
+- Bonus (independent): `subject_red1` t_case once `typing_ncase_inv` +
+  `red1_conv` exist (these are post-adequacy, fine there).
 
-3. **`raw_validity.v` projections/diagonal** (mechanical, done experimentally):
-   `Val_EqVal`, `EqVal_Val1`, `EqVal_Val2`.
+Estimated 60–80 sites, **all in `adequacy.v`**. Definition change ⇒ red until
+the sweep completes (all-or-nothing; no green milestone mid-sweep). Fallback: a
+fully-threaded build with `st_case` left `Admitted` **is** green/committable, so
+the infrastructure can land before the succ case is finished.
 
-4. **`raw_validity.v` head-expansion machinery** (the hard core):
-   `headred_VE_all` (`HeadRedVE`), `Val_beta_expand`, `EqVal_headred_expand`,
-   `Val_headred_contract`, `EqVal_headred_contract`, `ValTy_headred_*`,
-   `EqValTy_headred_*`, `ValPi/EqValPi_headred_*`. Convert the *expansion*
-   directions to take a step-`Red` argument; contract directions likewise take
-   the step-`Red`. Congruence recursions (app) build the sub-step `Red` via
-   `Red_app`/`c_app1`.
+## Why not Red3-in-`Val` (superseded)
 
-5. **`raw_validity.v` fuel/transport** (`fuel_stable`, `Val_fuel_down_to`,
-   `EqVal_fuel_down_to`, `Val_app_transport`, `EqVal_app_transport`): the `Red`
-   conjunct is fuel-independent; update the `tnat`-case match patterns only.
+Bundling `conv` into `Val`'s `tnat` leaves ([raw_validity.v] ~L317) compiles the
+unfolding lemmas + `Val_EqVal`/`EqVal_Val1/2`, but **dies at `headred_VE_all`**
+(~L770): Val head-*expansion* for `zero` must build `conv M0 zero` from
+`conv M zero` + `HeadRed M0 M`, i.e. `conv M0 M` from `HeadRed M0 M` = `red⊆conv`
+again — and the **generic Pi-edge head-expansion recursion has no typings in
+scope** to build the needed `c_app1`/`c_beta` congruence convs. Making it work
+would require threading typings through the whole `Val` machinery (Pi edges,
+fuel, transport) — a much deeper change than `ConvNum`, which sidesteps `Val`
+entirely. (Verified empirically 2026-07-06.)
 
-6. **`adequacy.v` construction sites**: `st_var`, `st_zero`, `st_succ`,
-   `st_app`, `st_conv` — supply the `Red` (usually `Red_refl` or a `c_beta`
-   step). `st_nat/st_univ/st_tpi/st_abs` produce non-`tnat` values → untouched.
-
-7. **`adequacy.v` `st_case`** (the payoff): scrutinee `Red M[σ] numeral`
-   (off `SM`'s `Val`) → `conv_subst_arg` → `conv (T[numeral..])[σ] ≡ (T[M..])[σ]`
-   → `adequacyEqSub` → `EqValTy` → `Val_EqVal_fwd`/`EqVal_EqVal_fwd` transport;
-   head-expand `ncase[σ] → branch` with the `c_ncase_*` step-`Red`
-   (`Val_beta_expand` given the supplied `Red`). Succ branch instantiates `M1`
-   at `(v.:ρ)` with the `rho` identity `T[rho][P..] = T[(succ P)..]`.
-
-8. **`adequacy.v` `sc_ncase_Z/S/cong`**: same engine on the `EqVal`/cross side.
-
-9. **Bonus once `Red3`/`typing_ncase_inv` exist**: `subject_red1` t_case
-   (hr_case uses `red1_conv`/`Red`), independently.
-
-## Risk / rollback
-
-- Phases 2–5 leave `raw_validity.v` **red until complete** — do them on a branch
-  in one focused pass; `git checkout` restores green (verified).
-- Estimated 60–100 edit sites across `raw_validity.v` + `adequacy.v`.
-- Guard: keep a `HeadRedVE`-style bundled statement so the four expand/contract
-  facts stay proven together (single `induction k`).
-
-## Not-yet-existing helpers to build
-
-`Red` record + closure lemmas, `typing_ncase_inv`, `Red_ncase`, `Red_app`.
-Everything else (`Val_EqVal_fwd`, `EqVal_EqValTy`, `conv_subst_arg`,
-`adequacyEqSub`, `Val_fuel_down_to`, `Val_beta_expand`, `restrictVal`,
-`HeadRed_ncase`) already exists.
-
-See also memory `finelt-st-case-red3-blocker` and Agda
+See memory `finelt-st-case-red3-blocker`; Agda
 `~/github/agda/domain-semantics/NAT/Adequacy/NatCaseDep.agda`
 (`motiveEqValTy2`, `adequacyV-ty-Case-dep`).
