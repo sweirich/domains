@@ -1608,9 +1608,51 @@ Proof.
         have ETM : EvalRel (T[M..]) ρ a0 := EvalRel_subst1_backwards Vρ EMvz ETvz.
         exists v0, a0, h0. split; [ exact Lu0 | split; [ | exact ETM ] ].
         cbn. eexists. split; [ exact EM | exact EM0v0 ].
-      * (* succ vp — TODO: needs the [rho] lift-substitution semantics
-           (T[rho] at (vp .: ρ) vs T[M..] at ρ) and the predecessor's typing. *)
-        admit.
+      * (* succ vp: the scrutinee evaluates to [succ vp].  Use the succ-branch
+           [M1] soundness at the extended env [vp .: ρ], then bridge
+           [T[rho]] at [vp .: ρ] to [T[M..]] at [ρ] via the forward substitution
+           witness (T[rho]@(vp.:ρ) approximates T@(succ vp .: ρ)). *)
+        have ctxΓ : ctx Γ := fits_ctx Fρ.
+        have iM : InvTyped Γ M Core.tnat ρ by (eapply typing_EvalRel; eauto).
+        move: (iM _ EM) => [vv [aa [hwt [Lsv [_ Etn]]]]].
+        cbn in Etn.
+        have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+        have wtvp : wt vp tnat := wt_succ_inv (wt_tnat_down wtvv Lsv).
+        have Vvp : valid vp := wt_valid_tm wtvp.
+        have Vsvp : valid (succ vp) by (cbn; exact Vvp).
+        have Fρ' : fits (Γ ++ Core.tnat) (vp .: ρ)
+          by (eapply fits_cons with (a := tnat);
+              [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done
+              | apply wt_tnat | exact wtvp | exact Fρ ]).
+        have Vρ' : valid_env (vp .: ρ) := valid_cons Vvp Vρ.
+        have Vsρ : valid_env (succ vp .: ρ) := valid_cons Vsvp Vρ.
+        have ihM1 : InvTyped (Γ ++ Core.tnat) M1 (T[rho]) (vp .: ρ)
+          by (eapply typing_EvalRel; [ eauto | exact Fρ' ]).
+        move: (ihM1 u Hb) => [v1 [a1 [hwv1 [Lu1 [EM1v1 ETrho]]]]].
+        move: (EvalRel_subst_forward_wit Vρ' ETrho) => [ρs [Vρs [SRrho ETρs]]].
+        have LEenv : le_env ρs (succ vp .: ρ).
+        { move=> x. move: (SRrho x). destruct x as [j | ].
+          - (* var_succ j: rho maps to var (var_succ j) *)
+            unfold rho; asimpl; cbn. by move=> [_ Hle].
+          - (* var_zero: rho maps to succ (var var_zero); the succ EvalRel clause
+               is guarded by [is_bot], so bound [ρs None] by [succ vp] in both cases. *)
+            move=> H. unfold rho in H. cbn in H. cbn.
+            have Hbnd : forall r,
+                (if is_bot r then True
+                 else valid r /\ (exists a, le r (succ a) /\ valid a /\ le a vp))
+                -> le r (succ vp).
+            { move=> r Hr. destruct (is_bot r) eqn:Br.
+              - destruct r; try discriminate Br. apply le_bot'.
+              - move: Hr => [Vs [a [La [Va Lav]]]].
+                apply (@le_trans r (succ a) (succ vp));
+                  [ exact Vs | cbn; exact Va | cbn; exact Vvp | exact La
+                  | rewrite le_succ; exact Lav ]. }
+            exact (Hbnd _ H). }
+        have ETsvp : EvalRel T (succ vp .: ρ) a1
+          := EvalRel_mono_env ETρs Vρs Vsρ LEenv.
+        have ETM : EvalRel (T[M..]) ρ a1 := EvalRel_subst1_backwards Vρ EM ETsvp.
+        exists v1, a1, hwv1. split; [ exact Lu1 | split; [ | exact ETM ] ].
+        cbn. exists (succ vp). split; [ exact EM | cbn; exact EM1v1 ].
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1663,7 +1705,7 @@ Proof.
       * move=> x a Wx Wa EA.
         apply (typing_EvalRel _ _ _ _ hM (x .: ρ)).
         eapply fits_cons; eauto.
-    + (* c_eta: function extensionality (rests on the admitted [InvConv_eta]) *)
+    + (* c_eta: function extensionality (via [InvConv_eta]) *)
       move: ρ Fρ. eapply InvConv_eta;
         [ exact hA | exact hN | exact hN' | exact hbody
         | exact (typing_EvalRel _ _ _ _ hA)
