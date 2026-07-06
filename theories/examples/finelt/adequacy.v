@@ -2832,6 +2832,22 @@ Proof.
   match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
 Qed.
 
+(* [tuniv] and [tnat] are distinct head-normal forms, hence not convertible.
+   Proved semantically: conversion soundness ([conv_EvalRel]) at the bottom
+   environment would force [le tuniv tnat], which is false. *)
+Lemma tuniv_not_tnat {n} (Γ : Ctx n) :
+  ~ conv Γ Core.tuniv Core.tnat Core.tuniv.
+Proof.
+  move=> d.
+  have cΓ : ctx Γ by eapply conv_ctx; exact d.
+  have IC : InvConv Γ Core.tuniv Core.tnat Core.tuniv bot_env
+    by (eapply conv_EvalRel; [ exact d | exact (@fits_bot_env n Γ cΓ) ]).
+  move: IC => [_ [_ [fwd _]]].
+  have evU : EvalRel Core.tuniv (@bot_env n) tuniv by [].
+  have evN : EvalRel Core.tnat (@bot_env n) tuniv := fwd _ evU.
+  cbn in evN. done.
+Qed.
+
 (** * Progress for closed terms
 
     A closed, well-typed term is either a value (weak-head-normal form) or it
@@ -2853,7 +2869,8 @@ Inductive value {n} : Tm n -> Prop :=
 
 Inductive neutral {n} : Tm n -> Prop :=
 | ne_var : forall x, neutral (Core.var x)
-| ne_app : forall M N, neutral M -> neutral (Core.app M N).
+| ne_app : forall M N, neutral M -> neutral (Core.app M N)
+| ne_ncase : forall M M0 M1, neutral M -> neutral (Core.ncase M M0 M1).
 
 (* Canonical forms at Π type (any context): a value of Π type is a λ. *)
 Lemma canonical_pi {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) (B : Tm (S n)) :
@@ -2866,6 +2883,20 @@ Proof.
   - exfalso; exact (tnat_not_tpi (typing_zero_inv HT)).
   - exfalso; exact (tnat_not_tpi (typing_succ_inv HT)).
   - eexists; eexists; reflexivity.
+Qed.
+
+(* Canonical forms at [tnat]: a value of type [tnat] is [zero] or a successor. *)
+Lemma canonical_nat {n} (Γ : Ctx n) (M : Tm n) :
+  value M -> typing Γ M Core.tnat -> M = Core.zero \/ exists N, M = Core.succ N.
+Proof.
+  move=> v; destruct v; move=> HT.
+  - exfalso; exact (tuniv_not_tnat (typing_univ_inv HT)).
+  - exfalso; exact (tuniv_not_tnat (typing_nat_inv HT)).
+  - exfalso; exact (tuniv_not_tnat (typing_tpi_inv HT)).
+  - left; reflexivity.
+  - right; eexists; reflexivity.
+  - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
+    exact (tpi_not_tnat cPi).
 Qed.
 
 (* Progress, general form: every well-typed term is a value, a neutral
@@ -2895,16 +2926,22 @@ Proof.
   - left; constructor.
   - left; constructor.
   - left; constructor.
-  - (* t_case: ncase is not a value/neutral in these defs; for closed terms it
-       steps (hr_zero/hr_succ), but progress_gen is general — TODO. *)
-    admit.
+  - (* t_case: a value scrutinee at [tnat] is zero/succ and the case steps
+       (hr_zero/hr_succ); a neutral scrutinee makes the case neutral; a stepping
+       scrutinee steps by hr_case. *)
+    destruct IHMc as [ vMc | [ neMc | [Mc' stMc] ] ].
+    + destruct (canonical_nat vMc tMc) as [ -> | [N0 ->] ].
+      * right; right; eexists; apply hr_zero.
+      * right; right; eexists; apply hr_succ.
+    + right; left; apply ne_ncase; exact neMc.
+    + right; right; eexists; apply hr_case; exact stMc.
   - left; constructor.
   - left; constructor.
 Admitted.
 
 (* A closed term has no neutral (variable-headed) subterm. *)
 Lemma neutral_not_closed (M : Tm 0) : neutral M -> False.
-Proof. induction 1 as [ x | M N ne IH ]. - destruct x. - exact IH. Qed.
+Proof. induction 1 as [ x | M N ne IH | M M0 M1 ne IH ]. - destruct x. - exact IH. - exact IH. Qed.
 
 (* Progress for closed terms. *)
 Lemma progress (M A : Tm 0) :
