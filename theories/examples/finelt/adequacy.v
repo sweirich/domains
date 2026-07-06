@@ -663,6 +663,17 @@ Qed.
 
 (* ------------------ semantic typing rules ----------- *)
 
+(* Scrutinee congruence for multi-step head reduction: reducing the scrutinee
+   reduces the whole case expression.  Mirrors [HeadRed_app]; used by [st_case]
+   to lift the scrutinee's reduction to numeral form up to the case redex. *)
+Lemma HeadRed_ncase {n} (M M' M0 : Tm n) (M1 : Tm (S n)) :
+  HeadRed M M' -> HeadRed (Core.ncase M M0 M1) (Core.ncase M' M0 M1).
+Proof.
+  intro h. induction h.
+  - eapply ms_refl.
+  - eapply ms_trans; [ eapply hr_case; eassumption | eassumption ].
+Qed.
+
 Section SemanticTyping.
 
 Local Notation "Γ ⊨ M ∈ A" := (semantic_typing Γ M A).
