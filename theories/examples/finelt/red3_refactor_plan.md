@@ -1,58 +1,69 @@
 # Plan: unblock `st_case` / `sc_ncase` (dependent `ncase` adequacy)
 
-Status: **both leaf-threading approaches empirically hit the SAME Pi-edge wall
-(2026-07-06). Build stays green (all prototypes reverted).** The only clean
-escape found is **syntactic Pi-injectivity via confluence** (§ "Real fix").
+Status: **IN PROGRESS — Red3-in-`Val` refactor (the Agda-faithful path).** An
+earlier note here claimed both threading approaches hit a "fundamental Pi-edge
+wall"; **that was wrong** and is corrected below.
 
-## Executive finding
+## Executive finding (corrected 2026-07-06)
 
 The dependent `ncase`'s motive transport needs `conv M[σ] ≡ numeral` at `tnat`
-for the scrutinee `M`. Getting that conversion runs into a single root obstacle
-in TWO disguises:
+for the scrutinee `M`. The fix is to make `Val`/`EqVal` **carry the conversion**
+(Agda's `Red3 = HeadRed + ConvTm`), exactly as Agda does — no confluence.
 
-- **Red3-in-`Val`** dies at `headred_VE_all` (~L770): Val head-expansion for a
-  `zero` leaf needs `conv M0 M` from `HeadRed M0 M` (= `red⊆conv`), and the
-  generic Pi-edge head-expansion recursion has **no typings in scope** to build
-  the `c_app1` congruence conv.
-- **`ConvNum`-on-`semantic_typing`** (threaded cleanly through `st_var`,
-  `st_conv`, `dom_transport`, `codomain_type_ValTy`) dies at **`st_app`**: a
-  nat-returning application's `ConvNum` needs `conv (app M[σ] N[σ]) ≡ numeral`,
-  whose conv chains through the function body — **hidden behind the extensional
-  `Val` Pi-edge** (`pav`/`ValPi` give a bare `HeadRed` result, no conv).
+**Why the earlier "wall" was a mistake.** I claimed `headred_VE_all`'s Pi-edge
+recursion (`ValPiExp`) "has no typings in scope" to build the `c_app1`
+congruence conv. It does: reading the Agda proof (`Validity/HeadRed.agda:236`
+`ValPi2-headred-contract`) shows it builds the per-edge congruence with
+`conv-App-fun htA0 htB0 ctPi htN` (= Coq `c_app1`), getting `htA0`/`htB0` from
+the **`ValTy` record it carries** and `htN` from the **argument typing passed
+into the edge**. Coq's `Val` carries the same: `ValTy`'s Pi case stores
+`typing Γ A tuniv` / `typing (Γ++A) B tuniv` ([raw_validity.v:199-200]), and the
+edge `PiEdgeVal` takes `typing Γ N A` ([raw_validity.v:113]). So `ValPiExp`'s
+edge closure already has `TQ : typing Δ Q A0` in hand and can build the `c_app1`
+conv — just like Agda. The Pi-edge is transportable; the refactor closes.
 
-**Common root:** Coq's conversion is *typed* (its congruence rules `c_app1`/
-`c_beta` carry typing premises), and the model's Pi-edges are *extensional*
-(bare `HeadRed`). Recovering syntactic convs for function results therefore
-needs typed-conv congruences the generic machinery cannot build. Agda avoids
-this because its `ConvTm` is (effectively) untyped/structural and threaded as
-`Red3` everywhere.
+## How Agda threads the conversion (the recipe to mirror)
 
-## Real fix (recommended): syntactic Pi-injectivity via confluence
+- `Val2`/`EqVal2` bundle `Red3` at nat leaves and Pi-codes (and Pi-edge
+  codomain results carry `Red3` too, built at Lam/App adequacy where typings
+  exist — which is why Agda's `App` case gets the result conv for free, and why
+  the Coq `ConvNum`-only sweep failed at `st_app`).
+- Head-expansion (`Val2-beta-expand`) takes the **step conv `cv : ConvTm G M' M T`
+  as an argument**; the caller supplies it from local conv rules
+  (`conv-beta`/`conv-case-*`/`conv-App-fun` = `c_beta`/`c_ncase_*`/`c_app1`).
+- Whole-term leaves (numeral, `tpi`-code): thread `cv` by `conv-trans`
+  (`Validity/HeadRed.agda:140–175`) — no per-edge conv.
+- Function-value Pi-edge: transport the edge, building the per-edge `c_app1`
+  conv from the stored `ValTy` typings (`ValPi2-headred-contract`).
 
-Neither exists in the dev today (checked: no parallel-reduction / confluence /
-Church-Rosser, no syntactic Pi-injectivity — the dev's `piInjectivity` is
-*semantic*, via `bot_env`, hence post-adequacy). Build:
-1. parallel reduction `⇒` on `Tm`, with the diamond/Takahashi complete-development;
-2. confluence (Church-Rosser) of `⇒`/`HeadRed`;
-3. **syntactic** Pi-injectivity from confluence (Π-codes are `HeadRed`-normal);
-4. `red1_conv : typing Γ M A -> HeadRed1 M N -> conv Γ M N A` (β-case now uses the
-   *syntactic* Pi-injectivity — **pre-adequacy, non-circular**), then
-   `HeadRed_conv`, and `typing_ncase_inv`;
-5. `st_case` uses `HeadRed_conv` on the scrutinee directly — **no `Val`/adequacy
-   threading at all** — then `conv_subst_arg` → `adequacyEqSub` → `EqValTy` →
-   `Val_EqVal_fwd`. `sc_ncase_*` and `subject_red1` t_case fall out too.
+## Coq refactor steps (Red3-in-`Val`)
 
-This is a self-contained ~several-hundred-line syntactic development that touches
-**none** of the model (`raw_validity`) or the adequacy Pi-edges. It is larger up
-front than the threading sweeps but is the only one that actually closes.
+Design: bundle the conv **at the `Val`'s type term `A`** (so the head-expansion
+`cv : conv Γ M' M A` and the leaf conv `conv Γ M numeral A` `conv-trans` with no
+retyping; for the `st_case` scrutinee `A = tnat[σ] = tnat`, giving exactly
+`conv M[σ] ≡ numeral tnat`).
 
-## Superseded approaches (kept for the record)
+1. `Val`/`EqVal` nat leaves: add `conv Γ M zero A` / `conv Γ M (succ M1) A`.
+   Update `Val_zero`/`Val_succ`/`EqVal_zero`/`EqVal_succ`. (done experimentally.)
+2. Projections/diagonal `Val_EqVal`, `EqVal_Val1/2`. (done experimentally.)
+3. Head-expansion: `Val_beta_expand`, `headred_VE_all` (`HeadRedVE`),
+   `ValTy/EqValTy_headred_*`, `ValPi/EqValPi_headred_*` take the step-`conv`;
+   leaves `conv-trans`; **`ValPiExp`/`EqValPiExp` build the `c_app1` conv from
+   the carried `ValTy` typings + edge argument typing** (the corrected step).
+4. Fuel/transport (`fuel_stable`, `Val_fuel_down_to`, `*_app_transport`): update
+   the `tnat`-case match patterns only.
+5. `st_*` construction sites supply `Red3` at leaves (`c_refl`/`c_succ`/`c_beta`/
+   `c_ncase_*`), and the Pi-edge results carry the conv (built at `st_abs`).
+6. `st_case`: read scrutinee conv off its `Val`; `conv_subst_arg` →
+   `adequacyEqSub` → `EqValTy` → `Val_EqVal_fwd`; head-expand `ncase→branch`
+   with the `c_ncase_*` step-conv. Then `sc_ncase_*`, and `subject_red1` t_case.
 
-The two subsections below (`ConvNum` recipe, and "Why not Red3") document the
-threading attempts. Both are correct up to the Pi-edge wall in the Executive
-finding; neither closes. Kept because most of the machinery (recipe, blast
-radius, prototyped lemmas) is reusable if the model is ever made to carry
-conversions.
+## Superseded / partial (kept for reuse)
+
+The `ConvNum`-on-`semantic_typing` sweep below is a real, working thread through
+`st_var`/`st_conv`/`dom_transport`/`codomain_type_ValTy` but is subsumed: once
+the Pi-**edge** carries `Red3`, `st_app` reads the result conv off the edge, so
+the separate `ConvNum` layer is unnecessary. Kept for the recipe.
 
 ## The blocker (unchanged)
 
