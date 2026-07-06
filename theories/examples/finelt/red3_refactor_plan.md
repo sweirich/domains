@@ -36,27 +36,58 @@ conv — just like Agda. The Pi-edge is transportable; the refactor closes.
 - Function-value Pi-edge: transport the edge, building the per-edge `c_app1`
   conv from the stored `ValTy` typings (`ValPi2-headred-contract`).
 
-## Coq refactor steps (Red3-in-`Val`)
+## Coq refactor steps (Red3-in-`Val`) — recipe validated by execution 2026-07-06
 
-Design: bundle the conv **at the `Val`'s type term `A`** (so the head-expansion
-`cv : conv Γ M' M A` and the leaf conv `conv Γ M numeral A` `conv-trans` with no
-retyping; for the `st_case` scrutinee `A = tnat[σ] = tnat`, giving exactly
-`conv M[σ] ≡ numeral tnat`).
+Two design decisions were confirmed by running the refactor to the crux (then
+reverting to green):
 
-1. `Val`/`EqVal` nat leaves: add `conv Γ M zero A` / `conv Γ M (succ M1) A`.
-   Update `Val_zero`/`Val_succ`/`EqVal_zero`/`EqVal_succ`. (done experimentally.)
-2. Projections/diagonal `Val_EqVal`, `EqVal_Val1/2`. (done experimentally.)
-3. Head-expansion: `Val_beta_expand`, `headred_VE_all` (`HeadRedVE`),
-   `ValTy/EqValTy_headred_*`, `ValPi/EqValPi_headred_*` take the step-`conv`;
-   leaves `conv-trans`; **`ValPiExp`/`EqValPiExp` build the `c_app1` conv from
-   the carried `ValTy` typings + edge argument typing** (the corrected step).
-4. Fuel/transport (`fuel_stable`, `Val_fuel_down_to`, `*_app_transport`): update
-   the `tnat`-case match patterns only.
-5. `st_*` construction sites supply `Red3` at leaves (`c_refl`/`c_succ`/`c_beta`/
-   `c_ncase_*`), and the Pi-edge results carry the conv (built at `st_abs`).
-6. `st_case`: read scrutinee conv off its `Val`; `conv_subst_arg` →
+- **Bundle the numeral conv at the `Val`'s type term `A`** (the 4th `Val`
+  argument). Then leaf conv `conv Γ M numeral A` and head-expansion step conv
+  `cv : conv Γ M' M A` `c_trans` with **no retyping**. For the `st_case`
+  scrutinee `A = tnat[σ] = tnat`, giving exactly `conv M[σ] ≡ numeral tnat`.
+- **Bundle the Pi-type-code conv in `ValPi`/`EqValPi` ONLY, NOT `ValTy`/
+  `EqValTy`.** Putting it in `ValTy` forces retyping the step conv from the
+  abstract type-term `T` to `tuniv` in the `a=tuniv` head-expansion case, which
+  Coq's `Val` cannot do (unlike Agda, whose `Val2` carries a ValTy-of-`T`). With
+  it in `ValPi`, `ValTy`/`EqValTy` and their head-expansion lemmas stay
+  **conv-free/unchanged**, and `ValPiExp` reads the type-code conv from `ValPi`
+  and the domain/codomain typings from the (unchanged) `ValTy` it is given.
+
+Validated fragments (compiled before the full-file revert): the `Val`/`EqVal`
+nat-leaf defs + `Val_zero/succ`/`EqVal_zero/succ`, the projections
+`Val_EqVal`/`EqVal_Val1/2`, and the four `ValTy_HeadRed_*` lemmas via the
+**direct-rebuild** pattern (destructure input; `HeadRed` by `ms_app`, stored
+conv by `c_trans`; typings/edges carry over verbatim).
+
+1. Nat leaves: `Val`/`EqVal` add `conv Γ M numeral A`; update the 4 unfolding
+   lemmas. `ValPi`/`EqValPi` add `conv Γ A (tpi A0 B0) tuniv`. `ValTy`/`EqValTy`
+   **unchanged**.
+2. Projections `Val_EqVal`, `EqVal_Val1/2`: thread the extra conv binders.
+3. `HeadRedVE`/`headred_VE_all`: each direction takes the step conv(s). Leaves:
+   `c_trans` (`ms_app` for `HeadRed`). `ValTy`/`EqValTy` cases: **unchanged**.
+   `abs` cases pass `[VTd VPi]` (ValTy for typings, ValPi for the type-code conv)
+   + step conv to the Pi helpers.
+4. `ValPiExp`/`ValPiCon`/`EqValPiExp`/`EqValPiCon`: signature gains step conv +
+   the `ValTy` (for `TA0`/`TB0`). Build edge conv:
+   `cvPi := c_conv step-conv (ValPi.CT)` then `c_app1 TA0 TB0 cvPi TQ`. The
+   `EqVal` (cross) direction retypes the second app-conv to the shared codomain
+   `B0[N1..]` via `c_conv _ (c_sym (conv_subst_arg TA0 TB0 TN1 TN2 CN))`.
+   (`nf_tpi` helper needed for the contract multi-step; `conv_typing` gives the
+   argument typings `TN1`/`TN2` from the edge's `conv N1 N2 A0`.)
+5. `Val_beta_expand` + all callers of the head-expansion supply the step conv
+   from local conv rules.
+6. Fuel/transport (`fuel_stable`, `Val_fuel_down_to`, `*_app_transport`): update
+   the `tnat`-case match patterns (extra conv conjunct) + `ValPi` conv binder.
+7. `st_*` construction sites supply `Red3` at leaves (`c_refl`/`c_succ`/`c_beta`/
+   `c_ncase_*`); the Pi-edge results carry the conv (built at `st_abs`, which has
+   the body typing for `c_beta`). This is what makes `st_app` read the result
+   conv off the edge (the sole failure point of the `ConvNum`-only sweep).
+8. `st_case`: read scrutinee conv off its `Val`; `conv_subst_arg` →
    `adequacyEqSub` → `EqValTy` → `Val_EqVal_fwd`; head-expand `ncase→branch`
-   with the `c_ncase_*` step-conv. Then `sc_ncase_*`, and `subject_red1` t_case.
+   with the `c_ncase_*` step conv. Then `sc_ncase_*`, and `subject_red1` t_case.
+
+Scope: ~150 careful edits across `raw_validity.v` + `adequacy.v`. All-or-nothing
+per file (no intra-file green checkpoint). Multi-session.
 
 ## Superseded / partial (kept for reuse)
 
