@@ -766,4 +766,14 @@ Proof.
   - apply c_refl; apply t_nat; eapply typing_ctx; eassumption.
 Qed.
 
+(* The argument of a well-typed successor is a natural number.  (Companion to
+   [typing_succ_inv], which only recovers the principal type.) *)
+Lemma typing_succ_arg_inv {n} {Γ : Ctx n} {P T} :
+  Γ ⊢e succ P ∈ T -> Γ ⊢e P ∈ tnat.
+Proof.
+  move=> h; dependent induction h.
+  - first [ eapply IHh; reflexivity | exact IHh ].
+  - assumption.
+Qed.
+
 

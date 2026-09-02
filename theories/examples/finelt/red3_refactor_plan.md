@@ -1,182 +1,135 @@
-# Plan: unblock `st_case` / `sc_ncase` (dependent `ncase` adequacy)
+# `st_case` / `sc_ncase` — Red3-in-`Val` refactor
 
-Status: **IN PROGRESS — Red3-in-`Val` refactor (the Agda-faithful path).** An
-earlier note here claimed both threading approaches hit a "fundamental Pi-edge
-wall"; **that was wrong** and is corrected below.
+Status: **refactor LANDED and green.  `st_case`'s `Val` conjunct PROVEN for all
+three cases (`st_case_Val_zero`, `st_case_Val_succ`, assembled as
+`st_case_Val`); the successor case of the cross conjunct PROVEN
+(`st_case_EqVal_succ`).  Remaining: `st_case_EqVal_zero`, the `st_case`
+assembly, and `sc_ncase_Z`/`sc_ncase_S`/`sc_ncase`.**
 
-## Executive finding (corrected 2026-07-06)
+## What was done
 
-The dependent `ncase`'s motive transport needs `conv M[σ] ≡ numeral` at `tnat`
-for the scrutinee `M`. The fix is to make `Val`/`EqVal` **carry the conversion**
-(Agda's `Red3 = HeadRed + ConvTm`), exactly as Agda does — no confluence.
+`Val`/`EqVal` now carry Agda's `Red3` (`HeadRed` + `ConvTm`):
 
-**Why the earlier "wall" was a mistake.** I claimed `headred_VE_all`'s Pi-edge
-recursion (`ValPiExp`) "has no typings in scope" to build the `c_app1`
-congruence conv. It does: reading the Agda proof (`Validity/HeadRed.agda:236`
-`ValPi2-headred-contract`) shows it builds the per-edge congruence with
-`conv-App-fun htA0 htB0 ctPi htN` (= Coq `c_app1`), getting `htA0`/`htB0` from
-the **`ValTy` record it carries** and `htN` from the **argument typing passed
-into the edge**. Coq's `Val` carries the same: `ValTy`'s Pi case stores
-`typing Γ A tuniv` / `typing (Γ++A) B tuniv` ([raw_validity.v:199-200]), and the
-edge `PiEdgeVal` takes `typing Γ N A` ([raw_validity.v:113]). So `ValPiExp`'s
-edge closure already has `TQ : typing Δ Q A0` in hand and can build the `c_app1`
-conv — just like Agda. The Pi-edge is transportable; the refactor closes.
+- **nat leaves** ([raw_validity.v] `Val`/`EqVal`, `Val_zero`/`Val_succ`/
+  `EqVal_zero`/`EqVal_succ`): `conv Γ M <numeral> A`, stated at the `Val`'s
+  **type term `A`** (the 4th argument).  That is the whole point: the
+  head-expansion step conversion also lives at `A`, so leaf conv and step conv
+  `c_trans` with **no retyping**.
+- **`ValPi`/`EqValPi`**: `conv Γ A (tpi A0 B0) tuniv`, the Π-code conversion.
+  `ValTy`/`EqValTy` are deliberately left **conv-free** (putting it there would
+  force retyping the step conv from an abstract type term to `tuniv` in the
+  `a = tuniv` head-expansion case, which Coq's `Val` cannot do).
+- **`HeadRedVE`/`headred_VE_all`** and its four projections
+  (`Val_beta_expand`, `EqVal_headred_expand`, `Val_headred_contract`,
+  `EqVal_headred_contract`) each take the step conversion `conv Γ M0 M T`
+  (**same orientation for expand and contract**: new ≡ old).  The Π-edge
+  transports (`ValPiExp`/`ValPiCon`/`EqValPiExp`/`EqValPiCon`) build the
+  per-edge `c_app1` congruence from the domain/codomain typings read off the
+  `ValTy` of the type term (new helper `ValTy_tpi_typings`, mirroring Agda's
+  `ValPi2-headred-contract`) plus the step conv retyped through the stored
+  `CT`.  The cross (`PiAppEq`) direction retypes the second app-conv to the
+  shared codomain `B0[N1..]` via `conv_subst_arg`.
 
-## How Agda threads the conversion (the recipe to mirror)
+### The wall the old plan missed
 
-- `Val2`/`EqVal2` bundle `Red3` at nat leaves and Pi-codes (and Pi-edge
-  codomain results carry `Red3` too, built at Lam/App adequacy where typings
-  exist — which is why Agda's `App` case gets the result conv for free, and why
-  the Coq `ConvNum`-only sweep failed at `st_app`).
-- Head-expansion (`Val2-beta-expand`) takes the **step conv `cv : ConvTm G M' M T`
-  as an argument**; the caller supplies it from local conv rules
-  (`conv-beta`/`conv-case-*`/`conv-App-fun` = `c_beta`/`c_ncase_*`/`c_app1`).
-- Whole-term leaves (numeral, `tpi`-code): thread `cv` by `conv-trans`
-  (`Validity/HeadRed.agda:140–175`) — no per-edge conv.
-- Function-value Pi-edge: transport the edge, building the per-edge `c_app1`
-  conv from the stored `ValTy` typings (`ValPi2-headred-contract`).
+`fwd_per_all`'s `FWD`/`EFWD` (type transport of `Val`/`EqVal` along
+`EqValTy`) breaks at the **nat leaves**: the leaf conv is stated at the type
+term, so moving `Val M A` to `Val M B` needs `conv Γ A B tuniv` — and
+`EqValTy` is `True` at the `tnat` code, so it carries nothing.  Fix: the two
+transport conjuncts of `FwdPER` (hence `Val_EqVal_fwd`/`EqVal_EqVal_fwd`) now
+take `conv Γ A B tuniv` as an **extra hypothesis**.  Every caller already has
+it (`st_conv`/`sc_conv` from `substitution_conv`; the Π-edge callers from
+`subst_conv_cross`/`conv_subst1`).  Alternatives considered and rejected:
+putting the conv in `EqValTy`'s base cases (breaks `ValTy_EqValTy`, which has
+no typing at base codes) and stating the leaf conv at literal `Core.tnat`
+(breaks head-expansion, whose step conv is at the type term).
 
-## Coq refactor steps (Red3-in-`Val`) — recipe validated by execution 2026-07-06
+### New reusable helpers (adequacy.v)
 
-Two design decisions were confirmed by running the refactor to the crux (then
-reverting to green):
+- `subst_dom_typing` / `subst_cod_typing` — `A[σ]` / `B[⇑σ]` typings.
+- `beta_step_conv` — the `c_beta` step conv for the lambda edges, generalised
+  over an annotation `Alam` only *convertible* to the Π-domain (needed by the
+  off-diagonal `sc_abs` edge).
+- `conv_subst1` (raw_validity.v) — instantiate a codomain conv at an argument.
+- `compatible_zero_le`, `rho_subst_comm`.
+- `red1_conv` — head reduction ⊆ conversion for well-typed terms (post-
+  adequacy, since its β case needs Π-injectivity).  Used by `subject_red1`.
 
-- **Bundle the numeral conv at the `Val`'s type term `A`** (the 4th `Val`
-  argument). Then leaf conv `conv Γ M numeral A` and head-expansion step conv
-  `cv : conv Γ M' M A` `c_trans` with **no retyping**. For the `st_case`
-  scrutinee `A = tnat[σ] = tnat`, giving exactly `conv M[σ] ≡ numeral tnat`.
-- **Bundle the Pi-type-code conv in `ValPi`/`EqValPi` ONLY, NOT `ValTy`/
-  `EqValTy`.** Putting it in `ValTy` forces retyping the step conv from the
-  abstract type-term `T` to `tuniv` in the `a=tuniv` head-expansion case, which
-  Coq's `Val` cannot do (unlike Agda, whose `Val2` carries a ValTy-of-`T`). With
-  it in `ValPi`, `ValTy`/`EqValTy` and their head-expansion lemmas stay
-  **conv-free/unchanged**, and `ValPiExp` reads the type-code conv from `ValPi`
-  and the domain/codomain typings from the (unchanged) `ValTy` it is given.
+`st_abs`, `st_abs_Val_edge`, `st_abs_EqVal_edge` gained syntactic body-typing
+hypotheses (`typing (Γ++A) M B`), which `c_beta` needs.
 
-Validated fragments (compiled before the full-file revert): the `Val`/`EqVal`
-nat-leaf defs + `Val_zero/succ`/`EqVal_zero/succ`, the projections
-`Val_EqVal`/`EqVal_Val1/2`, and the four `ValTy_HeadRed_*` lemmas via the
-**direct-rebuild** pattern (destructure input; `HeadRed` by `ms_app`, stored
-conv by `c_trans`; typings/edges carry over verbatim).
+## `st_case_Val_zero` (proven) — the template
 
-1. Nat leaves: `Val`/`EqVal` add `conv Γ M numeral A`; update the 4 unfolding
-   lemmas. `ValPi`/`EqValPi` add `conv Γ A (tpi A0 B0) tuniv`. `ValTy`/`EqValTy`
-   **unchanged**.
-2. Projections `Val_EqVal`, `EqVal_Val1/2`: thread the extra conv binders.
-3. `HeadRedVE`/`headred_VE_all`: each direction takes the step conv(s). Leaves:
-   `c_trans` (`ms_app` for `HeadRed`). `ValTy`/`EqValTy` cases: **unchanged**.
-   `abs` cases pass `[VTd VPi]` (ValTy for typings, ValPi for the type-code conv)
-   + step conv to the Pi helpers.
-4. `ValPiExp`/`ValPiCon`/`EqValPiExp`/`EqValPiCon`: signature gains step conv +
-   the `ValTy` (for `TA0`/`TB0`). Build edge conv:
-   `cvPi := c_conv step-conv (ValPi.CT)` then `c_app1 TA0 TB0 cvPi TQ`. The
-   `EqVal` (cross) direction retypes the second app-conv to the shared codomain
-   `B0[N1..]` via `c_conv _ (c_sym (conv_subst_arg TA0 TB0 TN1 TN2 CN))`.
-   (`nf_tpi` helper needed for the contract multi-step; `conv_typing` gives the
-   argument typings `TN1`/`TN2` from the edge's `conv N1 N2 A0`.)
-5. `Val_beta_expand` + all callers of the head-expansion supply the step conv
-   from local conv rules.
-6. Fuel/transport (`fuel_stable`, `Val_fuel_down_to`, `*_app_transport`): update
-   the `tnat`-case match patterns (extra conv conjunct) + `ValPi` conv binder.
-7. `st_*` construction sites supply `Red3` at leaves (`c_refl`/`c_succ`/`c_beta`/
-   `c_ncase_*`); the Pi-edge results carry the conv (built at `st_abs`, which has
-   the body typing for `c_beta`). This is what makes `st_app` read the result
-   conv off the edge (the sole failure point of the `ConvNum`-only sweep).
-8. `st_case`: read scrutinee conv off its `Val`; `conv_subst_arg` →
-   `adequacyEqSub` → `EqValTy` → `Val_EqVal_fwd`; head-expand `ncase→branch`
-   with the `c_ncase_*` step conv. Then `sc_ncase_*`, and `subject_red1` t_case.
+1. Scrutinee IH at value code `zero` ⇒ `HeadRed M[σ] zero` **and**
+   `cvM : conv Δ M[σ] zero tnat`  ← the payoff.
+2. `EvalRel_subst1_forward` on `evT : EvalRel T[M..] ρ a` gives some `v'` with
+   `EvalRel M ρ v'`; `EvalRel_compatible` + `compatible_zero_le` gives
+   `le v' zero`, so `EvalRel_mono_env` lands `EvalRel T (zero .: ρ) a`, and
+   `EvalRel_subst1_backwards` gives `EvalRel T[zero..] ρ a`.
+3. Branch IH ⇒ `Val RB Δ M0[σ] (T[zero..])[σ] WT`.
+4. Motive transport: instantiate the **motive's own** `semantic_typing` at the
+   two substitutions `zero .: σ` and `M[σ] .: σ` (`ValSub`/`EqValSub` heads
+   built from the scrutinee's `Val` and a hand-built `zero` leaf) ⇒
+   `EqValTy` between `T[zero .: σ]` and `T[M[σ] .: σ]`; the matching syntactic
+   conv is `subst_conv_cross TT`.  **No `adequacyEqSub`, so no circularity.**
+5. `Val_EqVal_fwd` (with that conv) retypes the branch's `Val` to the goal
+   motive; `Val_beta_expand` head-expands `(ncase M M0 M1)[σ] ↠ M0[σ]` with
+   step conv `c_trans (c_ncase …) (c_conv (c_ncase_Z …) …)`.
 
-Scope: ~150 careful edits across `raw_validity.v` + `adequacy.v`. All-or-nothing
-per file (no intra-file green checkpoint). Multi-session.
+## The successor case (proven)
 
-## Superseded / partial (kept for reuse)
+`st_case_Val_succ` / `st_case_EqVal_succ`.  Two things differ from the zero
+branch:
 
-The `ConvNum`-on-`semantic_typing` sweep below is a real, working thread through
-`st_var`/`st_conv`/`dom_transport`/`codomain_type_ValTy` but is subsumed: once
-the Pi-**edge** carries `Red3`, `st_app` reads the result conv off the edge, so
-the separate `ConvNum` layer is unnecessary. Kept for the recipe.
+- **Joining the scrutinee value.**  `compatible (succ v) w` does *not* imply
+  `le w (succ v)` (`succ bot` and `succ zero` are compatible yet unordered), so
+  `compatible_zero_le` has no analogue.  Instead `EvalRel_compatible_lub` gives
+  `EvalRel M ρ (lub (succ vp) v')`, and `le_succ_inv` shows that join is
+  `succ vpp` with `le vp vpp`; the motive is instantiated at `succ vpp .: ρ` and
+  the branch's evaluation is pushed up by `EvalRel_mono_env`.  The motive at the
+  `rho`-shifted branch type comes from `EvalRel_subst` along
+  `SubRel rho (succ vpp .: ρ) (vpp .: ρ)`, and
+  `(T[rho])[P .: σ] = T[succ P .: σ]` is `rho_subst_cons`.
+- **The predecessor term.**  The substitution head is the predecessor *term*
+  `P` from the scrutinee's `Val_succ`, not the image of any `Γ`-term.  Its
+  `ValSub`/`EqValSub` obligations are discharged **without** `restrictVal`: at
+  the code `succ u0` re-run the scrutinee's IH and identify the predecessor with
+  `HeadRed_succ_det`; at `succ vpp` head-*contract* the scrutinee's own
+  `Val`/`EqVal` along `HeadRed M[σ] (succ P)` (which needs the `Red3`
+  conversion).
 
-## The blocker (unchanged)
+### A second gap found here, and its fix
 
-`st_case`'s dependent-motive transport needs `EqValTy ((T[num..])[σ]) ((T[M..])[σ])`,
-whose definition ([raw_validity.v](raw_validity.v) ~L231) bundles *syntactic*
-conversions, so it needs `conv M[σ] ≡ numeral` at `tnat`. Deriving that from
-`HeadRed` (`red1_conv`) has a β-case needing Pi-injectivity → `adequacyEqSub` →
-the adequacy Fixpoint, of which `st_case` is a building block. **Circular.**
-Confirmed: [c_beta](../syntax/typing.v) requires the abs domain/codomain, so
-`red1_conv`'s β-case genuinely needs Pi-injectivity — no early `red⊆conv`.
+The cross conjunct reduces its two sides to the branch at **different**
+predecessor terms `P` (from `M[σ]`) and `P'` (from `M[σ']`), so the branch IH
+runs at `P .: σ` / `P' .: σ'` and needs a *syntactic* `conv Δ P P' tnat` for the
+`ConvSub`.  Conversion has no successor-injectivity rule, so that is **not**
+derivable from `conv Δ (succ P) (succ P') tnat`.  Fix: `EqVal`'s successor leaf
+now also stores `conv Γ M1 N1 Core.tnat` (the predecessors' conversion).
+Constructible at every creation site: `c_refl` via `typing_succ_arg_inv` for the
+diagonal `Val_EqVal`, `subst_conv_cross` in `st_succ`, `substitution_conv` in
+`sc_succ`; carried, flipped or composed everywhere else.
 
-### `ConvNum` recipe (superseded — dies at `st_app`, see Executive finding)
+## Remaining work
 
-Thread the numeral conversion **compositionally through the adequacy layer**, not
-through `Val`. Each `st_*`/`sc_*`/`ValSub_cons` builds it from its **local**
-typings via the conv rules (`c_refl`/`c_succ`/`c_beta`/`c_ncase_*`) — **no global
-`red⊆conv`, no Pi-injectivity, non-circular.**
+- **`st_case_EqVal_zero`**: the zero branch of the cross conjunct.  Both sides
+  reduce to `M0[σ]`/`M0[σ']`; the only new ingredient over `st_case_Val_zero` is
+  the σ'-side step conversion, retyped to the shared motive `T[⇑σ][M[σ]..]` by
+  `subst_conv_cross TT` between `M[σ] .: σ` and `M[σ'] .: σ'` (built from
+  `subst_conv_cross TM`) — the same manoeuvre as `cvTx` in
+  `st_case_EqVal_succ`.
+- **`st_case`**: assemble the two conjuncts (dispatch as in `st_case_Val`).
+- **`sc_ncase_Z` / `sc_ncase_S`**: reflexive `EqVal` of the redex (via
+  `st_case`) then `EqVal_headred_contract` with the `c_ncase_Z`/`c_ncase_S`
+  step conv — exactly the shape of `sc_beta`.
+- **`sc_ncase`**: congruence; needs the scrutinee/branch `semantic_conv2`s.
 
-```coq
-Definition ConvNum {n} (Δ : Ctx n) (M : Tm n) (u : elt) : Prop :=
-  match u with
-  | Raw.zero   => conv Δ M Core.zero Core.tnat
-  | Raw.succ _ => exists P, HeadRed M (Core.succ P) /\ conv Δ M (Core.succ P) Core.tnat
-  | _          => True   (* non-numeral values carry nothing *)
-  end.
-```
+Independent, mechanical, and currently pulled in as axioms by everything that
+substitutes: the 13 `ncase` admits in [../syntax/typing.v]
+(`renaming_typing`/`renaming_conv`, `substitution_tm`/`substitution_conv`,
+`conv_typing`), plus `HeadRed1_det` in [../syntax/reduction.v] and the
+guardedness failure of `conv_EvalRel` in [typing_semantics.v].
 
-Add to `semantic_typing`'s conclusion: `... /\ ConvNum Δ M[σ] u /\ ConvNum Δ M[σ'] u`
-(both substitutions, since the `EqVal`/cross component needs both). Add the
-analogue to `semantic_conv2` (`ConvNum` for both `M[σ]` and `N[σ]`). `ValSub` /
-`EqValSub` gain a `ConvNum` entry (so `st_var` can read it off the substitution).
-
-**Key property — no `raw_validity` change.** The *result* `Val` in `st_case` is
-still produced by the existing bare-`HeadRed` `Val_beta_expand` (the result
-numeral-`Val` is just `HeadRed (ncase..)[σ] num` via `ms_trans`). Only the
-*scrutinee's* conversion is new, and it comes from `ConvNum`.
-
-### `st_case` recipe (zero branch; succ analogous with the `rho` identity)
-1. Scrutinee `SM` gives `Val M[σ] tnat` at `zero` (⇒ `HeadRed M[σ] zero`) **and**
-   `ConvNum Δ M[σ] zero = conv M[σ] zero tnat`.
-2. `conv_subst_arg` on `conv M[σ] ≡ zero` ⇒ `conv (T[zero..])[σ] ≡ (T[M..])[σ]`
-   (modulo `subst`-commutation).
-3. `adequacyEqSub` on that conv ⇒ `EqValTy` between the two motive types.
-4. Branch `SM0` gives `Val M0[σ] (T[zero..])[σ]`; `Val_beta_expand`
-   (`ncase[σ] → M0[σ]`) lifts to `Val (ncase..)[σ] (T[zero..])[σ]`;
-   `Val_EqVal_fwd` transports along the `EqValTy` to `(T[M..])[σ]`.
-5. Succ: same, with `conv M[σ] ≡ succ P`, branch `M1[σ][P..]` at
-   `T[rho][P..] = T[(succ P)..]`, predecessor `P` from `ConvNum`'s witness
-   (typed via `conv_typing`), and `EqVal`/cross side mirrors it.
-
-## Blast radius (all in `adequacy.v`, mechanical, non-circular)
-
-- Defs: `ConvNum`, `semantic_typing`, `semantic_conv2`, `ValSub`, `EqValSub`.
-- `ValSub_cons`, `EqValSub_cons`, `ValSub`/`EqValSub` bridges.
-- `st_*` producers: `st_var` (from `ValSub`), `st_zero` (`c_refl`), `st_succ`
-  (`c_succ`), `st_app` (`c_beta` on its *known* `F:tpi A B`, `a:A` — **no
-  inversion**), `st_conv` (from `STA`). Non-numeral producers (`st_nat`,
-  `st_univ`, `st_tpi`, `st_abs`) discharge `ConvNum = True` trivially.
-- Consumers: most use `[valX _]` (first component) and are **unaffected** by a
-  right-associated extra conjunct; only ~2 (`[valMA eqvalMA]` in `st_conv`,
-  ~L722; `[valN eqvalN]`, ~L889) need `[valMA [eqvalMA _]]`.
-- Payoff: `st_case`, then `sc_ncase_Z/S/cong`.
-- Bonus (independent): `subject_red1` t_case once `typing_ncase_inv` +
-  `red1_conv` exist (these are post-adequacy, fine there).
-
-Estimated 60–80 sites, **all in `adequacy.v`**. Definition change ⇒ red until
-the sweep completes (all-or-nothing; no green milestone mid-sweep). Fallback: a
-fully-threaded build with `st_case` left `Admitted` **is** green/committable, so
-the infrastructure can land before the succ case is finished.
-
-## Why not Red3-in-`Val` (superseded)
-
-Bundling `conv` into `Val`'s `tnat` leaves ([raw_validity.v] ~L317) compiles the
-unfolding lemmas + `Val_EqVal`/`EqVal_Val1/2`, but **dies at `headred_VE_all`**
-(~L770): Val head-*expansion* for `zero` must build `conv M0 zero` from
-`conv M zero` + `HeadRed M0 M`, i.e. `conv M0 M` from `HeadRed M0 M` = `red⊆conv`
-again — and the **generic Pi-edge head-expansion recursion has no typings in
-scope** to build the needed `c_app1`/`c_beta` congruence convs. Making it work
-would require threading typings through the whole `Val` machinery (Pi edges,
-fuel, transport) — a much deeper change than `ConvNum`, which sidesteps `Val`
-entirely. (Verified empirically 2026-07-06.)
-
-See memory `finelt-st-case-red3-blocker`; Agda
-`~/github/agda/domain-semantics/NAT/Adequacy/NatCaseDep.agda`
-(`motiveEqValTy2`, `adequacyV-ty-Case-dep`).
+Agda reference: `~/github/agda/domain-semantics/NAT/Adequacy/NatCaseDep.agda`
+(`motiveEqValTy2`, `adequacyV-ty-Case-dep`), `Validity/HeadRed.agda`
+(`Val2-beta-expand`, `ValPi2-headred-contract`).
