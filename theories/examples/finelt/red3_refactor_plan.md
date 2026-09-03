@@ -1,8 +1,13 @@
 # `st_case` / `sc_ncase` — Red3-in-`Val` refactor
 
 Status: **DONE.**  The refactor landed, every dependent-`ncase` adequacy case
-is proven, and `adequacySub`/`adequacyEqSub` now close with `Qed` (the guard
-checker accepts the mutual fixpoint).  This file is kept as the design record.
+is proven, and `adequacySub`/`adequacyEqSub` close with `Qed`.  The whole
+`finelt` + `syntax` development is now **admit-free**: `adequacySub`,
+`piInjectivity`, `progress` and `subject_red` rest only on `prop_ext`,
+`functional_extensionality_dep`, `eq_rect_eq` and `proof_irrelevance`.  (The
+one remaining `Admitted` in the built project, `exp_distr` in
+[../../categories/category_hierarchy.v], is unrelated category theory and is
+not in any of these results' cone.)  This file is kept as the design record.
 
 ## What was done
 
@@ -152,15 +157,37 @@ predecessor conversion stored in `EqVal`'s successor leaf.
 
 ## What `adequacySub` rests on
 
-`prop_ext`, `functional_extensionality_dep`, `eq_rect_eq`, `proof_irrelevance`,
-and six admitted lemmas *below* adequacy:
+Four axioms and nothing else:
 
-- [../syntax/typing.v]: `renaming_typing`, `renaming_conv`, `substitution_tm`,
-  `substitution_conv`, `conv_typing` — 16 `admit`s, all the mechanical `ncase`
-  cases (`asimpl`-wrangling `T[M..]` under a substitution).
-- [typing_semantics.v]: `typing_EvalRel`, `conv_EvalRel` — tactically complete,
-  blocked only on the guard checker (the `c_ncase` case calls `typing_EvalRel`
-  on a locally built derivation, so a size measure is needed).
+    axioms.prop_ext
+    FunctionalExtensionality.functional_extensionality_dep
+    Eqdep.Eq_rect_eq.eq_rect_eq
+    ProofIrrelevance.proof_irrelevance
 
-`HeadRed1_det` ([../syntax/reduction.v]) is no longer in `adequacySub`'s cone,
-but `piInjectivity` and `subject_red` still use it.
+The lemmas that used to be admitted below adequacy are all proven:
+
+- [typing_semantics.v] `typing_EvalRel` / `conv_EvalRel`.  The gap was
+  guardedness, not missing proof: the `c_ncase_Z`/`c_ncase_S`/`c_ncase` cases
+  each *built* a typing derivation (`t_case`, `t_conv`, `substitution_tm`) and
+  recursed on it.  Restated semantically via `InvTyp_Case`,
+  `InvTyp_succ_branch`, `InvTyped_motive_bridge`, `InvTyp_zero` and the
+  extracted `EvalRel_rho_up`, so every recursive call lands on a genuine
+  subderivation.
+- [../syntax/typing.v] the 16 `ncase` admits in `renaming_typing`/
+  `renaming_conv`, `substitution_tm`/`substitution_conv` and `conv_typing`.
+  Enabled by `rho_subst_up` / `rho_ren_up` (`rho` commutes with a lifted
+  substitution / renaming) and by primed constructors `t_case'`,
+  `c_ncase_Z'`, `c_ncase_S''`, `c_ncase'` that take the result type as an
+  equation, in the file's existing `t_app'` / `c_beta'` idiom — rewriting the
+  goal into the `?T[?M..]` shape is fragile, discharging
+  `T[⇑σ][M[σ]..] = T[M..][σ]` as a side equation by `asimpl` is not.
+- [../syntax/reduction.v] `HeadRed1_det`.  Induct on the first derivation and
+  invert the second; every mismatched pair puts a `HeadRed1` on a term with no
+  head redex.
+
+### Gotcha
+
+Inside a mutual `Fixpoint`, the recursive references (`substitution_tm`,
+`renaming_conv`, …) are *local hypotheses* and therefore have **no** implicit
+arguments, so positional applications need every slot — unlike the same names
+used after the fixpoint closes.

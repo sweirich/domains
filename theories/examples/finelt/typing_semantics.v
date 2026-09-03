@@ -1501,6 +1501,145 @@ Proof.
   move=> v h u L. exact (gen v tnat h eq_refl u L).
 Qed.
 
+(* [T[rho]] at [w .: ρ] approximates [T] at [succ w .: ρ].  The substitution
+   [rho] sends the bound variable to [succ (var 0)], so a forward substitution
+   witness for [T[rho]] is pointwise bounded by [succ w .: ρ]. *)
+Lemma EvalRel_rho_up {n} (T : Tm (S n)) (ρ : Env n) (w a : elt) :
+  valid_env ρ -> valid w ->
+  EvalRel (T[rho]) (w .: ρ) a -> EvalRel T (succ w .: ρ) a.
+Proof.
+  move=> Vρ Vw ETrho.
+  have Vsw : valid (succ w) by (cbn; exact Vw).
+  have Vρ' : valid_env (w .: ρ) := valid_cons Vw Vρ.
+  have Vsρ : valid_env (succ w .: ρ) := valid_cons Vsw Vρ.
+  move: (EvalRel_subst_forward_wit Vρ' ETrho) => [ρs [Vρs [SRrho ETρs]]].
+  have LEenv : le_env ρs (succ w .: ρ).
+  { move=> x. move: (SRrho x). destruct x as [j | ].
+    - (* [rho] is the identity away from the bound variable *)
+      unfold rho; asimpl; cbn. by move=> [_ Hle].
+    - (* at the bound variable [rho] is [succ (var 0)]; its [EvalRel] clause is
+         guarded by [is_bot], so bound the witness by [succ w] either way *)
+      move=> H. unfold rho in H. cbn in H. cbn.
+      have Hbnd : forall r,
+          (if is_bot r then True
+           else valid r /\ (exists b, le r (succ b) /\ valid b /\ le b w))
+          -> le r (succ w).
+      { move=> r Hr. destruct (is_bot r) eqn:Br.
+        - destruct r; try discriminate Br. apply le_bot'.
+        - move: Hr => [Vs [b [Lb [Vb Lbw]]]].
+          apply (@le_trans r (succ b) (succ w));
+            [ exact Vs | cbn; exact Vb | cbn; exact Vw | exact Lb
+            | rewrite le_succ; exact Lbw ]. }
+      exact (Hbnd _ H). }
+  exact (EvalRel_mono_env ETρs Vρs Vsρ LEenv).
+Qed.
+
+Lemma InvTyp_zero {n} (Γ : Ctx n) ρ : InvTyped Γ Core.zero Core.tnat ρ.
+Proof.
+  move=> u Eu. cbn in Eu.
+  exists zero, tnat, wt_zero. repeat split; cbn; auto.
+Qed.
+
+(** Soundness of dependent case analysis, stated over the *semantic* content of
+    the components rather than over a typing derivation.  Stating it this way is
+    what keeps the mutual fixpoint below structurally recursive: the conversion
+    cases for [ncase] need [InvTyped] of a case expression whose typing
+    derivation they would otherwise have to build (and then recurse on, which
+    the guard checker rejects). *)
+Lemma InvTyp_Case {n} (Γ : Ctx n) (T : Tm (S n)) (M M0 : Tm n) (M1 : Tm (S n)) ρ :
+  fits Γ ρ ->
+  InvTyped Γ M Core.tnat ρ ->
+  InvTyped Γ M0 (T[Core.zero..]) ρ ->
+  (forall ρ', fits (Γ ++ Core.tnat) ρ' -> InvTyped (Γ ++ Core.tnat) M1 (T[rho]) ρ') ->
+  InvTyped Γ (Core.ncase M M0 M1) (T[M..]) ρ.
+Proof.
+  move=> Fρ iM ihM0 ihM1.
+  have ctxΓ : ctx Γ := fits_ctx Fρ.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  move=> u Eu.
+  move: Eu => [w [EM Hb]].
+  destruct w as [ | | | | vp | | ]; cbn in Hb; try contradiction.
+  - (* the scrutinee is [bot], hence so is the result *)
+    move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u. apply Typed_bot.
+  - (* the scrutinee is [zero]: bridge [T[zero..]] to [T[M..]] *)
+    move: (ihM0 u Hb) => [v0 [a0 [h0 [Lu0 [EM0v0 ETa0]]]]].
+    move: (EvalRel_subst1_forward Vρ ETa0) => [vz [Ezvz ETvz]].
+    have Vvz : valid vz := EvalRel_valid Ezvz.
+    cbn in Ezvz.
+    have EMvz : EvalRel M ρ vz
+      by (eapply EvalRel_down; [ exact Vρ | exact Vvz | exact EM | exact Ezvz ]).
+    have ETM : EvalRel (T[M..]) ρ a0 := EvalRel_subst1_backwards Vρ EMvz ETvz.
+    exists v0, a0, h0. split; [ exact Lu0 | split; [ | exact ETM ] ].
+    cbn. eexists. split; [ exact EM | exact EM0v0 ].
+  - (* the scrutinee is [succ vp]: run the branch at [vp .: ρ], then bridge
+       [T[rho]] at [vp .: ρ] to [T[M..]] at [ρ] *)
+    move: (iM _ EM) => [vv [aa [hwt [Lsv [_ Etn]]]]].
+    cbn in Etn.
+    have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+    have wtvp : wt vp tnat := wt_succ_inv (wt_tnat_down wtvv Lsv).
+    have Vvp : valid vp := wt_valid_tm wtvp.
+    have Fρ' : fits (Γ ++ Core.tnat) (vp .: ρ)
+      by (eapply fits_cons with (a := tnat);
+          [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done
+          | apply wt_tnat | exact wtvp | exact Fρ ]).
+    move: (ihM1 (vp .: ρ) Fρ' u Hb) => [v1 [a1 [hwv1 [Lu1 [EM1v1 ETrho]]]]].
+    have ETsvp : EvalRel T (succ vp .: ρ) a1 := EvalRel_rho_up Vρ Vvp ETrho.
+    have ETM : EvalRel (T[M..]) ρ a1 := EvalRel_subst1_backwards Vρ EM ETsvp.
+    exists v1, a1, hwv1. split; [ exact Lu1 | split; [ | exact ETM ] ].
+    cbn. exists (succ vp). split; [ exact EM | cbn; exact EM1v1 ].
+Qed.
+
+(** Soundness of the successor branch instantiated at the predecessor, again
+    stated semantically: [M1[N..]] is invertibly typed at [T[(succ N)..]]. *)
+Lemma InvTyp_succ_branch {n} (Γ : Ctx n) (T : Tm (S n)) (M1 : Tm (S n))
+  (N : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ N Core.tnat ρ ->
+  (forall ρ', fits (Γ ++ Core.tnat) ρ' -> InvTyped (Γ ++ Core.tnat) M1 (T[rho]) ρ') ->
+  InvTyped Γ (M1[N..]) (T[(Core.succ N)..]) ρ.
+Proof.
+  move=> Fρ iN ihM1.
+  have ctxΓ : ctx Γ := fits_ctx Fρ.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  move=> u Eu.
+  move: (EvalRel_subst1_forward Vρ Eu) => [w [ENw EM1u]].
+  move: (iN _ ENw) => [vv [aa [hwt [Lwv [_ Etn]]]]].
+  cbn in Etn.
+  have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+  have wtw : wt w tnat := wt_tnat_down wtvv Lwv.
+  have Vw : valid w := wt_valid_tm wtw.
+  have Fρ' : fits (Γ ++ Core.tnat) (w .: ρ)
+    by (eapply fits_cons with (a := tnat);
+        [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done
+        | apply wt_tnat | exact wtw | exact Fρ ]).
+  move: (ihM1 (w .: ρ) Fρ' u EM1u) => [v1 [a1 [hwv1 [Lu1 [EM1v1 ETrho]]]]].
+  have ETsw : EvalRel T (succ w .: ρ) a1 := EvalRel_rho_up Vρ Vw ETrho.
+  have ESN : EvalRel (Core.succ N) ρ (succ w).
+  { cbn. split; [ cbn; exact Vw | ].
+    exists w. split; [ rewrite le_succ; apply le_refl; exact Vw | exact ENw ]. }
+  have ETM : EvalRel (T[(Core.succ N)..]) ρ a1
+    := EvalRel_subst1_backwards Vρ ESN ETsw.
+  exists v1, a1, hwv1. split; [ exact Lu1 | split; [ | exact ETM ] ].
+  exact (EvalRel_subst1_backwards Vρ ENw EM1v1).
+Qed.
+
+(** Retyping along a *semantic* motive bridge: if every approximation of [M']
+    is one of [M], a term invertibly typed at [T[M'..]] is invertibly typed at
+    [T[M..]].  This replaces the [t_conv] step that the [c_ncase] case would
+    otherwise need, and which would break guardedness. *)
+Lemma InvTyped_motive_bridge {n} (Γ : Ctx n) (T : Tm (S n)) (M M' X : Tm n) ρ :
+  valid_env ρ ->
+  (forall w, EvalRel M' ρ w -> EvalRel M ρ w) ->
+  InvTyped Γ X (T[M'..]) ρ ->
+  InvTyped Γ X (T[M..]) ρ.
+Proof.
+  move=> Vρ bwd IX u Eu.
+  move: (IX u Eu) => [v [a [h [Lu [EX ET]]]]].
+  move: (EvalRel_subst1_forward Vρ ET) => [w [EM'w ETw]].
+  exists v, a, h. split; [ exact Lu | split; [ exact EX | ] ].
+  exact (EvalRel_subst1_backwards Vρ (bwd w EM'w) ETw).
+Qed.
+
 (** Theorem 1 — typing soundness (Agda: [theorem1]): a typing derivation
     [Γ ⊢ M : A] yields [Γ ⊨ M ∈ A], i.e. [M] is invertibly typed under every
     fitting environment.  Mutually defined with [conv_EvalRel] — conversion
@@ -1589,70 +1728,13 @@ Proof.
         split; first by rewrite Vv.
         exists v. split; first by eapply le_refl. exact EMv. }
       cbn. done.
-    + (* t_case — soundness of case analysis (InvTyped for ncase). *)
-      have Vρ : valid_env ρ := fits_valid_env Fρ.
-      move=> u Eu.
-      move: Eu => [w [EM Hb]].
-      destruct w as [ | | | | vp | | ]; cbn in Hb; try contradiction.
-      * (* bot: u = bot *)
-        move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u. apply Typed_bot.
-      * (* zero: use the zero-branch soundness, bridging T[M..] <-> T[zero..]
-           since the scrutinee M evaluates to zero. *)
-        have ihM0 : InvTyped Γ M0 (T[Core.zero..]) ρ by (eapply typing_EvalRel; eauto).
-        move: (ihM0 u Hb) => [v0 [a0 [h0 [Lu0 [EM0v0 ETa0]]]]].
-        move: (EvalRel_subst1_forward Vρ ETa0) => [vz [Ezvz ETvz]].
-        have Vvz : valid vz := EvalRel_valid Ezvz.
-        cbn in Ezvz.
-        have EMvz : EvalRel M ρ vz
-          by (eapply EvalRel_down; [ exact Vρ | exact Vvz | exact EM | exact Ezvz ]).
-        have ETM : EvalRel (T[M..]) ρ a0 := EvalRel_subst1_backwards Vρ EMvz ETvz.
-        exists v0, a0, h0. split; [ exact Lu0 | split; [ | exact ETM ] ].
-        cbn. eexists. split; [ exact EM | exact EM0v0 ].
-      * (* succ vp: the scrutinee evaluates to [succ vp].  Use the succ-branch
-           [M1] soundness at the extended env [vp .: ρ], then bridge
-           [T[rho]] at [vp .: ρ] to [T[M..]] at [ρ] via the forward substitution
-           witness (T[rho]@(vp.:ρ) approximates T@(succ vp .: ρ)). *)
-        have ctxΓ : ctx Γ := fits_ctx Fρ.
-        have iM : InvTyped Γ M Core.tnat ρ by (eapply typing_EvalRel; eauto).
-        move: (iM _ EM) => [vv [aa [hwt [Lsv [_ Etn]]]]].
-        cbn in Etn.
-        have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
-        have wtvp : wt vp tnat := wt_succ_inv (wt_tnat_down wtvv Lsv).
-        have Vvp : valid vp := wt_valid_tm wtvp.
-        have Vsvp : valid (succ vp) by (cbn; exact Vvp).
-        have Fρ' : fits (Γ ++ Core.tnat) (vp .: ρ)
-          by (eapply fits_cons with (a := tnat);
-              [ apply t_nat; exact ctxΓ | cbn; apply le_refl; done
-              | apply wt_tnat | exact wtvp | exact Fρ ]).
-        have Vρ' : valid_env (vp .: ρ) := valid_cons Vvp Vρ.
-        have Vsρ : valid_env (succ vp .: ρ) := valid_cons Vsvp Vρ.
-        have ihM1 : InvTyped (Γ ++ Core.tnat) M1 (T[rho]) (vp .: ρ)
-          by (eapply typing_EvalRel; [ eauto | exact Fρ' ]).
-        move: (ihM1 u Hb) => [v1 [a1 [hwv1 [Lu1 [EM1v1 ETrho]]]]].
-        move: (EvalRel_subst_forward_wit Vρ' ETrho) => [ρs [Vρs [SRrho ETρs]]].
-        have LEenv : le_env ρs (succ vp .: ρ).
-        { move=> x. move: (SRrho x). destruct x as [j | ].
-          - (* var_succ j: rho maps to var (var_succ j) *)
-            unfold rho; asimpl; cbn. by move=> [_ Hle].
-          - (* var_zero: rho maps to succ (var var_zero); the succ EvalRel clause
-               is guarded by [is_bot], so bound [ρs None] by [succ vp] in both cases. *)
-            move=> H. unfold rho in H. cbn in H. cbn.
-            have Hbnd : forall r,
-                (if is_bot r then True
-                 else valid r /\ (exists a, le r (succ a) /\ valid a /\ le a vp))
-                -> le r (succ vp).
-            { move=> r Hr. destruct (is_bot r) eqn:Br.
-              - destruct r; try discriminate Br. apply le_bot'.
-              - move: Hr => [Vs [a [La [Va Lav]]]].
-                apply (@le_trans r (succ a) (succ vp));
-                  [ exact Vs | cbn; exact Va | cbn; exact Vvp | exact La
-                  | rewrite le_succ; exact Lav ]. }
-            exact (Hbnd _ H). }
-        have ETsvp : EvalRel T (succ vp .: ρ) a1
-          := EvalRel_mono_env ETρs Vρs Vsρ LEenv.
-        have ETM : EvalRel (T[M..]) ρ a1 := EvalRel_subst1_backwards Vρ EM ETsvp.
-        exists v1, a1, hwv1. split; [ exact Lu1 | split; [ | exact ETM ] ].
-        cbn. exists (succ vp). split; [ exact EM | cbn; exact EM1v1 ].
+    + (* t_case — soundness of case analysis, factored into [InvTyp_Case] so
+         that the conversion cases below can reuse it. *)
+      eapply InvTyp_Case;
+        [ exact Fρ
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | move=> ρ' Fρ'; eapply typing_EvalRel; [ eauto | exact Fρ' ] ].
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1713,31 +1795,29 @@ Proof.
         | exact (typing_EvalRel _ _ _ _ hN')
         | exact (conv_EvalRel _ _ _ _ _ hbody) ].
     + (* c_ncase_Z: ncase zero M0 M1 ≡ M0 : T[zero..] *)
-      have ctxΓ : ctx Γ := fits_ctx Fρ.
-      have Tncase : typing Γ (ncase Core.zero M0 M1) (T[Core.zero..])
-        by (eapply t_case; [ exact hT | eapply t_zero; exact ctxΓ | exact hM0 | exact hM1 ]).
       unfold InvConv. split; [ | split; [ | split ] ].
-      * exact (typing_EvalRel _ _ _ _ Tncase ρ Fρ).
+      * (* assembled semantically via [InvTyp_Case]: building the case's typing
+           derivation here and recursing on it would break guardedness *)
+        eapply InvTyp_Case;
+          [ exact Fρ | apply InvTyp_zero
+          | exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ)
+          | move=> ρ' Fρ'; exact (typing_EvalRel _ _ _ _ hM1 ρ' Fρ') ].
       * exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ).
       * move=> u [w [Ez Hb]]; destruct w as [ | | | | v | | ];
           cbn in Ez, Hb; try done; try exact Hb.
         move: Hb => [_ Lu]. apply le_bot_inv in Lu. subst u. apply EvalRel_bot.
       * move=> u Hu. cbn. exists zero. split; [ cbn; apply le_refl; done | exact Hu ].
     + (* c_ncase_S: ncase (succ N) M0 M1 ≡ M1[N..] : T[(succ N)..] *)
-      have ctxΓ : ctx Γ := fits_ctx Fρ.
       have Vρ : valid_env ρ := fits_valid_env Fρ.
-      have Trho_id : (T[rho])[N..] = T[(Core.succ N)..] by (unfold rho; asimpl).
-      have Tlhs : typing Γ (ncase (Core.succ N) M0 M1) (T[(Core.succ N)..])
-        by (eapply t_case; [ exact hT | eapply t_succ; exact hN | exact hM0 | exact hM1 ]).
-      have Trhs : typing Γ (M1[N..]) (T[(Core.succ N)..]).
-      { rewrite -Trho_id.
-        eapply substitution_tm;
-          [ exact hM1
-          | eapply typing_subst_cons; [ asimpl; exact hN | apply typing_subst_id; exact ctxΓ ]
-          | exact ctxΓ ]. }
       unfold InvConv. split; [ | split; [ | split ] ].
-      * exact (typing_EvalRel _ _ _ _ Tlhs ρ Fρ).
-      * exact (typing_EvalRel _ _ _ _ Trhs ρ Fρ).
+      * eapply InvTyp_Case;
+          [ exact Fρ
+          | apply InvTyp_succ; exact (typing_EvalRel _ _ _ _ hN ρ Fρ)
+          | exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ)
+          | move=> ρ' Fρ'; exact (typing_EvalRel _ _ _ _ hM1 ρ' Fρ') ].
+      * eapply InvTyp_succ_branch;
+          [ exact Fρ | exact (typing_EvalRel _ _ _ _ hN ρ Fρ)
+          | move=> ρ' Fρ'; exact (typing_EvalRel _ _ _ _ hM1 ρ' Fρ') ].
       * (* forward *)
         move=> u [w [Ew Hb]].
         destruct (Raw.is_bot w) eqn:Bw.
@@ -1768,20 +1848,28 @@ Proof.
       have [TM TM'] := conv_typing hMc.
       have [TM0 TM0'] := conv_typing hM0c.
       have [TM1 TM1'] := conv_typing hM1c.
-      have soundM  : InvTyped Γ M  Core.tnat ρ := typing_EvalRel _ _ _ _ TM  ρ Fρ.
-      have soundM' : InvTyped Γ M' Core.tnat ρ := typing_EvalRel _ _ _ _ TM' ρ Fρ.
+      have Vρ : valid_env ρ := fits_valid_env Fρ.
+      have soundM  : InvTyped Γ M  Core.tnat ρ
+        := proj1 (conv_EvalRel _ _ _ _ _ hMc ρ Fρ).
+      have soundM' : InvTyped Γ M' Core.tnat ρ
+        := proj1 (proj2 (conv_EvalRel _ _ _ _ _ hMc ρ Fρ)).
       move: (conv_EvalRel _ _ _ _ _ hMc  ρ Fρ) => [_ [_ [fwdM  bwdM]]].
       move: (conv_EvalRel _ _ _ _ _ hM0c ρ Fρ) => [_ [_ [fwdM0 bwdM0]]].
-      have Tlhs : typing Γ (ncase M M0 M1) (T[M..])
-        by (eapply t_case; [ exact hT | exact TM | exact TM0 | exact TM1 ]).
-      have Trhs : typing Γ (ncase M' M0' M1') (T[M..]).
-      { eapply t_conv;
-          [ eapply t_case; [ exact hT | exact TM' | exact TM0' | exact TM1' ]
-          | apply c_sym; eapply conv_subst_arg;
-              [ apply t_nat; exact ctxΓ | exact hT | exact TM | exact TM' | exact hMc ] ]. }
       unfold InvConv. split; [ | split; [ | split ] ].
-      * exact (typing_EvalRel _ _ _ _ Tlhs ρ Fρ).
-      * exact (typing_EvalRel _ _ _ _ Trhs ρ Fρ).
+      * (* left case: assembled semantically from the components' [InvConv]s *)
+        eapply InvTyp_Case;
+          [ exact Fρ | exact soundM
+          | exact (proj1 (conv_EvalRel _ _ _ _ _ hM0c ρ Fρ))
+          | move=> ρ' Fρ'; exact (proj1 (conv_EvalRel _ _ _ _ _ hM1c ρ' Fρ')) ].
+      * (* right case: [InvTyp_Case] delivers it at the *primed* motive
+           [T[M'..]]; the scrutinee's backward direction bridges to [T[M..]]
+           without a [t_conv] step (which would break guardedness) *)
+        eapply InvTyped_motive_bridge; [ exact Vρ | exact bwdM | ].
+        eapply InvTyp_Case;
+          [ exact Fρ | exact soundM'
+          | exact (proj1 (proj2 (conv_EvalRel _ _ _ _ _ hM0c ρ Fρ)))
+          | move=> ρ' Fρ';
+            exact (proj1 (proj2 (conv_EvalRel _ _ _ _ _ hM1c ρ' Fρ'))) ].
       * (* forward: EvalRel (ncase M M0 M1) ρ u -> EvalRel (ncase M' M0' M1') ρ u *)
         move=> u [w [EM Hb]].
         have EMw' : EvalRel M' ρ w := fwdM w EM.
@@ -1822,7 +1910,5 @@ Proof.
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.
       eapply InvConv_tpi; eauto.
-(* [c_nrec_Z]/[c_nrec_S] cases admitted: nrec's EvalRel is a bot-only
-   placeholder, so conversion soundness for nrec is not yet available. *)
-Admitted.
+Qed.
 

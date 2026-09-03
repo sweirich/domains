@@ -48,18 +48,42 @@ Proof.
   eapply ms_trans; eauto. eapply hr_app; eauto.
 Qed.
 
+(* Head reduction is deterministic: the head redex is unique.  Induct on the
+   first derivation and invert the second; the mismatched pairs all place a
+   [HeadRed1] on a term that has no head redex ([abs], [zero], [succ _]). *)
 Lemma HeadRed1_det (n:nat) (M N P : Tm n) : 
   HeadRed1 M N -> HeadRed1 M P -> N = P.
 Proof.
-  move=> h1 h2.
-  induction M.
-  all: inversion h1; inversion h2; subst. 
-  - inversion H3. done.
-  - inversion H5.
-Admitted.
-(*  - inversion H2.
-  - rewrite (@IHM1 M3 M5) ; eauto.
-Qed. *)
+  move=> h1. move: P.
+  induction h1 as
+    [ A M0 N0
+    | Ma Mb N0 hM IH
+    | M0 M1
+    | M0 M1 N0
+    | Mc Mc' M0 M1 hM IH ]; move=> P h2.
+  - (* hr_beta vs. a reduction of the [abs] itself *)
+    inversion h2; subst; [ reflexivity | ].
+    exfalso.
+    match goal with [ H : HeadRed1 (abs _ _) _ |- _ ] => inversion H end.
+  - (* hr_app: either the function was an [abs] (impossible, it reduces) or
+       congruence, and then the IH applies *)
+    inversion h2; subst.
+    + exfalso. inversion hM.
+    + f_equal. eapply IH; eassumption.
+  - (* hr_zero vs. a reduction of [zero] *)
+    inversion h2; subst; [ reflexivity | ].
+    exfalso.
+    match goal with [ H : HeadRed1 zero _ |- _ ] => inversion H end.
+  - (* hr_succ vs. a reduction of [succ _] *)
+    inversion h2; subst; [ reflexivity | ].
+    exfalso.
+    match goal with [ H : HeadRed1 (succ _) _ |- _ ] => inversion H end.
+  - (* hr_case: the scrutinee cannot be both a numeral and reducible *)
+    inversion h2; subst.
+    + exfalso. inversion hM.
+    + exfalso. inversion hM.
+    + f_equal. eapply IH; eassumption.
+Qed.
 
 (* generic head-contraction to a HeadRed1-normal target (covers zero/succ) *)
 Lemma HeadRed_contract_to {n} (M M' N : Tm n) :
