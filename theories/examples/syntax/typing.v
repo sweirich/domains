@@ -152,6 +152,15 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
 
   | c_ncase n (Γ : Ctx n) T M M0 M1 M' M0' M1' : 
     typing (ctx_extend Γ tnat) T tuniv ->
+    (* The successor branch of the *right* case must be typed, not merely
+       convertible to [M1].  Admissible (it follows from [conv_typing] applied
+       to the last premise), so the relation is unchanged; it is stated because
+       semantic adequacy needs [semantic_typing] of [M1'] -- the two sides of
+       the congruence reduce to the branch at *different* predecessor terms,
+       and only [semantic_typing] carries the required cross-substitution
+       information.  Compare [c_abs], which likewise carries typings for both
+       bodies. *)
+    typing (ctx_extend Γ tnat) M1' T[rho] ->
     conv Γ M M' tnat ->
     conv Γ M0 M0' T[zero..] ->
     conv (ctx_extend Γ tnat) M1 M1' T[rho] ->        

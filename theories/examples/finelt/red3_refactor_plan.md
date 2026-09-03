@@ -1,10 +1,8 @@
 # `st_case` / `sc_ncase` — Red3-in-`Val` refactor
 
-Status: **refactor LANDED and green.  `st_case`'s `Val` conjunct PROVEN for all
-three cases (`st_case_Val_zero`, `st_case_Val_succ`, assembled as
-`st_case_Val`); the successor case of the cross conjunct PROVEN
-(`st_case_EqVal_succ`).  Remaining: `st_case_EqVal_zero`, the `st_case`
-assembly, and `sc_ncase_Z`/`sc_ncase_S`/`sc_ncase`.**
+Status: **DONE.**  The refactor landed, every dependent-`ncase` adequacy case
+is proven, and `adequacySub`/`adequacyEqSub` now close with `Qed` (the guard
+checker accepts the mutual fixpoint).  This file is kept as the design record.
 
 ## What was done
 
@@ -110,26 +108,59 @@ Constructible at every creation site: `c_refl` via `typing_succ_arg_inv` for the
 diagonal `Val_EqVal`, `subst_conv_cross` in `st_succ`, `substitution_conv` in
 `sc_succ`; carried, flipped or composed everywhere else.
 
-## Remaining work
+## What it took, end to end
 
-- **`st_case_EqVal_zero`**: the zero branch of the cross conjunct.  Both sides
-  reduce to `M0[σ]`/`M0[σ']`; the only new ingredient over `st_case_Val_zero` is
-  the σ'-side step conversion, retyped to the shared motive `T[⇑σ][M[σ]..]` by
-  `subst_conv_cross TT` between `M[σ] .: σ` and `M[σ'] .: σ'` (built from
-  `subst_conv_cross TM`) — the same manoeuvre as `cvTx` in
-  `st_case_EqVal_succ`.
-- **`st_case`**: assemble the two conjuncts (dispatch as in `st_case_Val`).
-- **`sc_ncase_Z` / `sc_ncase_S`**: reflexive `EqVal` of the redex (via
-  `st_case`) then `EqVal_headred_contract` with the `c_ncase_Z`/`c_ncase_S`
-  step conv — exactly the shape of `sc_beta`.
-- **`sc_ncase`**: congruence; needs the scrutinee/branch `semantic_conv2`s.
+- `st_case_Val_zero` / `st_case_Val_succ` / `st_case_Val` — the `Val` conjunct.
+- `st_case_EqVal_zero` / `st_case_EqVal_succ` / `st_case_EqVal` — the cross
+  conjunct.  The σ'-side step conversion is retyped to the shared motive
+  `T[⇑σ][M[σ]..]` by the cross-substitution conversion `cvTx`.
+- `st_case` — the two conjuncts assembled; dispatches on the `ncase` semantics
+  (`bot` / `zero` / successor).
+- `sc_ncase_Z` / `sc_ncase_S` — the ι-rules, in the shape of `sc_beta`: take the
+  redex's reflexive `EqVal` (via `st_case`) and contract the second side along
+  `hr_zero` / `hr_succ` with the `c_ncase_Z` / `c_ncase_S` step conversion.
+- `sc_ncase_zero` / `sc_ncase_succ` / `sc_ncase` — the congruence.  Both step
+  conversions on the right are obtained from the *whole* congruence conversion
+  rather than rebuilt: `ncase M' M0' M1' ≡ ncase M M0 M1 ≡ <branch> ≡ <branch'>`.
 
-Independent, mechanical, and currently pulled in as axioms by everything that
-substitutes: the 13 `ncase` admits in [../syntax/typing.v]
-(`renaming_typing`/`renaming_conv`, `substitution_tm`/`substitution_conv`,
-`conv_typing`), plus `HeadRed1_det` in [../syntax/reduction.v] and the
-guardedness failure of `conv_EvalRel` in [typing_semantics.v].
+### A third gap: the congruence's successor case
 
-Agda reference: `~/github/agda/domain-semantics/NAT/Adequacy/NatCaseDep.agda`
-(`motiveEqValTy2`, `adequacyV-ty-Case-dep`), `Validity/HeadRed.agda`
-(`Val2-beta-expand`, `ValPi2-headred-contract`).
+The two sides of the congruence reduce to the successor branch at **different**
+predecessor terms, `P` (from `M[σ]`) and `P'` (from `M'[σ]`).  Relating
+`M1[P .: σ]` to `M1'[P' .: σ]` needs one term under two substitutions, i.e.
+`semantic_typing`'s cross conjunct — but `c_ncase`'s premises were all
+conversions, and the single-substitution `semantic_conv2` cannot supply it.
+Going through `conv_typing` breaks guardedness of the adequacy fixpoint.
+
+Agda sidesteps this: in `NAT/Syntax/Typing.agda`, `conv-Case-dep`'s successor
+branch is a *function* `b : Π ℕ (subSucC C)`, so `Case M a b` reduces to
+`App b P` and the differing arguments are absorbed by the Π-edge machinery
+(`PiAppEq`).  The Coq syntax makes `M1` a binder-term in `Γ ++ tnat`, which has
+no argument-variation semantics.
+
+Fix (chosen 2026-09-03): `c_ncase` carries `typing (Γ++tnat) M1' T[rho]`.  It is
+admissible (`conv_typing` derives it), so the conversion relation is unchanged,
+and it mirrors `c_abs`, which already carries typings for both bodies.  The
+branch relation is then composed in two steps through `M1'[P .: σ]`:
+
+    M1[P .: σ]  ≈ M1'[P .: σ]    (branch conversion at P .: σ)
+    M1'[P .: σ] ≈ M1'[P' .: σ]   (semantic_typing M1' at the two
+                                  substitutions, related by conv P P')
+
+joined by `EqVal_trans`.  The `conv Δ P P' tnat` in the second step is the
+predecessor conversion stored in `EqVal`'s successor leaf.
+
+## What `adequacySub` rests on
+
+`prop_ext`, `functional_extensionality_dep`, `eq_rect_eq`, `proof_irrelevance`,
+and six admitted lemmas *below* adequacy:
+
+- [../syntax/typing.v]: `renaming_typing`, `renaming_conv`, `substitution_tm`,
+  `substitution_conv`, `conv_typing` — 16 `admit`s, all the mechanical `ncase`
+  cases (`asimpl`-wrangling `T[M..]` under a substitution).
+- [typing_semantics.v]: `typing_EvalRel`, `conv_EvalRel` — tactically complete,
+  blocked only on the guard checker (the `c_ncase` case calls `typing_EvalRel`
+  on a locally built derivation, so a size measure is needed).
+
+`HeadRed1_det` ([../syntax/reduction.v]) is no longer in `adequacySub`'s cone,
+but `piInjectivity` and `subject_red` still use it.

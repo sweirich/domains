@@ -401,7 +401,11 @@ Proof.
     cbn.
     have EQg : (T0[Mc..])[σ] = (T0[⇑ σ])[Mc[σ]..] by asimpl.
     rewrite EQg.
-    eapply c_ncase; [ exact TT | exact convMc | | ].
+    eapply c_ncase; [ exact TT | | exact convMc | | ].
+    + (* the right successor branch's typing: read it off [convMc1] *)
+      have EQ1 : (T0[⇑ σ])[rho] = (T0[rho])[⇑ σ].
+      { unfold rho. asimpl. setoid_rewrite rinstInst'_Tm_pointwise. reflexivity. }
+      rewrite EQ1; exact (proj2 (conv_typing convMc1)).
     + have EQ0 : (T0[⇑ σ])[Core.zero..] = (T0[Core.zero..])[σ] by asimpl.
       rewrite EQ0; exact convMc0.
     + have EQ1 : (T0[⇑ σ])[rho] = (T0[rho])[⇑ σ].
@@ -1323,7 +1327,8 @@ Proof.
   have cvStep : conv Δ (Core.ncase M M0 M1)[σ] M0[σ] (T[⇑ σ][M[σ]..]).
   { cbn. eapply c_trans.
     - eapply c_ncase;
-        [ exact TTσ | exact cvM | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
     - eapply c_conv;
         [ eapply c_ncase_Z; [ exact TTσ | exact TM0σ | exact TM1σ ] | exact cvTs ]. }
   move: VBrM.
@@ -1535,7 +1540,8 @@ Proof.
   have cvStep : conv Δ (Core.ncase M M0 M1)[σ] (M1[⇑ σ][P..]) (T[⇑ σ][M[σ]..]).
   { cbn. eapply c_trans.
     - eapply c_ncase;
-        [ exact TTσ | exact cvM | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
     - eapply c_conv;
         [ eapply c_ncase_S; [ exact TTσ | exact TP | exact TM0σ | exact TM1σ ]
         | exact cvTs ]. }
@@ -1820,17 +1826,209 @@ Proof.
   have cvStep : conv Δ (Core.ncase M M0 M1)[σ] (M1[⇑ σ][P..]) (T[⇑ σ][M[σ]..]).
   { cbn. eapply c_trans.
     - eapply c_ncase;
-        [ exact TTσ | exact cvM | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
     - eapply c_conv;
         [ eapply c_ncase_S; [ exact TTσ | exact TP | exact TM0σ | exact TM1σ ]
         | exact cvTs ]. }
   have cvStep' : conv Δ (Core.ncase M M0 M1)[σ'] (M1[⇑ σ'][P'..]) (T[⇑ σ][M[σ]..]).
   { eapply c_conv; [ | exact cvTx ]. cbn. eapply c_trans.
     - eapply c_ncase;
-        [ exact TTσ' | exact cvM' | apply c_refl; exact TM0σ' | apply c_refl; exact TM1σ' ].
+        [ exact TTσ' | exact TM1σ' | exact cvM'
+        | apply c_refl; exact TM0σ' | apply c_refl; exact TM1σ' ].
     - eapply c_conv;
         [ eapply c_ncase_S; [ exact TTσ' | exact TP' | exact TM0σ' | exact TM1σ' ]
         | exact cvTs' ]. }
+  have EQg : (T[M..])[σ] = T[⇑ σ][M[σ]..] by (asimpl; reflexivity).
+  rewrite EQg.
+  eapply EqVal_headred_expand;
+    [ exact HRstep | exact HRstep' | exact cvStep | exact cvStep' | exact EBrM ].
+Qed.
+
+(** The zero branch of [st_case]'s cross ([EqVal]) conjunct.  Both sides
+    head-reduce to the zero branch under their own substitution, so the only
+    ingredient beyond [st_case_Val_zero] is the σ'-side step conversion,
+    retyped to the *shared* motive [T[⇑σ][M[σ]..]] by the cross-substitution
+    conversion [cvTx]. *)
+Lemma st_case_EqVal_zero (T : Tm (S n)) M M0 M1
+  (TT : typing (Γ ++ Core.tnat) T Core.tuniv)
+  (TM : typing Γ M Core.tnat)
+  (TM0 : typing Γ M0 (T[Core.zero..]))
+  (TM1 : typing (Γ ++ Core.tnat) M1 T[rho])
+  (STT : semantic_typing (Γ ++ Core.tnat) T Core.tuniv)
+  (SM : semantic_typing Γ M Core.tnat)
+  (SM0 : semantic_typing Γ M0 (T[Core.zero..]))
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a (WT : wt u a)
+  (evMz : EvalRel M ρ zero) (evM0 : EvalRel M0 ρ u)
+  (evT : EvalRel T[M..] ρ a) :
+  forall RB, max (rk u) (rk a) < RB ->
+    EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M M0 M1)[σ'] (T[M..])[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have cΓ : ctx Γ by (eapply typing_ctx; exact TM).
+  have evTn : EvalRel Core.tnat ρ tnat by (cbn; apply le_refl).
+  (* ---- 1. the scrutinee's cross [EqVal] at the code [zero] ---- *)
+  have [_ eqSc] :=
+    SM ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ zero tnat wt_zero evMz evTn.
+  have ESc := eqSc (S (max (rk zero) (rk tnat))) ltac:(lia).
+  rewrite EqVal_zero in ESc. move: ESc => [HRz [cvM [HRz' cvM']]].
+  (* ---- 2. the motive at the environment [zero .: ρ] ---- *)
+  have [v' [evMv' evTv']] := EvalRel_subst1_forward Vρ evT.
+  have Vv' : valid v' := EvalRel_valid evMv'.
+  have Lev' : le v' zero := compatible_zero_le (EvalRel_compatible Vρ evMz evMv').
+  have evTρ : EvalRel T (zero .: ρ) a.
+  { eapply EvalRel_mono_env;
+      [ exact evTv' | apply valid_cons; [ exact Vv' | exact Vρ ]
+      | apply valid_cons; [ done | exact Vρ ]
+      | apply le_env_cons; [ exact Lev' | apply le_env_refl; exact Vρ ] ]. }
+  have evTz : EvalRel T[Core.zero..] ρ a
+    by (eapply EvalRel_subst1_backwards;
+        [ exact Vρ | cbn; apply le_refl | exact evTρ ]).
+  (* ---- 3. the zero branch's cross [EqVal], at the *zero* motive ---- *)
+  have [_ eqBr] :=
+    SM0 ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT evM0 evTz.
+  (* ---- 4. the motive transport (identical to the [Val] branch) ---- *)
+  have Tzero : typing Δ Core.zero Core.tnat by (apply t_zero; exact CΔ).
+  have TMσ : typing Δ M[σ] Core.tnat.
+  { move: (substitution_tm _ M Core.tnat _ σ TM TS CΔ) => hh. asimpl in hh. exact hh. }
+  have TMσ' : typing Δ M[σ'] Core.tnat.
+  { move: (substitution_tm _ M Core.tnat _ σ' TM TS' CΔ) => hh. asimpl in hh. exact hh. }
+  have TS0 : typing_subst Δ (Core.zero .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact Tzero | exact TS ]).
+  have TS0' : typing_subst Δ (M[σ] .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TMσ | exact TS ]).
+  have CS0 : ConvSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (M[σ] .: σ)
+    by (eapply ConvSub_cons;
+        [ asimpl; apply c_sym; exact cvM | exact (ConvSub_refl TS) ]).
+  have Fits0 : fits (Γ ++ Core.tnat) (zero .: ρ)
+    by (eapply fits_cons with (a := tnat);
+        [ apply t_nat; exact cΓ | cbn; apply le_refl | apply wt_tnat
+        | apply wt_zero | exact Fρ ]).
+  have HZhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ Core.zero Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+      try solve [ autorewrite with le in Le0; done ].
+    - apply Val_Bot.
+    - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
+      destruct RB0 as [ | RB0' ]; [ cbn in Hr0; lia | ].
+      rewrite Val_zero. split; [ apply ms_refl | apply c_refl; exact Tzero ]. }
+  have HMhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    have evMu0 : EvalRel M ρ u0
+      by (eapply EvalRel_down; [ exact Vρ | exact Vu0 | exact evMz | exact Le0 ]).
+    exact (proj1 (SM ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u0 a0 h0
+                    evMu0 Ea0) RB0 Hr0). }
+  have HEhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+      try solve [ autorewrite with le in Le0; done ].
+    - apply EqVal_Bot.
+    - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
+      destruct RB0 as [ | RB0' ]; [ cbn in Hr0; lia | ].
+      rewrite EqVal_zero.
+      split; [ apply ms_refl | ]. split; [ apply c_refl; exact Tzero | ].
+      split; [ exact HRz | exact cvM ]. }
+  have VS0 : ValSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (zero .: ρ)
+    by (eapply ValSub_cons; [ exact HZhead | exact VS ]).
+  have VS0' : ValSub Δ (Γ ++ Core.tnat) (M[σ] .: σ) (zero .: ρ)
+    by (eapply ValSub_cons; [ exact HMhead | exact VS ]).
+  have EVS0 : EqValSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (M[σ] .: σ) (zero .: ρ)
+    by (eapply EqValSub_cons; [ exact HEhead | exact (ValSub_EqValSub VS) ]).
+  have WTa : wt a tuniv := wt_ty_tuniv WT.
+  have evU0 : EvalRel Core.tuniv (zero .: ρ) tuniv by (cbn; apply le_refl).
+  have [_ eqT] :=
+    STT (zero .: ρ) m Δ (Core.zero .: σ) (M[σ] .: σ) TS0 TS0' CS0 Fits0
+        VS0 VS0' EVS0 CΔ a tuniv WTa evTρ evU0.
+  have cvTT : conv Δ T[Core.zero .: σ] T[M[σ] .: σ] Core.tuniv
+    := subst_conv_cross TT CΔ TS0 TS0' CS0.
+  (* the σ'-side motive conversion, and the cross-substitution one *)
+  have TS1z' : typing_subst Δ (Core.zero .: σ') (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact Tzero | exact TS' ]).
+  have TS1m' : typing_subst Δ (M[σ'] .: σ') (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TMσ' | exact TS' ]).
+  have CS1' : ConvSub Δ (Γ ++ Core.tnat) (Core.zero .: σ') (M[σ'] .: σ')
+    by (eapply ConvSub_cons;
+        [ asimpl; apply c_sym; exact cvM' | exact (ConvSub_refl TS') ]).
+  have cvTT' : conv Δ T[Core.zero .: σ'] T[M[σ'] .: σ'] Core.tuniv
+    := subst_conv_cross TT CΔ TS1z' TS1m' CS1'.
+  have cvMx : conv Δ M[σ] M[σ'] Core.tnat.
+  { move: (subst_conv_cross TM CΔ TS TS' CS) => hh. asimpl in hh. exact hh. }
+  have CSx : ConvSub Δ (Γ ++ Core.tnat) (M[σ] .: σ) (M[σ'] .: σ')
+    by (eapply ConvSub_cons; [ asimpl; exact cvMx | exact CS ]).
+  have cvTcross : conv Δ T[M[σ] .: σ] T[M[σ'] .: σ'] Core.tuniv
+    := subst_conv_cross TT CΔ TS0' TS1m' CSx.
+  (* ---- 5. syntactic pieces at σ and σ' ---- *)
+  have TTσ : typing (Δ ++ Core.tnat) T[⇑ σ] Core.tuniv.
+  { exact (@subst_cod_typing n Γ Core.tnat T m Δ σ
+             ltac:(apply t_nat; exact cΓ) TT TS CΔ). }
+  have TTσ' : typing (Δ ++ Core.tnat) T[⇑ σ'] Core.tuniv.
+  { exact (@subst_cod_typing n Γ Core.tnat T m Δ σ'
+             ltac:(apply t_nat; exact cΓ) TT TS' CΔ). }
+  have TM0σ : typing Δ M0[σ] (T[⇑ σ][Core.zero..]).
+  { move: (substitution_tm _ M0 (T[Core.zero..]) _ σ TM0 TS CΔ) => hh.
+    asimpl in hh. asimpl. exact hh. }
+  have TM0σ' : typing Δ M0[σ'] (T[⇑ σ'][Core.zero..]).
+  { move: (substitution_tm _ M0 (T[Core.zero..]) _ σ' TM0 TS' CΔ) => hh.
+    asimpl in hh. asimpl. exact hh. }
+  have CΔn : ctx (Δ ++ Core.tnat)
+    by (eapply c_cons; [ exact CΔ | apply t_nat; exact CΔ ]).
+  have TSl : typing_subst (Δ ++ Core.tnat) (⇑ σ) (Γ ++ Core.tnat).
+  { exact (@typing_subst_lift m Δ n σ Γ Core.tnat CΔn TS). }
+  have TSl' : typing_subst (Δ ++ Core.tnat) (⇑ σ') (Γ ++ Core.tnat).
+  { exact (@typing_subst_lift m Δ n σ' Γ Core.tnat CΔn TS'). }
+  have TM1σ : typing (Δ ++ Core.tnat) M1[⇑ σ] (T[⇑ σ])[rho].
+  { rewrite rho_subst_comm.
+    exact (substitution_tm _ M1 (T[rho]) _ (⇑ σ) TM1 TSl CΔn). }
+  have TM1σ' : typing (Δ ++ Core.tnat) M1[⇑ σ'] (T[⇑ σ'])[rho].
+  { rewrite rho_subst_comm.
+    exact (substitution_tm _ M1 (T[rho]) _ (⇑ σ') TM1 TSl' CΔn). }
+  (* ---- 6. assemble ---- *)
+  move=> RB Hrank.
+  have cvTs : conv Δ (T[⇑ σ][Core.zero..]) (T[⇑ σ][M[σ]..]) Core.tuniv.
+  { rewrite -(subst_cons_eq T Core.zero σ) -(subst_cons_eq T M[σ] σ). exact cvTT. }
+  have cvTs' : conv Δ (T[⇑ σ'][Core.zero..]) (T[⇑ σ'][M[σ']..]) Core.tuniv.
+  { rewrite -(subst_cons_eq T Core.zero σ') -(subst_cons_eq T M[σ'] σ'). exact cvTT'. }
+  have cvTx : conv Δ (T[⇑ σ'][M[σ']..]) (T[⇑ σ][M[σ]..]) Core.tuniv.
+  { rewrite -(subst_cons_eq T M[σ'] σ') -(subst_cons_eq T M[σ] σ).
+    apply c_sym. exact cvTcross. }
+  have EBrM : EqVal RB Δ M0[σ] M0[σ'] (T[⇑ σ][M[σ]..]) WT.
+  { eapply EqVal_EqVal_fwd;
+      [ cbn in Hrank; lia | cbn in Hrank; lia | exact cvTs
+      | move: (eqBr RB Hrank); rewrite subst1_subst_comm; done
+      | rewrite -(subst_cons_eq T Core.zero σ) -(subst_cons_eq T M[σ] σ);
+        eapply EqVal_EqValTy;
+        exact (eqT (S RB) ltac:(cbn in Hrank |- *; lia)) ]. }
+  have HRstep : HeadRed (Core.ncase M M0 M1)[σ] M0[σ].
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRz
+      | eapply ms_trans; [ apply hr_zero | apply ms_refl ] ]. }
+  have HRstep' : HeadRed (Core.ncase M M0 M1)[σ'] M0[σ'].
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRz'
+      | eapply ms_trans; [ apply hr_zero | apply ms_refl ] ]. }
+  have cvStep : conv Δ (Core.ncase M M0 M1)[σ] M0[σ] (T[⇑ σ][M[σ]..]).
+  { cbn. eapply c_trans.
+    - eapply c_ncase;
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+    - eapply c_conv;
+        [ eapply c_ncase_Z; [ exact TTσ | exact TM0σ | exact TM1σ ] | exact cvTs ]. }
+  have cvStep' : conv Δ (Core.ncase M M0 M1)[σ'] M0[σ'] (T[⇑ σ][M[σ]..]).
+  { eapply c_conv; [ | exact cvTx ]. cbn. eapply c_trans.
+    - eapply c_ncase;
+        [ exact TTσ' | exact TM1σ' | exact cvM'
+        | apply c_refl; exact TM0σ' | apply c_refl; exact TM1σ' ].
+    - eapply c_conv;
+        [ eapply c_ncase_Z; [ exact TTσ' | exact TM0σ' | exact TM1σ' ] | exact cvTs' ]. }
   have EQg : (T[M..])[σ] = T[⇑ σ][M[σ]..] by (asimpl; reflexivity).
   rewrite EQg.
   eapply EqVal_headred_expand;
@@ -1868,6 +2066,618 @@ Proof.
     eapply st_case_Val_zero; eassumption.
   - (* scrutinee is a successor *)
     eapply st_case_Val_succ; eassumption.
+Qed.
+
+(** The cross ([EqVal]) conjunct of [st_case], assembled. *)
+Lemma st_case_EqVal (T : Tm (S n)) M M0 M1
+  (TT : typing (Γ ++ Core.tnat) T Core.tuniv)
+  (TM : typing Γ M Core.tnat)
+  (TM0 : typing Γ M0 (T[Core.zero..]))
+  (TM1 : typing (Γ ++ Core.tnat) M1 T[rho])
+  (STT : semantic_typing (Γ ++ Core.tnat) T Core.tuniv)
+  (SM : semantic_typing Γ M Core.tnat)
+  (SM0 : semantic_typing Γ M0 (T[Core.zero..]))
+  (SM1 : semantic_typing (Γ ++ Core.tnat) M1 T[rho])
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a (WT : wt u a)
+  (evNcase : EvalRel (Core.ncase M M0 M1) ρ u)
+  (evT : EvalRel T[M..] ρ a) :
+  forall RB, max (rk u) (rk a) < RB ->
+    EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M M0 M1)[σ'] (T[M..])[σ] WT.
+Proof.
+  cbn in evNcase. move: evNcase => [w [evMw Hbr]].
+  destruct w as [ | | | | vp | b0 f0 | g0 ]; cbn in Hbr; try done.
+  - (* scrutinee is [bot]: so is the result *)
+    move: Hbr => [Vu Leu].
+    have Eu : u = bot by (apply le_bot_inv; exact Leu).
+    move=> RB Hrank. subst u. apply EqVal_Bot.
+  - (* scrutinee is [zero] *)
+    eapply st_case_EqVal_zero; eassumption.
+  - (* scrutinee is a successor *)
+    eapply st_case_EqVal_succ; eassumption.
+Qed.
+
+(** Dependent case analysis (Agda [adequacyV-ty-Case-dep]): [ncase M M0 M1] is
+    semantically typed at the motive instantiated at the scrutinee, [T[M..]].
+
+    This is the rule the whole [Red3] refactor was for.  The dependent motive
+    has to be transported from the branch's type ([T[zero..]] or
+    [T[(succ P)..]]) to [T[M..]], which needs the *syntactic* conversion
+    [conv M[σ] ≡ numeral] at [tnat] — exactly the conversion that [Val]'s
+    numeral leaves now carry. *)
+Lemma st_case (T : Tm (S n)) M M0 M1 :
+  typing (Γ ++ Core.tnat) T Core.tuniv ->
+  typing Γ M Core.tnat ->
+  typing Γ M0 (T[Core.zero..]) ->
+  typing (Γ ++ Core.tnat) M1 T[rho] ->
+  semantic_typing (Γ ++ Core.tnat) T Core.tuniv ->
+  semantic_typing Γ M Core.tnat ->
+  semantic_typing Γ M0 (T[Core.zero..]) ->
+  semantic_typing (Γ ++ Core.tnat) M1 T[rho] ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.ncase M M0 M1) T[M..].
+Proof.
+  move=> TT TM TM0 TM1 STT SM SM0 SM1.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT evNcase evT.
+  split.
+  - eapply st_case_Val; eassumption.
+  - eapply st_case_EqVal; eassumption.
+Qed.
+
+(** ι-rule for the zero scrutinee (Agda [adequacyE-ty-Case-zero]): the case
+    redex is semantically convertible to its zero branch.  Same shape as
+    [sc_beta]: take the redex's *reflexive* [EqVal] (via [st_case]) and contract
+    the second side along the [hr_zero] head reduction, with the [c_ncase_Z]
+    step conversion. *)
+Lemma sc_ncase_Z (T : Tm (S n)) M0 M1 :
+  typing (Γ ++ Core.tnat) T Core.tuniv ->
+  typing Γ M0 (T[Core.zero..]) ->
+  typing (Γ ++ Core.tnat) M1 T[rho] ->
+  semantic_typing (Γ ++ Core.tnat) T Core.tuniv ->
+  semantic_typing Γ M0 (T[Core.zero..]) ->
+  semantic_typing (Γ ++ Core.tnat) M1 T[rho] ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.ncase Core.zero M0 M1) M0 (T[Core.zero..]).
+Proof.
+  move=> TT TM0 TM1 STT STM0 STM1.
+  have cΓ : ctx Γ by (eapply typing_ctx; exact TM0).
+  have Tz : typing Γ Core.zero Core.tnat by (apply t_zero; exact cΓ).
+  have STz : semantic_typing Γ Core.zero Core.tnat by (apply st_zero; exact cΓ).
+  have STcase : semantic_typing Γ (Core.ncase Core.zero M0 M1) (T[Core.zero..])
+    by (eapply st_case;
+        [ exact TT | exact Tz | exact TM0 | exact TM1
+        | exact STT | exact STz | exact STM0 | exact STM1 ]).
+  have Tcase : typing Γ (Core.ncase Core.zero M0 M1) (T[Core.zero..])
+    by (eapply t_case; [ exact TT | exact Tz | exact TM0 | exact TM1 ]).
+  have Ccase : conv Γ (Core.ncase Core.zero M0 M1) M0 (T[Core.zero..])
+    by (eapply c_ncase_Z; [ exact TT | exact TM0 | exact TM1 ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evCase evT RB Hrank.
+  have eqCase :=
+    proj2 (STcase ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+             CD u a WT evCase evT).
+  have CcaseS : conv Δ (Core.ncase Core.zero M0 M1)[σ] (M0[σ]) ((T[Core.zero..])[σ])
+    by (eapply substitution_conv; [ exact Ccase | exact TS | exact CD ]).
+  have CreflS : conv Δ (Core.ncase Core.zero M0 M1)[σ]
+                       (Core.ncase Core.zero M0 M1)[σ] ((T[Core.zero..])[σ])
+    by (apply c_refl; eapply substitution_tm; [ exact Tcase | exact TS | exact CD ]).
+  eapply EqVal_headred_contract.
+  - apply ms_refl.
+  - eapply ms_trans; [ apply hr_zero | apply ms_refl ].
+  - exact CreflS.
+  - apply c_sym; exact CcaseS.
+  - exact (eqCase RB Hrank).
+Qed.
+
+(** ι-rule for a successor scrutinee (Agda [adequacyE-ty-Case-succ]). *)
+Lemma sc_ncase_S (T : Tm (S n)) M0 M1 N :
+  typing (Γ ++ Core.tnat) T Core.tuniv ->
+  typing Γ N Core.tnat ->
+  typing Γ M0 (T[Core.zero..]) ->
+  typing (Γ ++ Core.tnat) M1 T[rho] ->
+  semantic_typing (Γ ++ Core.tnat) T Core.tuniv ->
+  semantic_typing Γ N Core.tnat ->
+  semantic_typing Γ M0 (T[Core.zero..]) ->
+  semantic_typing (Γ ++ Core.tnat) M1 T[rho] ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.ncase (Core.succ N) M0 M1) M1[N..] (T[(Core.succ N)..]).
+Proof.
+  move=> TT TN TM0 TM1 STT STN STM0 STM1.
+  have Ts : typing Γ (Core.succ N) Core.tnat by (apply t_succ; exact TN).
+  have STs : semantic_typing Γ (Core.succ N) Core.tnat
+    by (eapply st_succ; [ exact TN | exact STN ]).
+  have STcase : semantic_typing Γ (Core.ncase (Core.succ N) M0 M1)
+                  (T[(Core.succ N)..])
+    by (eapply st_case;
+        [ exact TT | exact Ts | exact TM0 | exact TM1
+        | exact STT | exact STs | exact STM0 | exact STM1 ]).
+  have Tcase : typing Γ (Core.ncase (Core.succ N) M0 M1) (T[(Core.succ N)..])
+    by (eapply t_case; [ exact TT | exact Ts | exact TM0 | exact TM1 ]).
+  have Ccase : conv Γ (Core.ncase (Core.succ N) M0 M1) M1[N..] (T[(Core.succ N)..])
+    by (eapply c_ncase_S; [ exact TT | exact TN | exact TM0 | exact TM1 ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evCase evT RB Hrank.
+  have eqCase :=
+    proj2 (STcase ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+             CD u a WT evCase evT).
+  have CcaseS : conv Δ (Core.ncase (Core.succ N) M0 M1)[σ] ((M1[N..])[σ])
+                       ((T[(Core.succ N)..])[σ])
+    by (eapply substitution_conv; [ exact Ccase | exact TS | exact CD ]).
+  have CreflS : conv Δ (Core.ncase (Core.succ N) M0 M1)[σ]
+                       (Core.ncase (Core.succ N) M0 M1)[σ]
+                       ((T[(Core.succ N)..])[σ])
+    by (apply c_refl; eapply substitution_tm; [ exact Tcase | exact TS | exact CD ]).
+  eapply EqVal_headred_contract.
+  - apply ms_refl.
+  - rewrite subst1_subst_comm.
+    eapply ms_trans; [ apply hr_succ | apply ms_refl ].
+  - exact CreflS.
+  - apply c_sym; exact CcaseS.
+  - exact (eqCase RB Hrank).
+Qed.
+
+(** The zero case of the [ncase] congruence.  Unlike [st_case_EqVal_zero]
+    there is only one substitution, so the σ'-bookkeeping disappears; what
+    replaces it is the *right* step conversion, obtained from the whole
+    congruence conversion [Ccong] rather than rebuilt from scratch:
+    [ncase M' M0' M1' ≡ ncase M M0 M1 ≡ M0 ≡ M0']. *)
+Lemma sc_ncase_zero (T : Tm (S n)) M M0 M1 M' M0' M1'
+  (TT : typing (Γ ++ Core.tnat) T Core.tuniv)
+  (TM1' : typing (Γ ++ Core.tnat) M1' T[rho])
+  (CMM' : conv Γ M M' Core.tnat)
+  (CM0 : conv Γ M0 M0' (T[Core.zero..]))
+  (CM1 : conv (Γ ++ Core.tnat) M1 M1' T[rho])
+  (STT : semantic_typing (Γ ++ Core.tnat) T Core.tuniv)
+  (SCM : semantic_conv2 Γ M M' Core.tnat)
+  (SCM0 : semantic_conv2 Γ M0 M0' (T[Core.zero..]))
+  ρ m (Δ : Ctx m) (σ : Sub n m)
+  (TS : typing_subst Δ σ Γ) (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
+  u a (WT : wt u a)
+  (evMz : EvalRel M ρ zero) (evM0 : EvalRel M0 ρ u)
+  (evT : EvalRel T[M..] ρ a) :
+  forall RB, max (rk u) (rk a) < RB ->
+    EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M' M0' M1')[σ] (T[M..])[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have cΓ : ctx Γ := fits_ctx Fρ.
+  have evTn : EvalRel Core.tnat ρ tnat by (cbn; apply le_refl).
+  have Ccong : conv Γ (Core.ncase M M0 M1) (Core.ncase M' M0' M1') (T[M..])
+    by (eapply c_ncase; [ exact TT | exact TM1' | exact CMM' | exact CM0 | exact CM1 ]).
+  have [TM1 _] := conv_typing CM1.
+  (* ---- 1. the scrutinee's conversion [EqVal] at the code [zero] ---- *)
+  have ESc := SCM ρ m Δ σ TS Fρ VS CΔ zero tnat wt_zero evMz evTn
+                (S (max (rk zero) (rk tnat))) ltac:(lia).
+  rewrite EqVal_zero in ESc. move: ESc => [HRz [cvM [HRz' cvM']]].
+  (* ---- 2. the motive at the environment [zero .: ρ] ---- *)
+  have [v' [evMv' evTv']] := EvalRel_subst1_forward Vρ evT.
+  have Vv' : valid v' := EvalRel_valid evMv'.
+  have Lev' : le v' zero := compatible_zero_le (EvalRel_compatible Vρ evMz evMv').
+  have evTρ : EvalRel T (zero .: ρ) a.
+  { eapply EvalRel_mono_env;
+      [ exact evTv' | apply valid_cons; [ exact Vv' | exact Vρ ]
+      | apply valid_cons; [ done | exact Vρ ]
+      | apply le_env_cons; [ exact Lev' | apply le_env_refl; exact Vρ ] ]. }
+  have evTz : EvalRel T[Core.zero..] ρ a
+    by (eapply EvalRel_subst1_backwards;
+        [ exact Vρ | cbn; apply le_refl | exact evTρ ]).
+  (* ---- 3. the branch conversion [EqVal] ---- *)
+  have eqBr := SCM0 ρ m Δ σ TS Fρ VS CΔ u a WT evM0 evTz.
+  (* ---- 4. the motive transport, from the motive's own semantic typing ---- *)
+  have Tzero : typing Δ Core.zero Core.tnat by (apply t_zero; exact CΔ).
+  have [TMσ _] := conv_typing cvM.
+  have TS0 : typing_subst Δ (Core.zero .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact Tzero | exact TS ]).
+  have TS0' : typing_subst Δ (M[σ] .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TMσ | exact TS ]).
+  have CS0 : ConvSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (M[σ] .: σ)
+    by (eapply ConvSub_cons;
+        [ asimpl; apply c_sym; exact cvM | exact (ConvSub_refl TS) ]).
+  have Fits0 : fits (Γ ++ Core.tnat) (zero .: ρ)
+    by (eapply fits_cons with (a := tnat);
+        [ apply t_nat; exact cΓ | cbn; apply le_refl | apply wt_tnat
+        | apply wt_zero | exact Fρ ]).
+  have HZhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ Core.zero Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+      try solve [ autorewrite with le in Le0; done ].
+    - apply Val_Bot.
+    - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
+      destruct RB0 as [ | RB0' ]; [ cbn in Hr0; lia | ].
+      rewrite Val_zero. split; [ apply ms_refl | apply c_refl; exact Tzero ]. }
+  have HMhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    have evMu0 : EvalRel M ρ u0
+      by (eapply EvalRel_down; [ exact Vρ | exact Vu0 | exact evMz | exact Le0 ]).
+    eapply EqVal_Val1.
+    exact (SCM ρ m Δ σ TS Fρ VS CΔ u0 a0 h0 evMu0 Ea0 RB0 Hr0). }
+  have HEhead : forall u0, valid u0 -> le u0 zero -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+      try solve [ autorewrite with le in Le0; done ].
+    - apply EqVal_Bot.
+    - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
+      destruct RB0 as [ | RB0' ]; [ cbn in Hr0; lia | ].
+      rewrite EqVal_zero.
+      split; [ apply ms_refl | ]. split; [ apply c_refl; exact Tzero | ].
+      split; [ exact HRz | exact cvM ]. }
+  have VS0 : ValSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (zero .: ρ)
+    by (eapply ValSub_cons; [ exact HZhead | exact VS ]).
+  have VS0' : ValSub Δ (Γ ++ Core.tnat) (M[σ] .: σ) (zero .: ρ)
+    by (eapply ValSub_cons; [ exact HMhead | exact VS ]).
+  have EVS0 : EqValSub Δ (Γ ++ Core.tnat) (Core.zero .: σ) (M[σ] .: σ) (zero .: ρ)
+    by (eapply EqValSub_cons; [ exact HEhead | exact (ValSub_EqValSub VS) ]).
+  have WTa : wt a tuniv := wt_ty_tuniv WT.
+  have evU0 : EvalRel Core.tuniv (zero .: ρ) tuniv by (cbn; apply le_refl).
+  have [_ eqT] :=
+    STT (zero .: ρ) m Δ (Core.zero .: σ) (M[σ] .: σ) TS0 TS0' CS0 Fits0
+        VS0 VS0' EVS0 CΔ a tuniv WTa evTρ evU0.
+  have cvTT : conv Δ T[Core.zero .: σ] T[M[σ] .: σ] Core.tuniv
+    := subst_conv_cross TT CΔ TS0 TS0' CS0.
+  (* ---- 5. syntactic pieces ---- *)
+  have TTσ : typing (Δ ++ Core.tnat) T[⇑ σ] Core.tuniv.
+  { exact (@subst_cod_typing n Γ Core.tnat T m Δ σ
+             ltac:(apply t_nat; exact cΓ) TT TS CΔ). }
+  have TM0σ : typing Δ M0[σ] (T[⇑ σ][Core.zero..]).
+  { move: (substitution_tm _ M0 (T[Core.zero..]) _ σ
+             ltac:(exact (proj1 (conv_typing CM0))) TS CΔ) => hh.
+    asimpl in hh. asimpl. exact hh. }
+  have CΔn : ctx (Δ ++ Core.tnat)
+    by (eapply c_cons; [ exact CΔ | apply t_nat; exact CΔ ]).
+  have TSl : typing_subst (Δ ++ Core.tnat) (⇑ σ) (Γ ++ Core.tnat).
+  { exact (@typing_subst_lift m Δ n σ Γ Core.tnat CΔn TS). }
+  have TM1σ : typing (Δ ++ Core.tnat) M1[⇑ σ] (T[⇑ σ])[rho].
+  { rewrite rho_subst_comm.
+    exact (substitution_tm _ M1 (T[rho]) _ (⇑ σ) TM1 TSl CΔn). }
+  (* ---- 6. assemble ---- *)
+  move=> RB Hrank.
+  have cvTs : conv Δ (T[⇑ σ][Core.zero..]) (T[⇑ σ][M[σ]..]) Core.tuniv.
+  { rewrite -(subst_cons_eq T Core.zero σ) -(subst_cons_eq T M[σ] σ). exact cvTT. }
+  have EBrM : EqVal RB Δ M0[σ] M0'[σ] (T[⇑ σ][M[σ]..]) WT.
+  { eapply EqVal_EqVal_fwd;
+      [ cbn in Hrank; lia | cbn in Hrank; lia | exact cvTs
+      | move: (eqBr RB Hrank);
+        rewrite (@subst1_subst_comm _ _ T Core.zero σ); done
+      | rewrite -(subst_cons_eq T Core.zero σ) -(subst_cons_eq T M[σ] σ);
+        eapply EqVal_EqValTy;
+        exact (eqT (S RB) ltac:(cbn in Hrank |- *; lia)) ]. }
+  have HRstep : HeadRed (Core.ncase M M0 M1)[σ] M0[σ].
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRz
+      | eapply ms_trans; [ apply hr_zero | apply ms_refl ] ]. }
+  have HRstep' : HeadRed (Core.ncase M' M0' M1')[σ] M0'[σ].
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRz'
+      | eapply ms_trans; [ apply hr_zero | apply ms_refl ] ]. }
+  have cvStep : conv Δ (Core.ncase M M0 M1)[σ] M0[σ] (T[⇑ σ][M[σ]..]).
+  { cbn. eapply c_trans.
+    - eapply c_ncase;
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+    - eapply c_conv;
+        [ eapply c_ncase_Z; [ exact TTσ | exact TM0σ | exact TM1σ ] | exact cvTs ]. }
+  have CcongS : conv Δ (Core.ncase M M0 M1)[σ] (Core.ncase M' M0' M1')[σ]
+                       (T[⇑ σ][M[σ]..]).
+  { move: (substitution_conv _ (Core.ncase M M0 M1) (Core.ncase M' M0' M1')
+             (T[M..]) _ σ Ccong TS CΔ) => hh.
+    rewrite (@subst1_subst_comm _ _ T M σ) in hh. exact hh. }
+  have cvBranch : conv Δ M0[σ] M0'[σ] (T[⇑ σ][M[σ]..]).
+  { eapply c_conv; [ | exact cvTs ].
+    move: (substitution_conv _ M0 M0' (T[Core.zero..]) _ σ CM0 TS CΔ) => hh.
+    rewrite (@subst1_subst_comm _ _ T Core.zero σ) in hh. exact hh. }
+  have cvStep' : conv Δ (Core.ncase M' M0' M1')[σ] M0'[σ] (T[⇑ σ][M[σ]..]).
+  { eapply c_trans; [ apply c_sym; exact CcongS | ].
+    eapply c_trans; [ exact cvStep | exact cvBranch ]. }
+  have EQg : (T[M..])[σ] = T[⇑ σ][M[σ]..] by (asimpl; reflexivity).
+  rewrite EQg.
+  eapply EqVal_headred_expand;
+    [ exact HRstep | exact HRstep' | exact cvStep | exact cvStep' | exact EBrM ].
+Qed.
+
+(** The successor case of the [ncase] congruence.  The two sides reduce to the
+    successor branch at *different* predecessor terms, [P] (from [M[σ]]) and
+    [P'] (from [M'[σ]]), so the branch relation is composed in two steps
+    through [M1'[P .: σ]]:
+
+      [M1[P .: σ] ≈ M1'[P .: σ]]   from the branch conversion at [P .: σ],
+      [M1'[P .: σ] ≈ M1'[P' .: σ]] from the *semantic typing* of [M1'] at the
+                                   two substitutions, related by [conv P P']
+                                   (the predecessor conversion stored in
+                                   [EqVal]'s successor leaf).
+
+    The second step is why [c_ncase] carries [typing (Γ++tnat) M1' T[rho]]: a
+    conversion premise alone yields only the single-substitution
+    [semantic_conv2], which cannot relate one term under two substitutions. *)
+Lemma sc_ncase_succ (T : Tm (S n)) M M0 M1 M' M0' M1'
+  (TT : typing (Γ ++ Core.tnat) T Core.tuniv)
+  (TM1' : typing (Γ ++ Core.tnat) M1' T[rho])
+  (CMM' : conv Γ M M' Core.tnat)
+  (CM0 : conv Γ M0 M0' (T[Core.zero..]))
+  (CM1 : conv (Γ ++ Core.tnat) M1 M1' T[rho])
+  (STT : semantic_typing (Γ ++ Core.tnat) T Core.tuniv)
+  (STM1' : semantic_typing (Γ ++ Core.tnat) M1' T[rho])
+  (SCM : semantic_conv2 Γ M M' Core.tnat)
+  (SCM1 : semantic_conv2 (Γ ++ Core.tnat) M1 M1' T[rho])
+  ρ m (Δ : Ctx m) (σ : Sub n m)
+  (TS : typing_subst Δ σ Γ) (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ)
+  u a (WT : wt u a)
+  vp (evMs : EvalRel M ρ (succ vp)) (evM1 : EvalRel M1 (vp .: ρ) u)
+  (evT : EvalRel T[M..] ρ a) :
+  forall RB, max (rk u) (rk a) < RB ->
+    EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M' M0' M1')[σ] (T[M..])[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have cΓ : ctx Γ := fits_ctx Fρ.
+  have evTn : EvalRel Core.tnat ρ tnat by (cbn; apply le_refl).
+  have Ccong : conv Γ (Core.ncase M M0 M1) (Core.ncase M' M0' M1') (T[M..])
+    by (eapply c_ncase; [ exact TT | exact TM1' | exact CMM' | exact CM0 | exact CM1 ]).
+  have [TM1 _] := conv_typing CM1.
+  (* ---- 1. join the scrutinee's value with the motive's witness value ---- *)
+  have [v' [evMv' evTv']] := EvalRel_subst1_forward Vρ evT.
+  have Vsvp : valid (succ vp) := EvalRel_valid evMs.
+  have Vv' : valid v' := EvalRel_valid evMv'.
+  have [Cmp Hlub] := EvalRel_compatible_lub Vρ evMs evMv'.
+  have evMc := Hlub _ erefl.
+  have Lecl : le (succ vp) (lub (succ vp) v')
+    by (apply le_lub_left; [ exact Cmp | exact Vsvp | exact Vv' ]).
+  have Lecr : le v' (lub (succ vp) v')
+    by (apply le_lub_right; [ exact Cmp | exact Vsvp | exact Vv' ]).
+  have [vpp [Ec Levp]] := le_succ_inv Lecl.
+  rewrite Ec in evMc Lecr.
+  have Vsvpp : valid (succ vpp) := EvalRel_valid evMc.
+  have Vvpp : valid vpp by (move: Vsvpp; cbn; done).
+  have Vvp : valid vp by (move: Vsvp; cbn; done).
+  have evTc : EvalRel T (succ vpp .: ρ) a.
+  { eapply EvalRel_mono_env;
+      [ exact evTv' | apply valid_cons; [ exact Vv' | exact Vρ ]
+      | apply valid_cons; [ exact Vsvpp | exact Vρ ]
+      | apply le_env_cons; [ exact Lecr | apply le_env_refl; exact Vρ ] ]. }
+  (* ---- 2. well-typedness of the joined value ---- *)
+  have IT : InvTyped Γ M Core.tnat ρ
+    by (apply typing_EvalRel; [ exact (proj1 (conv_typing CMM')) | exact Fρ ]).
+  have [vv [aa [hwt [Lsv [_ Etn]]]]] := IT (succ vpp) evMc.
+  cbn in Etn.
+  have wtvv : wt vv tnat := wt_le hwt Etn (wt_ty_tuniv hwt) wt_tnat.
+  have wtsvpp : wt (succ vpp) tnat := wt_tnat_down wtvv Lsv.
+  set wtvpp := wt_succ_inv wtsvpp.
+  (* ---- 3. the scrutinee's conversion [EqVal] at the code [succ vpp] ---- *)
+  have ESc := SCM ρ m Δ σ TS Fρ VS CΔ (succ vpp) tnat wtsvpp evMc evTn
+                (S (S (max (rk (succ vpp)) (rk tnat)))) ltac:(lia).
+  rewrite EqVal_succ in ESc.
+  move: ESc => [P [HRs [cvM [P' [HRs' [cvM' [cvPP EP]]]]]]].
+  have [TMσ TsP] := conv_typing cvM.
+  have [TMσ' TsP'] := conv_typing cvM'.
+  have TP : typing Δ P Core.tnat := typing_succ_arg_inv TsP.
+  have TP' : typing Δ P' Core.tnat := typing_succ_arg_inv TsP'.
+  (* ---- 4. the [Sub] heads at the value [succ vpp] ---- *)
+  have HEMhead : forall u0, valid u0 -> le u0 (succ vpp) -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      EqVal RB0 Δ M[σ] M'[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    have evMu0 : EvalRel M ρ u0
+      by (eapply EvalRel_down; [ exact Vρ | exact Vu0 | exact evMc | exact Le0 ]).
+    exact (SCM ρ m Δ σ TS Fρ VS CΔ u0 a0 h0 evMu0 Ea0 RB0 Hr0). }
+  have HMhead : forall u0, valid u0 -> le u0 (succ vpp) -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    eapply EqVal_Val1; exact (HEMhead u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0). }
+  have HPhead : forall u0, valid u0 -> le u0 (succ vpp) -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ (Core.succ P) Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    eapply Val_headred_contract;
+      [ exact HRs | apply c_sym; exact cvM
+      | exact (HMhead u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0) ]. }
+  have HEhead : forall u0, valid u0 -> le u0 (succ vpp) -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      EqVal RB0 Δ (Core.succ P) M[σ] Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    eapply EqVal_headred_contract;
+      [ exact HRs | apply ms_refl | apply c_sym; exact cvM
+      | apply c_refl; exact TMσ
+      | eapply Val_EqVal; exact (HMhead u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0) ]. }
+  (* ---- 5. the [Sub] heads for the two predecessor terms ---- *)
+  have HPPhead : forall u0, valid u0 -> le u0 vpp -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      EqVal RB0 Δ P P' Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 ];
+      try solve [ autorewrite with le in Ea0; done ].
+    - apply EqVal_Bot_ty.
+    - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
+      have Lesu0 : le (succ u0) (succ vpp) by (rewrite le_succ; exact Le0).
+      have evMsu0 : EvalRel M ρ (succ u0)
+        by (eapply EvalRel_down; [ exact Vρ | exact Vsu0 | exact evMc | exact Lesu0 ]).
+      have EM0 := SCM ρ m Δ σ TS Fρ VS CΔ (succ u0) tnat (wt_succ h0) evMsu0 evTn
+                    (S RB0) ltac:(cbn in Hr0 |- *; lia).
+      rewrite EqVal_succ in EM0.
+      move: EM0 => [P0 [HR0 [c0 [P0' [HR0' [c0' [cp0 EV0]]]]]]].
+      have E1 : P0 = P by (eapply HeadRed_succ_det; [ exact HR0 | exact HRs ]).
+      have E2 : P0' = P' by (eapply HeadRed_succ_det; [ exact HR0' | exact HRs' ]).
+      subst P0 P0'. eapply EqVal_irr; exact EV0. }
+  have HPvhead : forall u0, valid u0 -> le u0 vpp -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ P Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    eapply EqVal_Val1; exact (HPPhead u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0). }
+  have HPv'head : forall u0, valid u0 -> le u0 vpp -> forall a0 (h0 : wt u0 a0),
+      EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
+      Val RB0 Δ P' Core.tnat[σ] h0.
+  { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
+    eapply EqVal_Val2; exact (HPPhead u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0). }
+  (* ---- 6. the branch relation, composed through [M1'[P .: σ]] ---- *)
+  have evM1v : EvalRel M1 (vpp .: ρ) u.
+  { eapply EvalRel_mono_env;
+      [ exact evM1 | apply valid_cons; [ exact Vvp | exact Vρ ]
+      | apply valid_cons; [ exact Vvpp | exact Vρ ]
+      | apply le_env_cons; [ exact Levp | apply le_env_refl; exact Vρ ] ]. }
+  have SRrho : SubRel rho (succ vpp .: ρ) (vpp .: ρ).
+  { move=> [j|]; cbn.
+    - split; [ exact (Vρ j) | apply le_refl; exact (Vρ j) ].
+    - split; [ exact Vsvpp | ].
+      exists vpp. split; [ apply le_refl; exact Vsvpp | ].
+      split; [ exact Vvpp | apply le_refl; exact Vvpp ]. }
+  have evTrho : EvalRel T[rho] (vpp .: ρ) a.
+  { eapply EvalRel_subst;
+      [ apply valid_cons; [ exact Vsvpp | exact Vρ ]
+      | apply valid_cons; [ exact Vvpp | exact Vρ ]
+      | exact SRrho | exact evTc ]. }
+  have Fits1 : fits (Γ ++ Core.tnat) (vpp .: ρ)
+    by (eapply fits_cons with (a := tnat);
+        [ apply t_nat; exact cΓ | cbn; apply le_refl | apply wt_tnat
+        | exact wtvpp | exact Fρ ]).
+  have evM1'v : EvalRel M1' (vpp .: ρ) u.
+  { move: (conv_EvalRel CM1 Fits1) => [_ [_ [fwd _]]]. exact (fwd u evM1v). }
+  have TS1 : typing_subst Δ (P .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TP | exact TS ]).
+  have TS1' : typing_subst Δ (P' .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TP' | exact TS ]).
+  have CS1 : ConvSub Δ (Γ ++ Core.tnat) (P .: σ) (P' .: σ)
+    by (eapply ConvSub_cons; [ asimpl; exact cvPP | exact (ConvSub_refl TS) ]).
+  have VS1 : ValSub Δ (Γ ++ Core.tnat) (P .: σ) (vpp .: ρ)
+    by (eapply ValSub_cons; [ exact HPvhead | exact VS ]).
+  have VS1' : ValSub Δ (Γ ++ Core.tnat) (P' .: σ) (vpp .: ρ)
+    by (eapply ValSub_cons; [ exact HPv'head | exact VS ]).
+  have EVS1 : EqValSub Δ (Γ ++ Core.tnat) (P .: σ) (P' .: σ) (vpp .: ρ)
+    by (eapply EqValSub_cons; [ exact HPPhead | exact (ValSub_EqValSub VS) ]).
+  have eqBr1 := SCM1 (vpp .: ρ) m Δ (P .: σ) TS1 Fits1 VS1 CΔ u a WT evM1v evTrho.
+  have [_ eqBr2] :=
+    STM1' (vpp .: ρ) m Δ (P .: σ) (P' .: σ) TS1 TS1' CS1 Fits1
+          VS1 VS1' EVS1 CΔ u a WT evM1'v evTrho.
+  (* ---- 7. the motive transport ---- *)
+  have TS2 : typing_subst Δ (Core.succ P .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TsP | exact TS ]).
+  have TS2' : typing_subst Δ (M[σ] .: σ) (Γ ++ Core.tnat)
+    by (eapply typing_subst_cons; [ asimpl; exact TMσ | exact TS ]).
+  have CS2 : ConvSub Δ (Γ ++ Core.tnat) (Core.succ P .: σ) (M[σ] .: σ)
+    by (eapply ConvSub_cons;
+        [ asimpl; apply c_sym; exact cvM | exact (ConvSub_refl TS) ]).
+  have Fits2 : fits (Γ ++ Core.tnat) (succ vpp .: ρ)
+    by (eapply fits_cons with (a := tnat);
+        [ apply t_nat; exact cΓ | cbn; apply le_refl | apply wt_tnat
+        | exact wtsvpp | exact Fρ ]).
+  have VS2 : ValSub Δ (Γ ++ Core.tnat) (Core.succ P .: σ) (succ vpp .: ρ)
+    by (eapply ValSub_cons; [ exact HPhead | exact VS ]).
+  have VS2' : ValSub Δ (Γ ++ Core.tnat) (M[σ] .: σ) (succ vpp .: ρ)
+    by (eapply ValSub_cons; [ exact HMhead | exact VS ]).
+  have EVS2 : EqValSub Δ (Γ ++ Core.tnat) (Core.succ P .: σ) (M[σ] .: σ)
+                (succ vpp .: ρ)
+    by (eapply EqValSub_cons; [ exact HEhead | exact (ValSub_EqValSub VS) ]).
+  have WTa : wt a tuniv := wt_ty_tuniv WT.
+  have evU2 : EvalRel Core.tuniv (succ vpp .: ρ) tuniv by (cbn; apply le_refl).
+  have [_ eqT] :=
+    STT (succ vpp .: ρ) m Δ (Core.succ P .: σ) (M[σ] .: σ) TS2 TS2' CS2 Fits2
+        VS2 VS2' EVS2 CΔ a tuniv WTa evTc evU2.
+  have cvTT : conv Δ T[Core.succ P .: σ] T[M[σ] .: σ] Core.tuniv
+    := subst_conv_cross TT CΔ TS2 TS2' CS2.
+  (* ---- 8. syntactic pieces ---- *)
+  have TTσ : typing (Δ ++ Core.tnat) T[⇑ σ] Core.tuniv.
+  { exact (@subst_cod_typing n Γ Core.tnat T m Δ σ
+             ltac:(apply t_nat; exact cΓ) TT TS CΔ). }
+  have TM0σ : typing Δ M0[σ] (T[⇑ σ][Core.zero..]).
+  { move: (substitution_tm _ M0 (T[Core.zero..]) _ σ
+             ltac:(exact (proj1 (conv_typing CM0))) TS CΔ) => hh.
+    asimpl in hh. asimpl. exact hh. }
+  have CΔn : ctx (Δ ++ Core.tnat)
+    by (eapply c_cons; [ exact CΔ | apply t_nat; exact CΔ ]).
+  have TSl : typing_subst (Δ ++ Core.tnat) (⇑ σ) (Γ ++ Core.tnat).
+  { exact (@typing_subst_lift m Δ n σ Γ Core.tnat CΔn TS). }
+  have TM1σ : typing (Δ ++ Core.tnat) M1[⇑ σ] (T[⇑ σ])[rho].
+  { rewrite rho_subst_comm.
+    exact (substitution_tm _ M1 (T[rho]) _ (⇑ σ) TM1 TSl CΔn). }
+  (* ---- 9. assemble ---- *)
+  move=> RB Hrank.
+  have cvTs : conv Δ (T[⇑ σ][(Core.succ P)..]) (T[⇑ σ][M[σ]..]) Core.tuniv.
+  { rewrite -(subst_cons_eq T (Core.succ P) σ) -(subst_cons_eq T M[σ] σ).
+    exact cvTT. }
+  have Hru : rk u < RB by (cbn in Hrank; lia).
+  (* compose the two branch relations through [M1'[P .: σ]] *)
+  have EBr0 : EqVal RB Δ M1[P .: σ] M1'[P' .: σ] ((T[rho])[P .: σ]) WT
+    := EqVal_trans Hru (eqBr1 RB Hrank) (eqBr2 RB Hrank).
+  have EBr : EqVal RB Δ (M1[⇑ σ][P..]) (M1'[⇑ σ][P'..]) (T[⇑ σ][M[σ]..]) WT.
+  { eapply EqVal_EqVal_fwd;
+      [ cbn in Hrank; lia | cbn in Hrank; lia | exact cvTs
+      | move: EBr0;
+        rewrite rho_subst_cons (subst_cons_eq M1 P σ) (subst_cons_eq M1' P' σ)
+                (subst_cons_eq T (Core.succ P) σ); done
+      | rewrite -(subst_cons_eq T (Core.succ P) σ) -(subst_cons_eq T M[σ] σ);
+        eapply EqVal_EqValTy;
+        exact (eqT (S RB) ltac:(cbn in Hrank |- *; lia)) ]. }
+  have HRstep : HeadRed (Core.ncase M M0 M1)[σ] (M1[⇑ σ][P..]).
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRs
+      | eapply ms_trans; [ apply hr_succ | apply ms_refl ] ]. }
+  have HRstep' : HeadRed (Core.ncase M' M0' M1')[σ] (M1'[⇑ σ][P'..]).
+  { cbn. eapply relations.ms_app;
+      [ eapply HeadRed_ncase; exact HRs'
+      | eapply ms_trans; [ apply hr_succ | apply ms_refl ] ]. }
+  have cvStep : conv Δ (Core.ncase M M0 M1)[σ] (M1[⇑ σ][P..]) (T[⇑ σ][M[σ]..]).
+  { cbn. eapply c_trans.
+    - eapply c_ncase;
+        [ exact TTσ | exact TM1σ | exact cvM
+        | apply c_refl; exact TM0σ | apply c_refl; exact TM1σ ].
+    - eapply c_conv;
+        [ eapply c_ncase_S; [ exact TTσ | exact TP | exact TM0σ | exact TM1σ ]
+        | exact cvTs ]. }
+  have CcongS : conv Δ (Core.ncase M M0 M1)[σ] (Core.ncase M' M0' M1')[σ]
+                       (T[⇑ σ][M[σ]..]).
+  { move: (substitution_conv _ (Core.ncase M M0 M1) (Core.ncase M' M0' M1')
+             (T[M..]) _ σ Ccong TS CΔ) => hh.
+    rewrite (@subst1_subst_comm _ _ T M σ) in hh. exact hh. }
+  have cvBranch : conv Δ (M1[⇑ σ][P..]) (M1'[⇑ σ][P'..]) (T[⇑ σ][M[σ]..]).
+  { eapply c_conv; [ | exact cvTs ].
+    have cb1 : conv Δ M1[P .: σ] M1'[P .: σ] ((T[rho])[P .: σ])
+      := substitution_conv _ M1 M1' (T[rho]) _ (P .: σ) CM1 TS1 CΔ.
+    have cb2 : conv Δ M1'[P .: σ] M1'[P' .: σ] ((T[rho])[P .: σ])
+      := subst_conv_cross TM1' CΔ TS1 TS1' CS1.
+    have cbt : conv Δ M1[P .: σ] M1'[P' .: σ] ((T[rho])[P .: σ])
+      by (eapply c_trans; [ exact cb1 | exact cb2 ]).
+    move: cbt.
+    rewrite rho_subst_cons (subst_cons_eq M1 P σ) (subst_cons_eq M1' P' σ)
+            (subst_cons_eq T (Core.succ P) σ); done. }
+  have cvStep' : conv Δ (Core.ncase M' M0' M1')[σ] (M1'[⇑ σ][P'..])
+                        (T[⇑ σ][M[σ]..]).
+  { eapply c_trans; [ apply c_sym; exact CcongS | ].
+    eapply c_trans; [ exact cvStep | exact cvBranch ]. }
+  have EQg : (T[M..])[σ] = T[⇑ σ][M[σ]..] by (asimpl; reflexivity).
+  rewrite EQg.
+  eapply EqVal_headred_expand;
+    [ exact HRstep | exact HRstep' | exact cvStep | exact cvStep' | exact EBr ].
+Qed.
+
+(** Congruence for dependent case analysis, assembled. *)
+Lemma sc_ncase (T : Tm (S n)) M M0 M1 M' M0' M1' :
+  typing (Γ ++ Core.tnat) T Core.tuniv ->
+  typing (Γ ++ Core.tnat) M1' T[rho] ->
+  conv Γ M M' Core.tnat ->
+  conv Γ M0 M0' (T[Core.zero..]) ->
+  conv (Γ ++ Core.tnat) M1 M1' T[rho] ->
+  semantic_typing (Γ ++ Core.tnat) T Core.tuniv ->
+  semantic_typing (Γ ++ Core.tnat) M1' T[rho] ->
+  semantic_conv2 Γ M M' Core.tnat ->
+  semantic_conv2 Γ M0 M0' (T[Core.zero..]) ->
+  semantic_conv2 (Γ ++ Core.tnat) M1 M1' T[rho] ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.ncase M M0 M1) (Core.ncase M' M0' M1') (T[M..]).
+Proof.
+  move=> TT TM1' CMM' CM0 CM1 STT STM1' SCM SCM0 SCM1.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a WT evNcase evT.
+  cbn in evNcase. move: evNcase => [w [evMw Hbr]].
+  destruct w as [ | | | | vp | b0 f0 | g0 ]; cbn in Hbr; try done.
+  - (* scrutinee is [bot]: so is the result *)
+    move: Hbr => [Vu Leu].
+    have Eu : u = bot by (apply le_bot_inv; exact Leu).
+    move=> RB Hrank. subst u. apply EqVal_Bot.
+  - (* scrutinee is [zero] *)
+    eapply sc_ncase_zero; eassumption.
+  - (* scrutinee is a successor *)
+    eapply sc_ncase_succ; eassumption.
 Qed.
 
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
@@ -3467,7 +4277,7 @@ Proof.
     + eapply st_nat; eauto.
     + eapply st_zero; eauto.
     + eapply st_succ; eauto.
-    + (* st_case: adequacy for ncase — TODO *) admit.
+    + eapply st_case; eauto.
     + eapply st_tpi; eauto.
     + eapply st_univ; eauto.
   - move=> h. dependent destruction h.
@@ -3479,13 +4289,13 @@ Proof.
     + eapply sc_app2; eauto.
     + eapply sc_beta; eauto.
     + eapply sc_eta; eauto.
-    + (* sc_ncase_Z — TODO *) admit.
-    + (* sc_ncase_S — TODO *) admit.
-    + (* sc_ncase — TODO *) admit.
+    + eapply sc_ncase_Z; eauto.
+    + eapply sc_ncase_S; eauto.
+    + eapply sc_ncase; eauto.
     + eapply sc_succ; eauto.
     + eapply sc_abs; eauto.
     + eapply sc_tpi; eauto.
-Admitted.
+Qed.
 
 Definition empty {n} : fin 0 -> Tm n := 
   fun f => match f with end. 
@@ -3743,7 +4553,7 @@ Proof.
     + eapply c_ncase_S;
         [ exact tT | exact (typing_succ_arg_inv tMc) | exact tMc0 | exact tMc1 ].
     + eapply c_ncase;
-        [ exact tT | eapply IHMc; exact hrM
+        [ exact tT | exact tMc1 | eapply IHMc; exact hrM
         | apply c_refl; exact tMc0 | apply c_refl; exact tMc1 ].
 Qed.
 
