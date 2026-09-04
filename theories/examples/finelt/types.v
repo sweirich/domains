@@ -200,6 +200,39 @@ Proof.
   move=> h. inversion h. eauto.
 Defined.
 
+(* ---- accessors for the identity fragment ---- *)
+
+Lemma wt_tid_dom c x y :
+  wt (tid c x y) tuniv -> wt c tuniv.
+Proof. move=> h. inversion h. eauto. Defined.
+
+Lemma wt_tid_lhs c x y :
+  wt (tid c x y) tuniv -> wt x c.
+Proof. move=> h. inversion h. eauto. Defined.
+
+Lemma wt_tid_rhs c x y :
+  wt (tid c x y) tuniv -> wt y c.
+Proof. move=> h. inversion h. eauto. Defined.
+
+(* The type of a proof is a well-formed [tid] code, ... *)
+Lemma wt_rfl_ty w c x y :
+  wt (rfl w) (tid c x y) -> wt (tid c x y) tuniv.
+Proof. move=> h. inversion h. eauto. Defined.
+
+(* ... its witness inhabits the type code, ... *)
+Lemma wt_rfl_wit w c x y :
+  wt (rfl w) (tid c x y) -> wt w c.
+Proof. move=> h. inversion h. eauto. Defined.
+
+(* ... and sits below both endpoints (Coquand's rule). *)
+Lemma wt_rfl_le_lhs w c x y :
+  wt (rfl w) (tid c x y) -> le w x.
+Proof. move=> h. inversion h. eauto. Defined.
+
+Lemma wt_rfl_le_rhs w c x y :
+  wt (rfl w) (tid c x y) -> le w y.
+Proof. move=> h. inversion h. eauto. Defined.
+
 
 
 

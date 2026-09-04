@@ -185,6 +185,72 @@ Proof.
   - move=> HM. apply IHR. eapply HeadRed1_tpi_contract; eauto.
 Qed.
 
+(* ============================================================
+   Head reduction for the identity fragment.  [tid] and [rfl] are
+   head-normal (no [HeadRed1] rule mentions them), so these mirror the
+   [tpi] and [succ] lemmas exactly.
+   ============================================================ *)
+
+Lemma nf_tid {n} (A a b : Tm n) : forall (P : Tm n), ~ HeadRed1 (tid A a b) P.
+Proof. move=> P H; inversion H. Qed.
+
+Lemma nf_rfl {n} (M : Tm n) : forall (P : Tm n), ~ HeadRed1 (rfl M) P.
+Proof. move=> P H; inversion H. Qed.
+
+Lemma HeadRed_tid_det {n} (M : Tm n) A1 a1 b1 A2 a2 b2 :
+  HeadRed M (tid A1 a1 b1) -> HeadRed M (tid A2 a2 b2) ->
+  A1 = A2 /\ a1 = a2 /\ b1 = b2.
+Proof.
+  move=> h1. move: A2 a2 b2.
+  dependent induction h1.
+  all: move=> A2 a2 b2 h2.
+  - inversion h2; subst. done. inversion H.
+  - inversion h2; subst. inversion H.
+    specialize (IHh1 _ _ _ ltac:(reflexivity) A2 a2 b2).
+    have EQ : e2 = e3 by (eapply HeadRed1_det; eauto). subst.
+    eauto.
+Qed.
+
+Lemma HeadRed_tid_eq {n} (A1 a1 b1 : Tm n) A2 a2 b2 :
+  HeadRed (tid A1 a1 b1) (tid A2 a2 b2) -> A1 = A2 /\ a1 = a2 /\ b1 = b2.
+Proof.
+  move=> R1.
+  have R2 : HeadRed (tid A1 a1 b1) (tid A1 a1 b1) by apply ms_refl.
+  eapply HeadRed_tid_det; eauto.
+Qed.
+
+Lemma HeadRed_rfl_det {n} (M : Tm n) a b :
+  HeadRed M (rfl a) -> HeadRed M (rfl b) -> a = b.
+Proof.
+  move=> h1. move: b. dependent induction h1.
+  all: move=> b h2.
+  - inversion h2; subst. congruence. inversion H.
+  - inversion h2; subst. inversion H.
+    specialize (IHh1 _ ltac:(reflexivity) b).
+    have EQ : e2 = e3 by (eapply HeadRed1_det; eauto). subst. eauto.
+Qed.
+
+Lemma HeadRed1_tid_expand {n} (M M' A a b : Tm n) :
+  HeadRed1 M M' -> HeadRed M' (tid A a b) -> HeadRed M (tid A a b).
+Proof. move=> R HR. eapply ms_trans; eauto. Qed.
+
+Lemma HeadRed1_tid_contract {n} (M M' A a b : Tm n) :
+  HeadRed1 M M' -> HeadRed M (tid A a b) -> HeadRed M' (tid A a b).
+Proof.
+  move=> R HR.
+  inversion HR; subst.
+  - (* [tid A a b] is [HeadRed1]-normal *) inversion R.
+  - rewrite (HeadRed1_det R ltac:(eassumption)). assumption.
+Qed.
+
+Lemma HeadRed_tid_contract {n} (M M' A a b : Tm n) :
+  HeadRed M M' -> HeadRed M (tid A a b) -> HeadRed M' (tid A a b).
+Proof.
+  move=> R. induction R.
+  - done.
+  - move=> HM. apply IHR. eapply HeadRed1_tid_contract; eauto.
+Qed.
+
 
 
 

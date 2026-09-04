@@ -187,12 +187,79 @@ forward-transport a value record's endpoint facts across a type conversion.
 Everything at a `rfl` *type* code, and at any other value code under an `tid`
 type code, is `True` — as for the existing `tnat` fragment.
 
-## Remaining work, in dependency order
+## Step 3 (done): the logical relation
 
-1. **`Val`/`EqVal` clauses for `tid`/`rfl`**, as just described, and the
-   `tid`/`rfl` cases of `raw_validity.v`'s ~30 structural lemmas — which stop
-   being trivial at that point (head expansion/contraction, up/down/restrict,
-   fuel stability, and the PER).
+In `raw_validity.v`:
+
+* `Rec.ValTyId` / `Rec.EqValTyId` / `Rec.ValId` / `Rec.EqValId`, the `tid` arm
+  of `Rec.ValTy` / `Rec.EqValTy`, and the `(rfl, tid)` arm of `Val` / `EqVal`,
+  with the rewrite lemmas `ValTy_tid`, `EqValTy_tid`, `Val_rfl`, `EqVal_rfl`.
+* Head reduction: `ValTyId_headred_expand`/`_contract`,
+  `ValId_headred_expand`/`_contract`, `EqValId_headred_expand`/`_contract`, and
+  the `tid`/`rfl` cases of the four `ValTy`/`EqValTy` head-red lemmas and of
+  all four blocks of `headred_VE_all`.
+* Code transport: `ValTyId_restrict`, `EqValTyId_restrict`, `ValId_restrict`,
+  `EqValId_restrict` (shrink the value code), `ValId_down`/`EqValId_down` and
+  `ValId_up`/`EqValId_up` (change the type code), and the `tid`/`rfl` cases of
+  `restrictVal_step`, `restrictEqVal_step` and all six fields of
+  `up_down_restrict`.
+* Fuel stability: two new bundle components `HVI`/`HEI` with
+  `fuel_ValId_S`/`fuel_EqValId_S`, threaded through `FuelStable`,
+  `Val_fuel_up_S`/`_down_S`, `EqVal_fuel_up_S`/`_down_S` and `fuel_stable`,
+  plus the `tid` cases of `fuel_ValTy_S`/`fuel_EqValTy_S`.
+* Forward transport across a type conversion: `ValId_fwd`, `EqValId_fwd`, and
+  the `rfl` cases of `FWD`/`EFWD`.
+
+Two design decisions came out of this:
+
+1. **`ValTyId` stores no step conversion.** `ValTy`/`EqValTy` are deliberately
+   conv-free in this port (as for `tpi`); the `Red3` conversions live in the
+   term-level records. That is what lets `ValTy_HeadRed1_expand` and friends
+   move a type term freely.
+2. **`ValId` stores no whole-type conversion either** — only
+   `HeadRed A (tid A0 a0 b0)`, with the endpoint conversions stated at the
+   *recorded* `A0`. Storing `conv Γ A (tid A0 a0 b0) tuniv` would have forced a
+   `tid` congruence rule (`c_tid`) to exist before the logical relation could
+   be transported across a type conversion; as it is, `ValId_fwd` needs only
+   `c_trans`/`c_conv`. This mirrors `piConv`, which likewise returns a
+   `HeadRed` rather than a whole-type conv.
+3. **`ValId` stores the witness's *unary* validity** `Val Γ M0 A0` alongside the
+   two endpoint `EqVal`s. It is in principle derivable from them, but only via
+   `EqVal_Val1`, which is defined after `Val_EqVal` — and `Val_EqVal` needs it
+   to build the diagonal `EqValId`.
+
+`ValId_fwd` is where Coquand's membership rule earns its keep: the endpoint
+equalities in `EqValTyId` live at the *endpoint* codes `x`, `y`, and
+`restrictEqVal` brings them down to the witness code `w` (legitimate exactly
+because `le w x` and `le w y`) so that transitivity can compose them with the
+record's own facts.
+
+* The PER: `EqValTyId_sym`, `EqValTyId_trans`, `EqValId_sym`,
+  `EqValId_trans`, and the `tid`/`rfl` cases of `ETSYM`, `ETTRANS`, `SYM` and
+  `TRANS`.
+
+Two recurring techniques are worth naming, since the rest of the port will need
+them:
+
+* **The `tid` records' components sit at fuel `S k`, while the induction
+  hypotheses `IHsym`/`IHtrans` are at `k`.** Each component therefore goes down
+  a fuel with `EqVal_fuel_down`, gets flipped or composed, and comes back up
+  with `EqVal_fuel_up`. The ranks always permit it (`rk c`, `rk x`, `rk y` are
+  all `< k`). The local `flipE`/`transE` helpers package that; `flipU`/`transU`
+  are the corresponding versions at a `tuniv` type, which have to go through
+  `IHTsym`/`IHTtrans` instead because `rk tuniv = 1` is not `< k` for small `k`.
+* **The endpoint conversions and equalities are stated at the *first* record's
+  domain.** Swapping or composing two records therefore has to move them along
+  the domain conversion — `c_sym`/`c_conv` for the syntactic ones and the
+  already-built fuel-`S k` `EFWD` for the semantic ones.
+
+A third, purely mechanical point: inside `fwd_per_all` the codes and `wt`
+indices come from a `dependent destruction` and so have unpredictable names.
+Every non-trivial case is therefore a standalone lemma taking the fuel-`k`
+induction hypotheses as parameters, applied with `eapply`; the same trick is
+what makes the transport lemmas above readable.
+
+## Remaining work, in dependency order
 2. **Rules**: define `motive_ty`/`base_ty` and add the typing, conversion and
    reduction rules above. This is the first step that forces new cases in
    `typing_EvalRel` / `conv_EvalRel` and in the adequacy drivers.
