@@ -647,6 +647,10 @@ Proof.
     eapply EqVal_Val1; exact V1.
   - rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
   - rewrite EqVal_abs Val_abs. move=> [hA [hM _]]. by split.
+  - (* wt_tid: an [tid] code is a type code, so this is the [tuniv] case *)
+    rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
+  - (* wt_rfl: [Val]/[EqVal] carry no information at an [tid] code *)
+    move=> _. by cbn.
 Qed.
 
 
@@ -667,6 +671,10 @@ Proof.
     eapply EqVal_Val2; exact V1.
   - rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
   - rewrite EqVal_abs Val_abs. move=> [hA [_ [hN _]]]. by split.
+  - (* wt_tid: an [tid] code is a type code, so this is the [tuniv] case *)
+    rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
+  - (* wt_rfl: [Val]/[EqVal] carry no information at an [tid] code *)
+    move=> _. by cbn.
 Qed.
 
 (* ============================================================
@@ -678,7 +686,8 @@ Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k 
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
-  1,2,3: tauto.
+  (* goals: 1 bot, 2 tuniv, 3 tnat, 4 tpi, 5 tid -- all but tpi trivial *)
+  1,2,3,5: tauto.
   move=> [A0 [B0 [R0 [TA0 [TB0 [Vpi [VA [PEV PEE]]]]]]]].
   exists A0, B0.
   split. { eapply HeadRed1_tpi_expand; eauto. }
@@ -706,7 +715,8 @@ Lemma ValTy_HeadRed1_contract {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) 
 Proof. 
   move=> R.
   dependent destruction h; cbn [Rec.ValTy].
-  1,2,3: tauto.
+  (* goals: 1 bot, 2 tuniv, 3 tnat, 4 tpi, 5 tid -- all but tpi trivial *)
+  1,2,3,5: tauto.
   move=> [A0 [B0 [R0 [TA0 [TB0 [Vpi [VA [PEV PEE]]]]]]]].
   exists A0, B0.
   split. { eapply HeadRed1_tpi_contract; eauto. }
@@ -739,7 +749,8 @@ Lemma EqValTy_headred_expand {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u
 Proof.
   move=> R1 R2.
   dependent destruction h; cbn [Rec.EqValTy].
-  1,2,3: tauto.
+  (* goals: 1 bot, 2 tuniv, 3 tnat, 4 tpi, 5 tid -- all but tpi trivial *)
+  1,2,3,5: tauto.
   move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
   split; [ eapply ValTy_HeadRed_expand; [ exact R1 | exact VM1 ] | ].
   split; [ eapply ValTy_HeadRed_expand; [ exact R2 | exact VM2 ] | ].
@@ -755,7 +766,8 @@ Lemma EqValTy_headred_contract {n} (Γ : Ctx n) (M1 M2 M1' M2' : Tm n) u
 Proof.
   move=> R1 R2.
   dependent destruction h; cbn [Rec.EqValTy].
-  1,2,3: tauto.
+  (* goals: 1 bot, 2 tuniv, 3 tnat, 4 tpi, 5 tid -- all but tpi trivial *)
+  1,2,3,5: tauto.
   move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
   split; [ eapply ValTy_headred_contract; [ exact R1 | exact VM1 ] | ].
   split; [ eapply ValTy_headred_contract; [ exact R2 | exact VM2 ] | ].
@@ -925,6 +937,10 @@ Proof.
       * rewrite !Val_abs. move=> [VTd VPi].
         split; [ exact VTd
                | eapply ValPiExp; [ exact R | exact cv | exact VTd | exact VPi ] ].
+      * (* wt_tid: an [tid] code is a type code, and [Rec.ValTy] is [True] there *)
+        rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * (* wt_rfl: [Val] carries no information at an [tid] code *)
+        move=> _. by cbn.
     + (* EqVal expand *)
       intros n Γ M M0 N N0 T u a h RM RN cvM cvN. dependent destruction h.
       * move=> _; apply EqVal_Bot.
@@ -951,6 +967,10 @@ Proof.
         split; [ eapply ValPiExp; [ exact RN | exact cvN | exact VTd | exact VPiN ] | ].
         eapply EqValPiExp;
           [ exact RM | exact RN | exact cvM | exact cvN | exact VTd | exact EPi ].
+      * (* wt_tid: an [tid] code is a type code, and [Rec.EqValTy] is [True] there *)
+        rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * (* wt_rfl: [EqVal] carries no information at an [tid] code *)
+        move=> _. by cbn.
     + (* Val contract *)
       intros n Γ M M0 T u a h R cv. dependent destruction h.
       * move=> _; apply Val_Bot.
@@ -967,6 +987,10 @@ Proof.
       * rewrite !Val_abs. move=> [VTd VPi].
         split; [ exact VTd
                | eapply ValPiCon; [ exact R | exact cv | exact VTd | exact VPi ] ].
+      * (* wt_tid: an [tid] code is a type code, and [Rec.ValTy] is [True] there *)
+        rewrite !Val_tuniv. move=> _. cbn [Rec.ValTy]. exact I.
+      * (* wt_rfl: [Val] carries no information at an [tid] code *)
+        move=> _. by cbn.
     + (* EqVal contract *)
       intros n Γ M M0 N N0 T u a h RM RN cvM cvN. dependent destruction h.
       * move=> _; apply EqVal_Bot.
@@ -995,6 +1019,10 @@ Proof.
         split; [ eapply ValPiCon; [ exact RN | exact cvN | exact VTd | exact VPiN ] | ].
         eapply EqValPiCon;
           [ exact RM | exact RN | exact cvM | exact cvN | exact VTd | exact EPi ].
+      * (* wt_tid: an [tid] code is a type code, and [Rec.EqValTy] is [True] there *)
+        rewrite !EqVal_tuniv. move=> _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      * (* wt_rfl: [EqVal] carries no information at an [tid] code *)
+        move=> _. by cbn.
 Qed.
 
 (** Closure under head expansion for values (Agda: [Val2-beta-expand]): a term
@@ -1426,6 +1454,8 @@ Proof.
     rewrite Val_tuniv in V. cbn [Rec.ValTy] in V.
     destruct V as [A [B [HRM [TyA [TyB [vld [VDom [PEV PEE]]]]]]]].
     dependent destruction h0.
+    (* inner goals: bot, tuniv, tnat, tpi, tid *)
+    5: by autorewrite with le in LE.
     + apply Val_Bot.
     + by autorewrite with le in LE.
     + by autorewrite with le in LE.
@@ -1563,6 +1593,11 @@ Proof.
         eapply (RESe _ Γ (Core.app M N1) (Core.app M N2) B0[N1..] v0 v (app g u)
                    (wt_Selection_abs (wt_abs w w0 i h0) Sel) hVgU);
           [ exact levg | exact ResUp ].
+  - (* wt_tid: a type code with no [ValTy] content, so the target is trivial *)
+    rewrite Val_tuniv. dependent destruction h0; cbn [Rec.ValTy];
+      first [ exact I | by autorewrite with le in LE ].
+  - (* wt_rfl: [Val] carries no information at an [tid] code *)
+    by cbn.
 Qed.
 
 (* restrictEqVal: the binary analog of [restrictVal_step]. *)
@@ -1605,6 +1640,8 @@ Proof.
   - (* wt_tpi: type-code -- EqValTy edge reconstruction (PiEdgeEqTy) *)
     rewrite EqVal_tuniv in V. destruct V as [VTyM1 [VTyN1 EQT1]].
     dependent destruction h0.
+    (* inner goals: bot, tuniv, tnat, tpi, tid *)
+    5: by autorewrite with le in LE.
     + apply EqVal_Bot.
     + by autorewrite with le in LE.
     + by autorewrite with le in LE.
@@ -1710,6 +1747,11 @@ Proof.
       eapply (RESe _ Γ (Core.app M P) (Core.app N P) B0[P..] v0 v (app g u)
                  (wt_Selection_abs (wt_abs w w0 i h0) Sel) hVgU);
         [ exact levg | exact ResUp ].
+  - (* wt_tid: a type code with no [EqValTy] content *)
+    rewrite EqVal_tuniv. dependent destruction h0; cbn [Rec.ValTy Rec.EqValTy];
+      first [ (repeat split; exact I) | by autorewrite with le in LE ].
+  - (* wt_rfl: [EqVal] carries no information at an [tid] code *)
+    by cbn.
   Unshelve.
   all: try eassumption.
   all: eapply (wt_tpi_inv2 (wt_tpi h0 w w0 i) (u := u0)); eauto with valid.
@@ -1733,6 +1775,10 @@ Proof.
       * dependent destruction h0; eapply Val_irr; eassumption.
       * dependent destruction h0. rewrite le_pi in LE. case/andP: LE => LEa LEg.
         eapply (upValPi IH); [ exact LEa | exact LEg | exact V | exact VT ].
+      * (* wt_tid: an [tid] code, same on both sides *)
+        dependent destruction h0; eapply Val_irr; eassumption.
+      * (* wt_rfl: [Val] is trivial at an [tid] code *)
+        dependent destruction h0; by cbn.
     + intros n Γ M N T u a0 a1 h0 h1 hUa0 hUa1 LE V VT.
       dependent destruction h1.
       * apply EqVal_Bot.
@@ -1743,6 +1789,10 @@ Proof.
       * dependent destruction h0; eapply EqVal_irr; eassumption.
       * dependent destruction h0. rewrite le_pi in LE. case/andP: LE => LEa LEg.
         eapply (upEqValPi IH); [ exact LEa | exact LEg | exact V | exact VT ].
+      * (* wt_tid: an [tid] code, same on both sides *)
+        dependent destruction h0; eapply EqVal_irr; eassumption.
+      * (* wt_rfl: [EqVal] is trivial at an [tid] code *)
+        dependent destruction h0; by cbn.
     + intros n Γ M T u a0 a1 h0 h1 LE V.
       dependent destruction h1.
       * apply Val_Bot.
@@ -1757,6 +1807,10 @@ Proof.
         eapply (restrictVal_step IH).
         2: { eapply ValTy_Val. exact VTyB. }
         rewrite le_pi. apply/andP. split; [ exact LEa | exact LEg ].
+      * (* wt_tid: an [tid] code, same on both sides *)
+        dependent destruction h0; eapply Val_irr; eassumption.
+      * (* wt_rfl: [Val] is trivial at an [tid] code *)
+        dependent destruction h0; by cbn.
     + intros n Γ M N T u a0 a1 h0 h1 LE V.
       dependent destruction h1.
       * apply EqVal_Bot.
@@ -1771,12 +1825,16 @@ Proof.
         eapply (restrictVal_step IH).
         2: { eapply ValTy_Val. exact VTyB. }
         rewrite le_pi. apply/andP. split; [ exact LEa | exact LEg ].
+      * (* wt_tid: an [tid] code, same on both sides *)
+        dependent destruction h0; eapply EqVal_irr; eassumption.
+      * (* wt_rfl: [EqVal] is trivial at an [tid] code *)
+        dependent destruction h0; by cbn.
     + exact (restrictVal_step IH).
     + exact (restrictEqVal_step IH).
   (* A few proof-irrelevant [wt _ tuniv] witnesses are left shelved by the
      [eapply]s above; any inhabitant works (they only index [Val]/[EqVal],
      which are proof-irrelevant -- see [Val_irr]/[EqVal_irr]). *)
-  Unshelve. all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot.
+  Unshelve. all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot, wt_tid.
 Qed.
 
 (** Monotonicity of the relation in the *type* and *value* code, exported as
@@ -2234,6 +2292,10 @@ Proof.
   - rewrite Val_abs in V |- *. destruct V as [VTy VPi]. split.
     + refine (proj1 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
     + refine (proj1 (FVP n Γ M T _ _ _ _ _ _) VPi); cbn in Hu, Ha |- *; lia.
+  - (* wt_tid: [Rec.ValTy] is [True] at an [tid] code *)
+    rewrite Val_tuniv. cbn [Rec.ValTy]. exact I.
+  - (* wt_rfl: [Val] is trivial at an [tid] code *)
+    by cbn.
 Qed.
 
 Lemma Val_fuel_down_S (k : nat) (FVT : HVT k) (FVP : HVP k) : FD (S k).
@@ -2249,6 +2311,10 @@ Proof.
   - rewrite Val_abs in V |- *. destruct V as [VTy VPi]. split.
     + refine (proj2 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
     + refine (proj2 (FVP n Γ M T _ _ _ _ _ _) VPi); cbn in Hu, Ha |- *; lia.
+  - (* wt_tid: [Rec.ValTy] is [True] at an [tid] code *)
+    rewrite Val_tuniv. cbn [Rec.ValTy]. exact I.
+  - (* wt_rfl: [Val] is trivial at an [tid] code *)
+    by cbn.
 Qed.
 
 Lemma EqVal_fuel_up_S (k : nat) (FVT : HVT k) (FET : HET k) (FVP : HVP k) (FEP : HEP k) : FEU (S k).
@@ -2270,6 +2336,10 @@ Proof.
     + refine (proj1 (FVP n Γ M T _ _ _ _ _ _) VPiM); cbn in Hu, Ha |- *; lia.
     + refine (proj1 (FVP n Γ N T _ _ _ _ _ _) VPiN); cbn in Hu, Ha |- *; lia.
     + refine (proj1 (FEP n Γ M N T _ _ _ _ _ _) VEqPi); cbn in Hu, Ha |- *; lia.
+  - (* wt_tid: [Rec.EqValTy] is [True] at an [tid] code *)
+    rewrite EqVal_tuniv. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+  - (* wt_rfl: [EqVal] is trivial at an [tid] code *)
+    by cbn.
 Qed.
 
 Lemma EqVal_fuel_down_S (k : nat) (FVT : HVT k) (FET : HET k) (FVP : HVP k) (FEP : HEP k) : FED (S k).
@@ -2291,6 +2361,10 @@ Proof.
     + refine (proj2 (FVP n Γ M T _ _ _ _ _ _) VPiM); cbn in Hu, Ha |- *; lia.
     + refine (proj2 (FVP n Γ N T _ _ _ _ _ _) VPiN); cbn in Hu, Ha |- *; lia.
     + refine (proj2 (FEP n Γ M N T _ _ _ _ _ _) VEqPi); cbn in Hu, Ha |- *; lia.
+  - (* wt_tid: [Rec.EqValTy] is [True] at an [tid] code *)
+    rewrite EqVal_tuniv. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+  - (* wt_rfl: [EqVal] is trivial at an [tid] code *)
+    by cbn.
 Qed.
 
 (** Fuel stability (the bundle [FuelStable k], proven by induction on [k]):
@@ -2551,7 +2625,11 @@ Proof.
               [ cbn in Hu; lia
               | move: (rk_app g u') => Hca; cbn in Ha; lia
               | eapply conv_subst1; [ exact cvB | exact TyN1 ]
-              | exact Eres | exact (EqVal_EqValTy Eedge) ]. }
+              | exact Eres | exact (EqVal_EqValTy Eedge) ].
+      - (* wt_tid: [Val] is [Rec.ValTy] = [True] at an [tid] code *)
+        exact HV.
+      - (* wt_rfl: [Val] is [True] at an [tid] code *)
+        exact HV. }
     (* ---- efwd (EqVal), same shape ---- *)
     have EFWD : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
         rk u < S k -> rk a < S k -> conv Γ A B Core.tuniv ->
@@ -2622,7 +2700,11 @@ Proof.
         eapply IHEfwd;
           [ cbn in Hu; lia | move: (rk_app g u') => Hca; cbn in Ha; lia
           | eapply conv_subst1; [ exact cvB | exact TyP0 ]
-          | exact Eres | exact (EqVal_EqValTy Eedge) ]. }
+          | exact Eres | exact (EqVal_EqValTy Eedge) ].
+      - (* wt_tid: [EqVal] is [Rec.EqValTy] = [True] at an [tid] code *)
+        exact HV.
+      - (* wt_rfl: [EqVal] is [True] at an [tid] code *)
+        exact HV. }
     (* ---- EqValTy_sym at [S k]: tpi case uses FWD (just built) + the [k] IH ---- *)
     have ETSYM : forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
         rk u < S k -> EqValTy (S k) Γ M N h -> EqValTy (S k) Γ N M h.
@@ -2731,7 +2813,10 @@ Proof.
         move=> uu vv Sel WT P TP VP.
         eapply IHsym;
           [ move: (rk_Selection_val Sel) => Hv; cbn in Hu; lia
-          | exact (PAEV uu vv Sel WT P TP VP) ]. }
+          | exact (PAEV uu vv Sel WT P TP VP) ].
+      - (* wt_tid *)
+        rewrite EqVal_tuniv. move: HV => _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      - (* wt_rfl *) by cbn. }
     (* ---- EqVal_trans (PER): tpi bounces through ETTRANS (S k) ---- *)
     have TRANS : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
         rk u < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M3 A h -> EqVal (S k) Γ M1 M3 A h.
@@ -2768,7 +2853,10 @@ Proof.
         move=> uu vv Sel WT P TP VP.
         eapply IHtrans;
           [ move: (rk_Selection_val Sel) => Hv; cbn in Hu; lia
-          | exact (PAEV12 uu vv Sel WT P TP VP) | exact (PAEV23 uu vv Sel WT P TP VP) ]. }
+          | exact (PAEV12 uu vv Sel WT P TP VP) | exact (PAEV23 uu vv Sel WT P TP VP) ].
+      - (* wt_tid *)
+        rewrite EqVal_tuniv. move: HV HW => _ _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
+      - (* wt_rfl *) by cbn. }
     unfold FwdPER. repeat split;
       [ exact FWD | exact EFWD | exact SYM | exact TRANS | exact ETSYM | exact ETTRANS ].
 Qed.

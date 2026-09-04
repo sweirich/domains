@@ -89,13 +89,13 @@ Proof.
     cbn. split.
     + move=> [w [EM Hb]]. exists w. split.
       * rewrite -> IHM1 in EM; eauto.
-      * destruct w as [ | | | | v | | ]; cbn in Hb |- *; try contradiction.
+      * destruct w as [ | | | | v | | | | ]; cbn in Hb |- *; try contradiction.
         -- exact Hb.
         -- rewrite -> IHM2 in Hb; eauto.
         -- rewrite <- (IHM3 _ (up_ren ξ) _ (v .: ρ')). exact Hb. auto_case.
     + move=> [w [EM Hb]]. exists w. split.
       * rewrite -> IHM1; eauto.
-      * destruct w as [ | | | | v | | ]; cbn in Hb |- *; try contradiction.
+      * destruct w as [ | | | | v | | | | ]; cbn in Hb |- *; try contradiction.
         -- exact Hb.
         -- rewrite -> IHM2; eauto.
         -- rewrite -> (IHM3 _ (up_ren ξ) (v .: ρ) (v .: ρ')). exact Hb. auto_case.
@@ -204,7 +204,7 @@ Proof.
   - (* ncase *)
     move: E => [w [EM Hb]]. exists w. split.
     + eapply IHM1; eauto.
-    + destruct w as [ | | | | v | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
       * have Vv : valid v := EvalRel_valid EM.
@@ -337,7 +337,7 @@ Proof.
   - (* ncase *)
     move: E => [w [EM Hb]]. exists w. split.
     + eapply IHM1; eauto.
-    + destruct w as [ | | | | v | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
       * have Vv : valid v := EvalRel_valid EM.
@@ -685,7 +685,7 @@ Proof.
     + cbn [EvalRel]. split; first exact Vu.
       rewrite singleton_env_lookup. by apply le_refl.
   - (* abs *)
-    destruct u as [| | | | | |l].
+    destruct u as [| | | | | |l| | ].
     1:{ (* bot *) exists bot_env. split; [|split].
         - by apply bot_env_valid.
         - by apply SubRel_bot_env.
@@ -755,7 +755,7 @@ Proof.
     cbn. rewrite Hb. split; auto. by exists a.
   - (* ncase — forward witness for case, assembled from the selected branch *)
     move: E => [w [EM Hb]].
-    destruct w as [ | | | | v | | ]; cbn in Hb; try contradiction.
+    destruct w as [ | | | | v | | | | ]; cbn in Hb; try contradiction.
     + (* bot: u = bot *)
       move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u.
       exists bot_env. split; [|split].
@@ -800,7 +800,7 @@ Proof.
     + by apply SubRel_bot_env.
     + cbn. exact E.
   - (* tpi *)
-    destruct u as [| | | | |e l|].
+    destruct u as [| | | | |e l| | | ].
     1:{ (* bot *) exists bot_env. split; [|split].
         - by apply bot_env_valid.
         - by apply SubRel_bot_env.

@@ -700,7 +700,7 @@ Proof. destruct v; cbn; done. Qed.
 (* Inversion of [le] at a successor: anything above [succ u] is a successor. *)
 Lemma le_succ_inv (u v : elt) : le (succ u) v -> exists v', v = succ v' /\ le u v'.
 Proof.
-  destruct v as [ | | | | v' | | ]; try (autorewrite with le; done).
+  destruct v as [ | | | | v' | | | | ]; try (autorewrite with le; done).
   move=> h. exists v'. split; [ reflexivity | ]. by rewrite le_succ in h.
 Qed.
 
@@ -890,7 +890,7 @@ Proof.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
       (* the function's type code must be a Pi [tpi b f] *)
-      destruct abig as [ | | | | | b f | ];
+      destruct abig as [ | | | | | b f | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       (* domain/value-graph facts *)
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
@@ -986,7 +986,7 @@ Proof.
       have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evM_sing.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-      destruct abig as [ | | | | | b f | ];
+      destruct abig as [ | | | | | b f | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
       have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -1151,7 +1151,7 @@ Proof.
     split; intros RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
   (* [u <> bot]: [EvalRel (succ M) ρ u] gives [u <= succ v] and [EvalRel M ρ v] *)
   move: EN. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
-  destruct u as [ | | | | w | b f | g ];
+  destruct u as [ | | | | w | b f | g | | ];
     try discriminate; try (exfalso; move: LEuv; done).
   (* only [u = succ w] survives *)
   have Ea : a = tnat by (inversion WT; reflexivity). subst a.
@@ -1267,7 +1267,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -1285,7 +1285,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -1450,7 +1450,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ P Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply Val_bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -1679,7 +1679,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ P P' Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply EqVal_Bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -1923,7 +1923,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -1941,7 +1941,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2069,7 +2069,7 @@ Lemma st_case_Val (T : Tm (S n)) M M0 M1
     Val RB Δ (Core.ncase M M0 M1)[σ] (T[M..])[σ] WT.
 Proof.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2100,7 +2100,7 @@ Lemma st_case_EqVal (T : Tm (S n)) M M0 M1
     EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M M0 M1)[σ'] (T[M..])[σ] WT.
 Proof.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2292,7 +2292,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2310,7 +2310,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2499,7 +2499,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ P P' Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply EqVal_Bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -2681,7 +2681,7 @@ Proof.
   move=> TT TM1' CMM' CM0 CM1 STT STM1' SCM SCM0 SCM1.
   move=> ρ m Δ σ TS Fρ VS CΔ u a WT evNcase evT.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2749,7 +2749,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | ];
+  destruct abig as [ | | | | | b f | | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -3032,7 +3032,7 @@ Proof.
       have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-      destruct abig as [ | | | | | b f | ];
+      destruct abig as [ | | | | | b f | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
       have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -3493,7 +3493,7 @@ Proof.
   have evAN0 := evAN.            (* keep the folded [EvalRel] for the edges *)
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | b f | ]; try done.
+  destruct u as [ | | | | | b f | | | ]; try done.
   - (* u = bot: trivial *) apply Val_Bot.
   - (* u = tpi b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -3533,7 +3533,7 @@ Proof.
   have evAN0 := evAN.            (* keep the folded [EvalRel] for the edges *)
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | b f | ]; try done.
+  destruct u as [ | | | | | b f | | | ]; try done.
   - (* u = bot: trivial *) apply EqVal_Bot.
   - (* u = tpi b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -3625,10 +3625,10 @@ Proof.
   have evAN0 := evAN. have evAB0 := evAB.
   cbn in evAN. cbn in evAB.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | g_val ]; try done.
+  destruct u as [ | | | | | | g_val | | ]; try done.
   - (* u = bot *) apply Val_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | ];
+    destruct a as [ | | | | | b f_ty | | | ];
       try solve [ cbn in evAB; done | exfalso; clear -WT; inversion WT ].
     move: evAN => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evAB => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
@@ -3783,10 +3783,10 @@ Proof.
   have evAN0 := evAN. have evAB0 := evAB.
   cbn in evAN. cbn in evAB.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | g_val ]; try done.
+  destruct u as [ | | | | | | g_val | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | ];
+    destruct a as [ | | | | | b f_ty | | | ];
       try solve [ cbn in evAB; done | exfalso; clear -WT; inversion WT ].
     move: evAN => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evAB => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
@@ -4070,7 +4070,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  destruct abig as [ | | | | | b f | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
   have Vw : valid w := EvalRel_valid evMw.
@@ -4164,7 +4164,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  destruct abig as [ | | | | | b f | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
   have Vw : valid w := EvalRel_valid evMw.
@@ -4311,13 +4311,13 @@ Proof.
   have evN' : EvalRel N' ρ u := fwd u evN.
   have evTpi0 := evTpi. cbn in evTpi.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | b f_ty | ];
+  destruct a as [ | | | | | b f_ty | | | ];
     try solve [ exfalso; clear -evTpi; cbn in evTpi; done ].
   - (* a = bot: the type value is [bot], so [u = bot] *)
     have Eu := wt_bot_inv WT. subst u. apply EqVal_Bot.
   - (* a = tpi b f_ty *)
     move: evTpi => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
-    destruct u as [ | | | | | | g_val ];
+    destruct u as [ | | | | | | g_val | | ];
       try solve [ exfalso; clear -WT; inversion WT ].
     + (* u = bot *) apply EqVal_Bot.
     + (* u = abs g_val *)
@@ -4462,7 +4462,7 @@ Proof.
   { have Eu : u = bot by (apply is_bot_eq; rewrite Bu). subst u. apply EqVal_Bot. }
   (* [u <> bot]: from [EvalRel (succ M) ρ u], [u <= succ v] and [EvalRel M ρ v] *)
   move: EM. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
-  destruct u as [ | | | | w | b f | g ];
+  destruct u as [ | | | | w | b f | g | | ];
     try discriminate; try (exfalso; move: LEuv; done).
   (* only [u = succ w] survives *)
   have Ea : a = tnat by (inversion WT; reflexivity). subst a.
@@ -4583,7 +4583,7 @@ Proof.
     := substitution_conv (Γ ++ A0) B0 B1 Core.tuniv (Δ ++ A0[σ]) (⇑ σ) CB TSlift CE.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evM0 := evM. cbn in evM.
-  destruct u as [ | | | | | b f | ]; try done.
+  destruct u as [ | | | | | b f | | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = tpi b f *)
     move: evM => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -4658,10 +4658,10 @@ Proof.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evM0 := evM. have evA0 := evA.
   cbn in evM. cbn in evA.
-  destruct u as [ | | | | | | g_val ]; try done.
+  destruct u as [ | | | | | | g_val | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | ];
+    destruct a as [ | | | | | b f_ty | | | ];
       try solve [ cbn in evA; done | exfalso; clear -WT; inversion WT ].
     move: evM => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evA => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].

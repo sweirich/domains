@@ -105,13 +105,39 @@ Inductive wt : elt -> elt -> Prop :=
     valid (abs f) ->
     (* make sure type is a type *)
     wt (tpi a g) tuniv ->
-    wt (abs f) (tpi a g).
+    wt (abs f) (tpi a g)
+
+  (* Identity fragment (Agda [ID/Domain/MemStage.agda], clauses
+     [fm' (IdCode t u v) UCode] and [fm' (RefEl w) (IdCode t u v)]).
+
+     [tid t u v] is a *type code*: it inhabits [tuniv] exactly when [t] is a
+     type and both endpoints inhabit [t].  (That [bot] then inhabits
+     [tid t u v] is already given by [wt_bot].) *)
+  | wt_tid c x y :
+    wt c tuniv ->
+    wt x c ->
+    wt y c ->
+    wt (tid c x y) tuniv
+
+  (* [rfl w] is a *proof*: it inhabits [tid t u v] when the witness [w]
+     inhabits [t] and sits below *both* endpoints (Coquand's rule).  The
+     [wt (tid t u v) tuniv] premise keeps the type projections
+     ([wt_ty_tuniv] and friends) available. *)
+  | wt_rfl w c x y :
+    wt w c ->
+    le w x ->
+    le w y ->
+    wt (tid c x y) tuniv ->
+    wt (rfl w) (tid c x y).
 
 (** * Validity *)
 
 (** A well-typed element is a [valid] term, and so is its type. *)
 Fixpoint wt_valid_tm u a : wt u a -> valid u.
-- induction 1; eauto.  
+- induction 1; eauto.
+  (* [tid]: validity is componentwise, so it has no [valid] premise (unlike
+     [wt_tpi]/[wt_abs], whose tables need one) — build it from the IHs. *)
+  cbn. apply /andP ; split ; [ apply /andP ; split | ]; assumption.
 Qed.
 
 Lemma wt_valid_ty u a : wt u a -> valid a.
@@ -327,6 +353,29 @@ Proof.
       eapply wt_succ; eauto.
     + apply le_tuniv_inv in LE. subst.
       eapply wt_tpi; eauto.
+    + (* wt_tid: a type code, so [b] is [tuniv] and nothing moves *)
+      apply le_tuniv_inv in LE. subst.
+      eapply wt_tid; eauto.
+    + (* wt_rfl: the witness must be retyped at the larger code and pushed
+         below the larger endpoints *)
+      destruct (le_tid_inv LE) as [c' [x' [y' [E [LEc [LEx LEy]]]]]]. subst.
+      have Wc  : wt c  tuniv by (inversion WTa; eauto).
+      have Wx  : wt x  c     by (inversion WTa; eauto).
+      have Wy  : wt y  c     by (inversion WTa; eauto).
+      have Wc' : wt c' tuniv by (inversion WTb; eauto).
+      have Wx' : wt x' c'    by (inversion WTb; eauto).
+      have Wy' : wt y' c'    by (inversion WTb; eauto).
+      have Ww  : wt w c      by eauto.
+      have Lwx : le w x      by eauto.
+      have Lwy : le w y      by eauto.
+      cbn in RK.
+      specialize (ih (max (max (rk c) (rk c'))
+                          (max (max (rk x) (rk x')) (max (rk y) (rk y'))))
+                     ltac:(lia)).
+      eapply wt_rfl; [ | | | exact WTb ].
+      * solve [ eapply wt_le ; eauto ; lia | eapply wt_le ; eauto ].
+      * eapply (@le_trans w x x') ; eauto with valid.
+      * eapply (@le_trans w y y') ; eauto with valid.
   - (* If u : a and v : a, then lub u v : a. *)
     move=> u a h v RK Cav WTv.
     have WTa: wt a tuniv. eapply wt_ty_tuniv; eauto.
@@ -377,6 +426,46 @@ Proof.
        eapply valid_append; eauto with valid.
        destruct f; try done.
     ++ done.
+
+    + (* wt_tid: join the type codes, then retype both endpoint pairs at the
+         joined code before joining them (Agda [Sup (IdCode ..) (IdCode ..)]) *)
+      have Hc : wt c tuniv by eauto.
+      have Hx : wt x c by eauto.
+      have Hy : wt y c by eauto.
+      have Hv1 : wt v1 tuniv by (inversion WTv; eauto).
+      have Hv2 : wt v2 v1 by (inversion WTv; eauto).
+      have Hv3 : wt v3 v1 by (inversion WTv; eauto).
+      cbn in Cav. move: Cav => /andP [/andP [Cc Cx] Cy].
+      have RKc : rk (lub c v1) <= max (rk c) (rk v1) by eapply rk_lub.
+      have Hlubc : wt (lub c v1) tuniv
+        by solve [ eapply wt_lub ; eauto ; lia | eapply wt_lub ; eauto ].
+      have Lc : le c (lub c v1) by (eapply le_lub_left ; eauto with valid).
+      have Lv1 : le v1 (lub c v1) by (eapply le_lub_right ; eauto with valid).
+      have Hx' : wt x (lub c v1)
+        by solve [ eapply wt_le ; eauto ; lia | eapply wt_le ; eauto ].
+      have Hy' : wt y (lub c v1)
+        by solve [ eapply wt_le ; eauto ; lia | eapply wt_le ; eauto ].
+      have Hv2' : wt v2 (lub c v1)
+        by solve [ eapply wt_le ; eauto ; lia | eapply wt_le ; eauto ].
+      have Hv3' : wt v3 (lub c v1)
+        by solve [ eapply wt_le ; eauto ; lia | eapply wt_le ; eauto ].
+      eapply wt_tid; [ exact Hlubc | | ].
+      ++ solve [ eapply wt_lub ; eauto ; lia | eapply wt_lub ; eauto ].
+      ++ solve [ eapply wt_lub ; eauto ; lia | eapply wt_lub ; eauto ].
+    + (* wt_rfl: join the witnesses; both stay below both endpoints, so
+         [le_sup_lub] re-establishes Coquand's rule for the join *)
+      have Hw : wt w c by eauto.
+      have Lwx : le w x by eauto.
+      have Lwy : le w y by eauto.
+      have Htid : wt (tid c x y) tuniv by eauto.
+      have Hv : wt v c by (inversion WTv; eauto).
+      have Lvx : le v x by (inversion WTv; eauto).
+      have Lvy : le v y by (inversion WTv; eauto).
+      cbn in Cav.
+      eapply wt_rfl; [ | | | exact Htid ].
+      ++ solve [ eapply wt_lub ; eauto ; lia | eapply wt_lub ; eauto ].
+      ++ eapply le_sup_lub ; eauto.
+      ++ eapply le_sup_lub ; eauto.
 Qed.
          
 End WTLE.         
@@ -437,7 +526,7 @@ Proof.
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
     (* Extract per-entry typing info from WT *)
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | ]; subst.
     (* app f u is itself a type *)
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
@@ -487,7 +576,7 @@ Proof.
     have Vt : valid (app f u) by eapply (app_tpi_valid Vtpi Vu).
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | ]; subst.
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
     have WTr' : wt (app w' u) (app f u).

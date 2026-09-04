@@ -388,7 +388,7 @@ Proof.
   - (* M = ncase *)
     destruct h1 as [w [EM Hb]]. exists w. split.
     + eapply IHM1; eauto.
-    + destruct w as [ | | | | v | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
       * have Vv : valid v := EvalRel_valid EM.
@@ -455,7 +455,7 @@ Proof.
       apply le_bot_inv in LE. subst u'. done.
     + (* u = abs l *)
       move: ER1 => [Vl [Nl [a [WTa [Ea h]]]]].
-      destruct u' as [ | | | | | | l0 ]; try done.
+      destruct u' as [ | | | | | | l0 | | ]; try done.
       (* only u' = abs l0 case remains *)
       cbn in Vu'.
       have Vl0 : valid_fun l0 by move/andP : Vu' => [? _].
@@ -525,7 +525,7 @@ Proof.
 
   - (* ncase *)
     destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
-    destruct w as [ | | | | v | | ]; try contradiction.
+    destruct w as [ | | | | v | | | | ]; try contradiction.
     + (* bot: branch [valid u /\ le u bot] descends to [valid u' /\ le u' bot] *)
       move: Hb => [_ Lub]. split; [ exact Vu' | ].
       have Vb : valid bot by done.
@@ -542,11 +542,11 @@ Proof.
 
   - (* tpi A B *)
 
-    destruct u as [ | | | | | a f |]; try done.
+    destruct u as [ | | | | | a f | | | ]; try done.
     + (* u = bot, u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
     + (* u = tpi a f *)
-      destruct u' as [ | | | | | a' f' |]; try done.
+      destruct u' as [ | | | | | a' f' | | | ]; try done.
       (* only u' = tpi a' f' case *)
       move: ER1 => [Va [Vf [evA [a0 [evA0 body1]]]]].
       cbn in Vu'.
@@ -950,7 +950,7 @@ Proof.
     move: H1 => [wa [EMa Hba]].
     move: H2 => [wb [EMb Hbb]].
     move: (IHM1 _ _ _ Vρ EMa EMb) => [Cw hlubw].
-    destruct wa as [ | | | | va | | ], wb as [ | | | | vb | | ];
+    destruct wa as [ | | | | va | | | | ], wb as [ | | | | vb | | | | ];
       cbn in Hba, Hbb, Cw; try contradiction; try done.
     + (* bot, bot *)
       move: Hba => [_ La]; move: Hbb => [_ Lb].
