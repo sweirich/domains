@@ -115,15 +115,22 @@ rfl   : Tm -> Tm                 -- Ref a
 jcase : Tm -> Tm -> Tm -> Tm     -- J C d p
 ```
 
-The installed `as2-exe` has an incompatible grammar (it rejects the
-`Tm(var) : Type` header of both `.sig` files in this repo), so the substitution
-boilerplate was generated *by analogy* instead: for a binder-free constructor
-every clause of `ren_Tm`, `subst_Tm`, `idSubst_Tm`, `extRen_Tm`, `ext_Tm`,
-`compRenRen_Tm`, `compRenSubst_Tm`, `compSubstRen_Tm`, `compSubstSubst_Tm` and
-`rinst_inst_Tm` applies the recursor unchanged to every argument — exactly as
-for `app` — so all ten sites were derived mechanically from the existing `fix_`
-clause. `syntax.sig` is kept in sync for whenever a matching `as2-exe` is
-available.
+`syntax.v` is generated from `syntax.sig` by
+
+```sh
+autosubst -o syntax.v -s rocq -v ge813 -no-static syntax.sig
+```
+
+(that command is also recorded as a `--` comment at the top of `syntax.sig`;
+note it is `autosubst`, *not* the `as2-exe` that is also on `PATH` — `as2-exe`
+rejects the `Tm(var) : Type` header these `.sig` files use). Never hand-edit
+`syntax.v`: comments added there are dropped on the next regeneration.
+
+For the record, the boilerplate for a binder-free constructor is completely
+determined by analogy with `app`: every clause of `ren_Tm`, `subst_Tm`,
+`idSubst_Tm`, `extRen_Tm`, `ext_Tm`, `compRenRen_Tm`, `compRenSubst_Tm`,
+`compSubstRen_Tm`, `compSubstSubst_Tm` and `rinst_inst_Tm` applies the recursor
+unchanged to every argument, with no `up`-lifting anywhere.
 
 `raw_semantics.v` gained the three `EvalRel` clauses (transcribed from
 `ID/Model/Eval.agda`: `tid` behaves like `tpi`, `rfl` like `abs`, `jcase` like

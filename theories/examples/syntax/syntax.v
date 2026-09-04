@@ -16,9 +16,6 @@ Inductive Tm (n_Tm : nat) : Type :=
   | tpi : Tm n_Tm -> Tm (S n_Tm) -> Tm n_Tm
   | tuniv : Tm n_Tm
   | fix_ : Tm n_Tm -> Tm n_Tm
-  (* Identity fragment (Agda [ID/Syntax/Raw.agda]).  All three are binder-free:
-     the motive [C] and base [d] of [jcase] are ordinary terms of the derived
-     Pi-types [motive_ty A] / [base_ty A C]. *)
   | tid : Tm n_Tm -> Tm n_Tm -> Tm n_Tm -> Tm n_Tm
   | rfl : Tm n_Tm -> Tm n_Tm
   | jcase : Tm n_Tm -> Tm n_Tm -> Tm n_Tm -> Tm n_Tm.
@@ -140,8 +137,7 @@ Fixpoint ren_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
   | fix_ _ s0 => fix_ n_Tm (ren_Tm xi_Tm s0)
   | tid _ s0 s1 s2 =>
       tid n_Tm (ren_Tm xi_Tm s0) (ren_Tm xi_Tm s1) (ren_Tm xi_Tm s2)
-  | rfl _ s0 =>
-      rfl n_Tm (ren_Tm xi_Tm s0)
+  | rfl _ s0 => rfl n_Tm (ren_Tm xi_Tm s0)
   | jcase _ s0 s1 s2 =>
       jcase n_Tm (ren_Tm xi_Tm s0) (ren_Tm xi_Tm s1) (ren_Tm xi_Tm s2)
   end.
@@ -177,11 +173,12 @@ Fixpoint subst_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
   | tuniv _ => tuniv n_Tm
   | fix_ _ s0 => fix_ n_Tm (subst_Tm sigma_Tm s0)
   | tid _ s0 s1 s2 =>
-      tid n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1) (subst_Tm sigma_Tm s2)
-  | rfl _ s0 =>
-      rfl n_Tm (subst_Tm sigma_Tm s0)
+      tid n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1)
+        (subst_Tm sigma_Tm s2)
+  | rfl _ s0 => rfl n_Tm (subst_Tm sigma_Tm s0)
   | jcase _ s0 s1 s2 =>
-      jcase n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1) (subst_Tm sigma_Tm s2)
+      jcase n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1)
+        (subst_Tm sigma_Tm s2)
   end.
 
 Lemma upId_Tm_Tm {m_Tm : nat} (sigma : fin m_Tm -> Tm m_Tm)
@@ -227,11 +224,12 @@ subst_Tm sigma_Tm s = s :=
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (idSubst_Tm sigma_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (idSubst_Tm sigma_Tm Eq_Tm s0) (idSubst_Tm sigma_Tm Eq_Tm s1) (idSubst_Tm sigma_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (idSubst_Tm sigma_Tm Eq_Tm s0)
+      congr_tid (idSubst_Tm sigma_Tm Eq_Tm s0) (idSubst_Tm sigma_Tm Eq_Tm s1)
+        (idSubst_Tm sigma_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (idSubst_Tm sigma_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (idSubst_Tm sigma_Tm Eq_Tm s0) (idSubst_Tm sigma_Tm Eq_Tm s1) (idSubst_Tm sigma_Tm Eq_Tm s2)
+      congr_jcase (idSubst_Tm sigma_Tm Eq_Tm s0)
+        (idSubst_Tm sigma_Tm Eq_Tm s1) (idSubst_Tm sigma_Tm Eq_Tm s2)
   end.
 
 Lemma upExtRen_Tm_Tm {m : nat} {n : nat} (xi : fin m -> fin n)
@@ -280,11 +278,12 @@ Fixpoint extRen_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
+      congr_tid (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
+        (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s2)
+      congr_jcase (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
+        (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1) (extRen_Tm xi_Tm zeta_Tm Eq_Tm s2)
   end.
 
 Lemma upExt_Tm_Tm {m : nat} {n_Tm : nat} (sigma : fin m -> Tm n_Tm)
@@ -335,11 +334,12 @@ Fixpoint ext_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (ext_Tm sigma_Tm tau_Tm Eq_Tm s0) (ext_Tm sigma_Tm tau_Tm Eq_Tm s1) (ext_Tm sigma_Tm tau_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
+      congr_tid (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
+        (ext_Tm sigma_Tm tau_Tm Eq_Tm s1) (ext_Tm sigma_Tm tau_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (ext_Tm sigma_Tm tau_Tm Eq_Tm s0) (ext_Tm sigma_Tm tau_Tm Eq_Tm s1) (ext_Tm sigma_Tm tau_Tm Eq_Tm s2)
+      congr_jcase (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
+        (ext_Tm sigma_Tm tau_Tm Eq_Tm s1) (ext_Tm sigma_Tm tau_Tm Eq_Tm s2)
   end.
 
 Lemma up_ren_ren_Tm_Tm {k : nat} {l : nat} {m : nat} (xi : fin k -> fin l)
@@ -390,11 +390,14 @@ ren_Tm zeta_Tm (ren_Tm xi_Tm s) = ren_Tm rho_Tm s :=
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0) (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1) (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
+      congr_tid (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
+        (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1)
+        (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0) (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1) (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s2)
+      congr_jcase (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
+        (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1)
+        (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s2)
   end.
 
 Lemma up_ren_subst_Tm_Tm {k : nat} {l : nat} {m_Tm : nat}
@@ -454,11 +457,14 @@ subst_Tm tau_Tm (ren_Tm xi_Tm s) = subst_Tm theta_Tm s :=
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0) (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1) (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
+      congr_tid (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
+        (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1)
+        (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0) (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1) (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s2)
+      congr_jcase (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
+        (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1)
+        (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s2)
   end.
 
 Lemma up_subst_ren_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -541,11 +547,15 @@ ren_Tm zeta_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
   | fix_ _ s0 =>
       congr_fix_ (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0) (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s1) (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s2)
+      congr_tid (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
+        (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s1)
+        (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s2)
   | rfl _ s0 =>
       congr_rfl (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0) (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s1) (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s2)
+      congr_jcase (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
+        (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s1)
+        (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s2)
   end.
 
 Lemma up_subst_subst_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -629,11 +639,15 @@ subst_Tm tau_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
   | fix_ _ s0 =>
       congr_fix_ (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0) (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s1) (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s2)
+      congr_tid (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
+        (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s1)
+        (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s2)
   | rfl _ s0 =>
       congr_rfl (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0) (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s1) (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s2)
+      congr_jcase (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
+        (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s1)
+        (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s2)
   end.
 
 Lemma renRen_Tm {k_Tm : nat} {l_Tm : nat} {m_Tm : nat}
@@ -754,11 +768,14 @@ Fixpoint rinst_inst_Tm {m_Tm : nat} {n_Tm : nat}
   | tuniv _ => congr_tuniv
   | fix_ _ s0 => congr_fix_ (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
   | tid _ s0 s1 s2 =>
-      congr_tid (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0) (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1) (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s2)
-  | rfl _ s0 =>
-      congr_rfl (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
+      congr_tid (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
+        (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1)
+        (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s2)
+  | rfl _ s0 => congr_rfl (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
   | jcase _ s0 s1 s2 =>
-      congr_jcase (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0) (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1) (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s2)
+      congr_jcase (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
+        (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1)
+        (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s2)
   end.
 
 Lemma rinstInst'_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
@@ -950,6 +967,12 @@ Core.
 
 Arguments var {n_Tm}.
 
+Arguments jcase {n_Tm}.
+
+Arguments rfl {n_Tm}.
+
+Arguments tid {n_Tm}.
+
 Arguments fix_ {n_Tm}.
 
 Arguments tuniv {n_Tm}.
@@ -963,12 +986,6 @@ Arguments ncase {n_Tm}.
 Arguments succ {n_Tm}.
 
 Arguments zero {n_Tm}.
-
-Arguments jcase {n_Tm}.
-
-Arguments rfl {n_Tm}.
-
-Arguments tid {n_Tm}.
 
 Arguments app {n_Tm}.
 

@@ -1,3 +1,6 @@
+-- Regenerate syntax.v with:
+--   autosubst -o syntax.v -s rocq -v ge813 -no-static syntax.sig
+
 Tm(var) : Type 
 abs     : Tm -> (bind Tm in Tm) -> Tm
 app     : Tm -> Tm -> Tm
