@@ -1340,6 +1340,57 @@ Proof.
         | exact CC1 | apply c_refl; exact TR ] ].
 Qed.
 
+(* Congruence of the [jcase] result type in the *endpoint arguments*.  Needed
+   because a J-beta redex [jcase C d (rfl a0)] is typed by the derivation at
+   [app (app (app C a) b) (rfl a0)] while [c_jcase_beta] states the
+   contraction at [app (app (app C a0) a0) (rfl a0)]. *)
+Lemma motive_app_conv_args {n} (Γ : Ctx n) (A a a' b b' C p : Tm n) :
+  typing Γ A tuniv ->
+  typing Γ a A -> typing Γ a' A -> typing Γ b A -> typing Γ b' A ->
+  typing Γ C (motive_ty A) -> typing Γ p (tid A a b) ->
+  conv Γ a a' A -> conv Γ b b' A ->
+  conv Γ (app (app (app C a) b) p) (app (app (app C a') b') p) tuniv.
+Proof.
+  move=> TA Ta Ta' Tb Tb' TC Tp Caa Cbb.
+  have cG : ctx Γ by (eapply typing_ctx; exact TA).
+  have TIdab : typing Γ (tid A a b) tuniv by (eapply t_tid; [ exact TA | exact Ta | exact Tb ]).
+  have TIda'b : typing Γ (tid A a' b) tuniv by (eapply t_tid; [ exact TA | exact Ta' | exact Tb ]).
+  have cIdab : ctx (Γ ++ tid A a b) by (eapply c_cons; [ exact cG | exact TIdab ]).
+  have cIda'b : ctx (Γ ++ tid A a' b) by (eapply c_cons; [ exact cG | exact TIda'b ]).
+  (* the motive, applied to the first argument *)
+  have C1 : conv Γ (app C a) (app C a')
+              (tpi A (tpi (tid A⟨↑⟩ a⟨↑⟩ (var var_zero)) tuniv)).
+  { eapply c_app2';
+      [ exact TA | (eapply motive_cod1_typing; exact TA) | exact TC | exact Caa
+      | (asimpl; substify; asimpl; reflexivity) ]. }
+  (* ... and to the second *)
+  have C2 : conv Γ (app (app C a) b) (app (app C a') b) (tpi (tid A a b) tuniv).
+  { eapply c_app1';
+      [ exact TA | (eapply motive_cod2_typing; [ exact TA | exact Ta ])
+      | exact C1 | exact Tb | (asimpl; substify; asimpl; reflexivity) ]. }
+  have C3 : conv Γ (app (app C a') b) (app (app C a') b') (tpi (tid A a' b) tuniv).
+  { eapply c_app2';
+      [ exact TA | (eapply motive_cod2_typing; [ exact TA | exact Ta' ])
+      | (eapply motive_app1_typing; [ exact TA | exact Ta' | exact TC ])
+      | exact Cbb | (asimpl; substify; asimpl; reflexivity) ]. }
+  (* [C2] and [C3] sit at different codomains; align [C3] along the [tid]
+     congruence in the first endpoint *)
+  have CAlign : conv Γ (tpi (tid A a' b) tuniv) (tpi (tid A a b) tuniv) tuniv.
+  { eapply c_tpi;
+      [ exact TIda'b | exact TIdab
+      | apply t_univ; exact cIda'b | apply t_univ; exact cIdab
+      | eapply c_tid;
+          [ exact TA | exact Ta' | exact Tb | apply c_refl; exact TA
+          | apply c_sym; exact Caa | apply c_refl; exact Tb ]
+      | apply c_refl; apply t_univ; exact cIda'b ]. }
+  have C3' : conv Γ (app (app C a') b) (app (app C a') b') (tpi (tid A a b) tuniv)
+    by (eapply c_conv; [ exact C3 | exact CAlign ]).
+  have C4 : conv Γ (app (app C a) b) (app (app C a') b') (tpi (tid A a b) tuniv)
+    by (eapply c_trans; [ exact C2 | exact C3' ]).
+  eapply c_app1';
+    [ exact TIdab | apply t_univ; exact cIdab | exact C4 | exact Tp | reflexivity ].
+Qed.
+
 Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
   Γ ⊢e M ≡ N ∈ A -> Γ ⊢e M ∈ A /\ Γ ⊢e N ∈ A.
 Proof.
@@ -1496,12 +1547,12 @@ Proof.
 Qed.
 
 Lemma typing_rfl_inv {n} {Γ : Ctx n} {a T} :
-  Γ ⊢e rfl a ∈ T -> exists A, Γ ⊢e tid A a a ≡ T ∈ tuniv.
+  Γ ⊢e rfl a ∈ T -> exists A, Γ ⊢e a ∈ A /\ Γ ⊢e tid A a a ≡ T ∈ tuniv.
 Proof.
   move=> h; dependent induction h.
-  - move: (IHh a ltac:(reflexivity)) => [A0 cc].
-    exists A0. eapply c_trans; [ exact cc | eassumption ].
-  - exists A. apply c_refl. eapply t_tid; eauto.
+  - move: (IHh a ltac:(reflexivity)) => [A0 [ta cc]].
+    exists A0. split; [ exact ta | ]. eapply c_trans; [ exact cc | eassumption ].
+  - exists A. split; [ eassumption | ]. apply c_refl. eapply t_tid; eauto.
 Qed.
 
 Lemma typing_univ_inv {n} {Γ : Ctx n} {T} :

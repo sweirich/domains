@@ -5121,6 +5121,87 @@ Proof.
   split; auto.
 Qed.
 
+(* ===========================================================
+   Id-injectivity (Agda [ID/IdInjectivity.agda]).
+
+   Exactly the [piConv]/[piInjectivity] pair, one former along: evaluate both
+   sides at the bottom environment, transfer the trivial identity code
+   [tid bot bot bot] across the conversion, and read the recorded [HeadRed]
+   and the three component conversions off the resulting [EqValTyId].
+   =========================================================== *)
+
+(* The trivial identity code approximates every [tid]: its three components are
+   [bot], which approximates everything. *)
+Lemma evalRel_Id_trivial {n} (A a b : Tm n) (ρ : Env n) :
+  EvalRel (Core.tid A a b) ρ (tid bot bot bot).
+Proof.
+  cbn. split; [ done | ].
+  split; [ apply EvalRel_bot | ].
+  split; [ apply EvalRel_bot | apply EvalRel_bot ].
+Qed.
+
+Lemma idConv {n} (Γ : Ctx n) (T : Tm n) (A1 a1 b1 : Tm n) :
+  conv Γ T (Core.tid A1 a1 b1) Core.tuniv ->
+  exists A0 a0 b0,
+    HeadRed T (Core.tid A0 a0 b0)
+    /\ conv Γ A0 A1 Core.tuniv
+    /\ conv Γ a0 a1 A0
+    /\ conv Γ b0 b1 A0.
+Proof.
+  move=> d.
+  have cΓ : ctx Γ by eapply conv_ctx; exact d.
+  have WT : wt (tid bot bot bot) tuniv.
+  { apply: wt_tid.
+    - apply wt_bot. apply wt_tuniv.
+    - apply wt_bot. apply wt_bot. apply wt_tuniv.
+    - apply wt_bot. apply wt_bot. apply wt_tuniv. }
+  have evId : EvalRel (Core.tid A1 a1 b1) bot_env (tid bot bot bot)
+    by apply evalRel_Id_trivial.
+  have IC : InvConv Γ T (Core.tid A1 a1 b1) Core.tuniv bot_env.
+  { eapply conv_EvalRel. exact d. exact (@fits_bot_env n Γ cΓ). }
+  move: IC => [_ [_ [_ bwd]]].
+  have evT : EvalRel T bot_env (tid bot bot bot) by apply bwd; exact evId.
+  have evU : EvalRel Core.tuniv (@bot_env n) tuniv by [].
+  have SCA : semantic_conv2 Γ T (Core.tid A1 a1 b1) Core.tuniv
+    by (apply adequacyEqSub; exact d).
+  (* fuel 2: above [rk (tid bot bot bot) = 1] and [rk tuniv = 1] *)
+  have EVfun : EqVal 2 Γ T[var] (Core.tid A1 a1 b1)[var] Core.tuniv[var] WT.
+  { eapply SCA.
+    - apply typing_subst_id. exact cΓ.
+    - apply fits_bot_env. exact cΓ.
+    - apply ValSub_id.
+    - exact cΓ.
+    - exact evT.
+    - exact evU.
+    - cbn; lia. }
+  have EV1 := EVfun.
+  unfold subst1, Subst_Tm in EV1.
+  rewrite (instId'_Tm T) (instId'_Tm (Core.tid A1 a1 b1)) (instId'_Tm Core.tuniv) in EV1.
+  have EVT := EqVal_EqValTy EV1.
+  clear EV1 EVfun.
+  dependent destruction WT.
+  cbn [Rec.EqValTy] in EVT.
+  move: EVT => [_ [_ [A0 [a0 [b0 [HRT [A' [a' [b' [HRId [cA [ca [cb _]]]]]]]]]]]]].
+  have [E1 [E2 E3]] := HeadRed_tid_eq HRId. subst A' a' b'.
+  exists A0. exists a0. exists b0.
+  split; [ exact HRT | ].
+  split; [ exact cA | split; [ exact ca | exact cb ] ].
+Qed.
+
+Lemma idInjectivity {n} (Γ : Ctx n) (A0 a0 b0 A1 a1 b1 : Tm n) :
+  conv Γ (Core.tid A0 a0 b0) (Core.tid A1 a1 b1) Core.tuniv ->
+  conv Γ A0 A1 Core.tuniv /\ conv Γ a0 a1 A0 /\ conv Γ b0 b1 A0.
+Proof.
+  move=> H.
+  destruct (idConv H) as [A0' [a0' [b0' [HR [cA [ca cb]]]]]].
+  (* [tid] is head-normal, so determinacy identifies the recorded normal form *)
+  have [E1 [E2 E3]] : A0' = A0 /\ a0' = a0 /\ b0' = b0
+    by (eapply HeadRed_tid_det; [ exact HR | apply ms_refl ]).
+  subst A0' a0' b0'.
+  split; [ exact cA | split; [ exact ca | exact cb ] ].
+Qed.
+
+
 (** * Subject reduction (Agda: [SubjectReduction.agda])
 
     Port of the Agda [subject-red1]: typing is preserved by single-step head
@@ -5165,24 +5246,38 @@ Qed.
 
 (** The J-beta step, as a conversion at the *derivation's* type.
 
-    *** ADMITTED -- this is where the [ID] fragment needs [idInjectivity],
-        exactly as the beta case of [red1_conv] below needs [piInjectivity]:
-        [c_jcase_beta] states the contraction at the redex's own type
-        [app (app (app C a0) a0) (rfl a0)], while the derivation types
-        [jcase C d (rfl a0)] at [app (app (app C a) b) (rfl a0)].  Matching
-        the two means inverting [typing Γ (rfl a0) (tid A a b)] to get
-        [conv Γ a0 a A] and [conv Γ a0 b A] -- which is precisely what
-        Id-injectivity delivers -- and then transporting along the resulting
-        congruence.  (Note this is *not* the same as Agda's observation that
-        the [conv-J-beta] *rule* needs no Id-injectivity: that is about the
-        rule's two sides having equal types, which they do.) *)
+    [c_jcase_beta] states the contraction at the redex's own type
+    [app (app (app C a0) a0) (rfl a0)], while the derivation types
+    [jcase C d (rfl a0)] at [app (app (app C a) b) (rfl a0)].  Matching the two
+    means inverting [typing Γ (rfl a0) (tid A a b)] to get [conv Γ a0 a A] and
+    [conv Γ a0 b A] -- which is exactly what [idInjectivity] delivers -- and
+    then transporting along [motive_app_conv_args].  This is the [tid] analogue
+    of the [piInjectivity] appeal in the beta case of [red1_conv] below.
+
+    (Note this is *not* in tension with Agda's observation that the
+    [conv-J-beta] *rule* needs no Id-injectivity: that is about the rule's two
+    sides having equal types, which they do.) *)
 Lemma jcase_beta_conv {n} (Γ : Ctx n) (A a b C d a0 : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
   typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
   typing Γ (Core.rfl a0) (Core.tid A a b) ->
   conv Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
          (Core.app (Core.app (Core.app C a) b) (Core.rfl a0)).
-Admitted.
+Proof.
+  move=> TA Ta Tb TC Td TR.
+  move: (typing_rfl_inv TR) => [A' [Ta0' cc]].
+  have [cAA' [ca0a ca0b]] := idInjectivity cc.
+  have Ta0 : typing Γ a0 A by (eapply t_conv; [ exact Ta0' | exact cAA' ]).
+  have ca0aA : conv Γ a0 a A by (eapply c_conv; [ exact ca0a | exact cAA' ]).
+  have ca0bA : conv Γ a0 b A by (eapply c_conv; [ exact ca0b | exact cAA' ]).
+  have TRA : typing Γ (Core.rfl a0) (Core.tid A a0 a0)
+    by (eapply t_rfl; [ exact TA | exact Ta0 ]).
+  eapply c_conv;
+    [ eapply c_jcase_beta; [ exact TA | exact Ta0 | exact TC | exact Td ] | ].
+  eapply motive_app_conv_args;
+    [ exact TA | exact Ta0 | exact Ta | exact Ta0 | exact Tb | exact TC
+    | exact TRA | exact ca0aA | exact ca0bA ].
+Qed.
 
 (** Head reduction is contained in conversion, for well-typed terms.  Each
     contraction is exactly one of the computation rules ([c_beta],
@@ -5355,6 +5450,7 @@ Qed.
     [piConv] would head-reduce [tnat] to a Π-code, but [tnat] is a head-normal
     form (no [HeadRed1] step applies to it), so the only reduction sequence out
     of it is the empty one — contradicting [tnat = tpi B0 F0]. *)
+
 Lemma tnat_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
   ~ conv Γ Core.tnat (Core.tpi A B) Core.tuniv.
 Proof.
@@ -5459,7 +5555,7 @@ Proof.
     exfalso; exact (tuniv_not_tpi (typing_tid_inv HT)).
   - (* v_rfl: a proof's type is an [tid], which is head-normal *)
     exfalso.
-    move: (typing_rfl_inv HT) => [A0 cc].
+    move: (typing_rfl_inv HT) => [A0 [_ cc]].
     destruct (piConv cc) as [B0 [F0 [HR _]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 (Core.tid _ _ _) _ |- _ ] => inversion S end.
@@ -5480,7 +5576,7 @@ Proof.
   - (* v_tid *) exfalso; exact (tuniv_not_tnat (typing_tid_inv HT)).
   - (* v_rfl: [tid] is head-normal and distinct from [tnat] *)
     exfalso.
-    move: (typing_rfl_inv HT) => [A0 cc].
+    move: (typing_rfl_inv HT) => [A0 [_ cc]].
     (* [cc : conv Γ (tid A0 a a) tnat tuniv]; both are head-normal codes *)
     exact (tid_not_tnat cc).
 Qed.
@@ -5488,15 +5584,44 @@ Qed.
 (* Progress, general form: every well-typed term is a value, a neutral
    (variable-headed) term, or head-reduces. *)
 (** Canonical forms at an [tid] type: a value of identity type is a [rfl].
-
-    *** ADMITTED -- the [tid] analogue of [canonical_pi], and like it, it needs
-        the injectivity of its type former: ruling out each non-[rfl] value
-        means showing its type is not convertible to an [tid], which for the
-        [abs] case goes through [idInjectivity] exactly as [canonical_pi]'s
-        goes through [piConv]. *)
+    The [tid] analogue of [canonical_pi]; each non-[rfl] value is ruled out by
+    inverting its typing and observing, via [idConv], that its own head-normal
+    former would have to head-reduce to an [tid]. *)
 Lemma canonical_id {n} (Γ : Ctx n) (M : Tm n) (A a b : Tm n) :
   value M -> typing Γ M (Core.tid A a b) -> exists a0, M = Core.rfl a0.
-Admitted.
+Proof.
+  move=> v; destruct v; move=> HT.
+  - (* tuniv *) exfalso.
+    destruct (idConv (typing_univ_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+  - (* tnat *) exfalso.
+    destruct (idConv (typing_nat_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+  - (* tpi (as a type code, so its type is [tuniv]) *) exfalso.
+    destruct (idConv (typing_tpi_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+  - (* zero *) exfalso.
+    destruct (idConv (typing_zero_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
+  - (* succ *) exfalso.
+    destruct (idConv (typing_succ_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
+  - (* abs: its type is a [tpi], which is head-normal *) exfalso.
+    destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
+    destruct (idConv cPi) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 (Core.tpi _ _) _ |- _ ] => inversion S end.
+  - (* tid (a type code) *) exfalso.
+    destruct (idConv (typing_tid_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+  - (* rfl *) eexists; reflexivity.
+Qed.
 
 Lemma progress_gen {n} (Γ : Ctx n) M A :
   typing Γ M A -> value M \/ neutral M \/ exists N, HeadRed1 M N.

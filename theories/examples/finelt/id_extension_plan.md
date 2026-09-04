@@ -310,14 +310,25 @@ driver, and `sc_jcase_beta` head-contracts along `hr_jcase` with
 `c_jcase_beta` as the step conversion, in the `sc_beta` style (with no type
 transport, since both sides have the same type).
 
-**Id-injectivity** (`adequacy.v`): `jcase_beta_conv` and `canonical_id`. Both
-are the `tid` analogues of things `piConv` provides for Π: matching a J-beta
-redex's own type `app (app (app C a0) a0) (rfl a0)` against the derivation's
-`app (app (app C a) b) (rfl a0)`, and ruling out non-`rfl` values at an
-identity type. They follow from `idInjectivity`, which is the natural next
-step: run `adequacyEqSub` at the bottom environment and read the components
-out of the resulting `EqValTyId`, exactly as `piConv` reads them out of
-`EqValTyPi`.
+**Id-injectivity is done** (step 5). `idConv` and `idInjectivity` are the
+`piConv`/`piInjectivity` pair one former along: evaluate both sides at the
+bottom environment, transfer the trivial identity code `tid bot bot bot`
+across the conversion (`evalRel_Id_trivial`), and read the recorded `HeadRed`
+and the three component conversions off the resulting `EqValTyId`. With them,
+`jcase_beta_conv` (matching a J-beta redex's own type
+`app (app (app C a0) a0) (rfl a0)` against the derivation's
+`app (app (app C a) b) (rfl a0)`, via the new `motive_app_conv_args`) and
+`canonical_id` (no non-`rfl` value inhabits an identity type) are both proved.
+
+### A note on the assumption set
+
+Because adequacy is one mutual fixpoint over *all* the rules, admitting the
+seven `st_*`/`sc_*` cases means every theorem downstream of adequacy inherits
+them. So `piInjectivity`, `subject_red` and `progress` currently depend on the
+14 J admits as well as the four standard axioms — not because anything about
+them broke, but because the language they are stated for now includes `J` and
+its adequacy is not yet proved. Discharging the J driver restores the earlier
+situation.
 
 ## Remaining work, in dependency order## Remaining work, in dependency order
 2. **Rules**: define `motive_ty`/`base_ty` and add the typing, conversion and
