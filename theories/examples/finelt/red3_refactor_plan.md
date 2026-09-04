@@ -191,3 +191,60 @@ Inside a mutual `Fixpoint`, the recursive references (`substitution_tm`,
 `renaming_conv`, …) are *local hypotheses* and therefore have **no** implicit
 arguments, so positional applications need every slot — unlike the same names
 used after the fixpoint closes.
+
+---
+
+## Addendum: the `Y` (fixpoint) extension — DONE
+
+Ported from Agda's `NAT/` variant. Syntax: `fix_ g`, rules `t_fix`, `c_fix`
+(`fix_ g ≡ app g (fix_ g)`), `c_fix_cong`, reduction `hr_fix`.
+
+**Semantics** (`raw_semantics.v`): Kleene approximants
+
+```coq
+Fixpoint Approx (step : elt -> elt -> Prop) (k : nat) (u : elt) : Prop :=
+  match k with
+  | 0   => valid u /\ le u bot
+  | S k => exists p, Approx step k p /\ step p u
+  end.
+```
+
+with `EvalRel (fix_ M) ρ b := exists k, Approx (fun p w => EvalRel M ρ (p ↦ w)) k b`.
+`Approx` recurses structurally in `k` and does not mention `EvalRel`, which is
+what keeps `EvalRel`'s `fix_` clause structurally recursive. Join-closure
+(`Approx_sup`, Agda `YSup`) merges two edges `p₁↦w₁`, `p₂↦w₂` into
+`(p₁⊔p₂)↦(w₁⊔w₂)`, which is *below* `abs [(p₁,w₁);(p₂,w₂)]`, so `EvalRel_down`
+delivers it.
+
+**Adequacy** — `st_fix_app_core` / `st_fix_approx` / `st_fix` in `adequacy.v`
+(Agda `NAT/Adequacy/YCore.agda`), and `sc_fix_approx` / `sc_fix_cong` (Agda
+`NAT/Adequacy/YCross.agda`). Three things make the Coq versions much shorter
+than the ~650 lines of Agda:
+
+1. **`InvTyp_App` needs no hypothesis on the argument.** The `app` clause of
+   `EvalRel` already supplies an argument approximation `w`, and the codomain
+   approximation is recovered from the function's Π-edge at `w`. Dropping that
+   (previously unused) premise makes `InvTyp_Y` a six-line non-inductive
+   corollary of `InvTyp_App` + `EvalRel_fix_unfold` — Agda's `mkY-InvTyp`.
+   There is no Kleene induction at the soundness level at all.
+
+2. **The codomain-type block collapses.** Since `B = A⟨↑⟩` is non-dependent,
+   `A⟨↑⟩[⇑σ][(fix_ g)[σ]..] = A[σ]`, so `ValTy` at the join comes straight
+   from `STA`; `codomain_type_ValTy` — whose `VNarg` premise would have
+   demanded the argument's validity at *arbitrary* values, not just at
+   stage-`j` approximants — is not needed.
+
+3. **`Approx_EvalRel_down` is index-preserving.** Agda's `yArgVal` has to
+   case-split the target element so that `EvalRel-down (Y gg)` reduces and
+   re-exposes the same stage `j`. In Coq the existential Kleene index of
+   `EvalRel (fix_ g)` is never opened, so it cannot be lost: `Approx_down`
+   gives down-closure at the same index directly.
+
+Everything else is `st_app`'s value-edge reasoning verbatim, with the argument's
+validity coming from the stage-`j` recursor instead of a `semantic_typing`
+hypothesis, and head-expansion along `hr_fix` justified by `c_fix`.
+
+**Gotcha.** `substitution_tm` / `substitution_conv` / `subst_conv_cross` must be
+applied with the goal stated as `(Core.fix_ g)[σ]`; higher-order unification
+against `?M[?σ]` fails on the (convertible) `Core.fix_ (g[σ])`. State it primed,
+then coerce with a second `have ... := `.

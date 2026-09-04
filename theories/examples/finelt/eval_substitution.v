@@ -114,6 +114,12 @@ Proof.
     all: exists x; repeat split; auto.
     all: try rewrite IHM2 in E2; auto; try rewrite IHM2; eauto.
     all: auto_case.
+  - (* fix_: relabel the Kleene step through the renaming IH *)
+    cbn. split.
+    + move=> [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
+      move=> p w Hst. exact (proj1 (IHM _ ξ ρ ρ' _ EQ) Hst).
+    + move=> [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
+      move=> p w Hst. exact (proj2 (IHM _ ξ ρ ρ' _ EQ) Hst).
 Qed.
 
 
@@ -216,6 +222,10 @@ Proof.
     exists x. 
     repeat split; eauto.
     eauto using valid_cons, SubRel_lift.
+  - (* fix_: relabel the Kleene step through the substitution IH *)
+    move: E => [k HA]. exists k.
+    eapply Approx_mon; [ | exact HA ].
+    move=> p w Hst. eapply IHM; eauto.
 Qed.
 
 (** Single-variable specialization: an approximation [u] of body [B] in an
@@ -343,6 +353,10 @@ Proof.
     exists x. 
     repeat split; eauto.
     eauto using valid_cons, MaxSubRel_lift.
+  - (* fix_: relabel the Kleene step through the IH *)
+    move: E => [k HA]. exists k.
+    eapply Approx_mon; [ | exact HA ].
+    move=> p w Hst. eapply IHM; eauto.
 Qed.
 
 (** * Forward substitution with witness environment
@@ -834,12 +848,28 @@ Proof.
     + by apply bot_env_valid.
     + by apply SubRel_bot_env.
     + cbn. exact E.
-  - (* fix_ — bot-only placeholder *)
-    destruct (is_bot u) eqn:Hb; try done.
-    exists bot_env. split; [|split].
-    + by apply bot_env_valid.
-    + by apply SubRel_bot_env.
-    + cbn. by rewrite Hb.
+  - (* fix_: one witness environment for the whole approximant chain, by
+       combining the per-step witnesses with [combine_fwd] *)
+    move: E => [k HA].
+    have gen : forall k0 u0,
+        Approx (fun p w => EvalRel M[σ] ρ (p ↦ w)) k0 u0 ->
+        exists ρ', valid_env ρ' /\ SubRel σ ρ' ρ /\
+                   Approx (fun p w => EvalRel M ρ' (p ↦ w)) k0 u0.
+    { move=> k0. induction k0 as [ | k0 IH ]; move=> u0 H.
+      - exists bot_env. split; [ by apply bot_env_valid | ].
+        split; [ by apply SubRel_bot_env | exact H ].
+      - move: H => [p [Hp Hst]].
+        move: (IH p Hp) => [ρ1 [V1 [S1 A1]]].
+        move: (IHM _ σ ρ _ Vρ Hst) => [ρ2 [V2 [S2 E2]]].
+        move: (combine_fwd Vρ V1 V2 S1 S2) => [ρ3 [V3 [S3 [L1 L2]]]].
+        exists ρ3. split; [ exact V3 | split; [ exact S3 | ] ].
+        exists p. split.
+        + eapply Approx_mon; [ | exact A1 ].
+          move=> q w Hq.
+          eapply EvalRel_mono_env; [ exact Hq | exact V1 | exact V3 | exact L1 ].
+        + eapply EvalRel_mono_env; [ exact E2 | exact V2 | exact V3 | exact L2 ]. }
+    move: (gen k u HA) => [ρ' [V' [S' A']]].
+    exists ρ'. split; [ exact V' | split; [ exact S' | exists k; exact A' ] ].
 Qed.
 
 (** ** EvalRel_subst1_forward as a corollary *)

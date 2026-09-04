@@ -813,15 +813,19 @@ Qed.
 
 (** Soundness of the application rule ([InvTyp-App]): if [M] is invertibly
     typed at [tpi A B] and [N] at [A], then [app M N] is invertibly typed at
-    the substituted codomain [B[N..]]. *)
+    the substituted codomain [B[N..]].
+
+    Note that *no* hypothesis on the argument [N] is needed: the [App] clause of
+    [EvalRel] already supplies an approximation [w] of [N], and the codomain
+    approximation is recovered from the function's Π-edge at [w].  This is what
+    makes [InvTyp_Y] below non-circular. *)
 Lemma InvTyp_App {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n))
   (M : Tm n) (N : Tm n) ρ :
   fits Γ ρ ->
   InvTyped Γ M (Core.tpi A B) ρ ->
-  InvTyped Γ N A ρ ->
   InvTyped Γ (Core.app M N) B[N..] ρ.
 Proof.
-  move=> Fρ InvM InvN.
+  move=> Fρ InvM.
   have Vρ : valid_env ρ by eauto with valid.
   move=> u Eu.
   destruct (is_bot u) eqn:Bu.
@@ -1640,6 +1644,50 @@ Proof.
   exact (EvalRel_subst1_backwards Vρ (bwd w EM'w) ETw).
 Qed.
 
+(** The Y-unfolding is (almost) definitional on the Kleene approximants: [u]
+    approximates [Y_(k+1)] exactly when some approximant [p] of [Y_k] is mapped
+    to [u] by an edge of [g], which is precisely the [App] clause. *)
+Lemma EvalRel_fix_unfold {n} (g : Tm n) (ρ : Env n) (u : elt) :
+  EvalRel (Core.fix_ g) ρ u <-> EvalRel (Core.app g (Core.fix_ g)) ρ u.
+Proof.
+  split.
+  - move=> [k HA]. cbn. destruct (is_bot u) eqn:Hu; [ done | ].
+    destruct k as [ | k ].
+    + exfalso. move: HA => [_ L]. move: L => /le_bot_inv Eu. subst u. done.
+    + move: HA => [p [Hp Hst]].
+      exists p. split; [ exact Hst | exists k; exact Hp ].
+  - cbn. destruct (is_bot u) eqn:Hu.
+    + move=> _. destruct u; try done. exists 0. split; [ done | apply le_bot' ].
+    + move=> [a [Hst [k Hp]]]. exists (S k), a. split; [ exact Hp | exact Hst ].
+Qed.
+
+(** Soundness of [Y] (Agda: [mkY-InvTyp] in [NAT/Model/Soundness.agda]): every
+    Kleene approximant of [fix_ g] is invertibly typed at [A].
+
+    This needs no hypothesis on [A] and no induction on the Kleene index: the
+    [EvalRel] unfolding [EvalRel_fix_unfold] turns an approximant of [fix_ g]
+    into one of [app g (fix_ g)], and [InvTyp_App] — which places no
+    requirement on the argument — types that at [A⟨↑⟩[(fix_ g)..] = A].  The
+    typed enlargement it produces is again an approximant of [app g (fix_ g)],
+    so the backward direction of [EvalRel_fix_unfold] carries it back to
+    [fix_ g].  (Agda factors the two directions out as [Y-unfold-fwd] and
+    [Y-unfold-bwd].) *)
+Lemma InvTyp_Y {n} (Γ : Ctx n) (A g : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ g (Core.tpi A A⟨↑⟩) ρ ->
+  InvTyped Γ (Core.fix_ g) A ρ.
+Proof.
+  move=> Fρ ig.
+  have iApp : InvTyped Γ (Core.app g (Core.fix_ g)) A ρ.
+  { move: (@InvTyp_App n Γ A A⟨↑⟩ g (Core.fix_ g) ρ Fρ ig).
+    rewrite subst1_shift. done. }
+  move=> u Eu.
+  move: (iApp u (proj1 (EvalRel_fix_unfold g ρ u) Eu))
+    => [v [a [h [Lu [EAppv EAa]]]]].
+  exists v, a, h. split; [ exact Lu | split; [ | exact EAa ] ].
+  exact (proj2 (EvalRel_fix_unfold g ρ v) EAppv).
+Qed.
+
 (** Theorem 1 — typing soundness (Agda: [theorem1]): a typing derivation
     [Γ ⊢ M : A] yields [Γ ⊨ M ∈ A], i.e. [M] is invertibly typed under every
     fitting environment.  Mutually defined with [conv_EvalRel] — conversion
@@ -1681,8 +1729,7 @@ Proof.
       eapply typing_EvalRel; eauto.
     + (* t_app *)
       apply (@InvTyp_App _ Γ A B N M ρ Fρ).
-      * exact (typing_EvalRel _ _ _ _ h3 ρ Fρ).
-      * exact (typing_EvalRel _ _ _ _ h4 ρ Fρ).
+      exact (typing_EvalRel _ _ _ _ h3 ρ Fρ).
     + (* t_nat: tnat : tuniv.  EvalRel tnat ρ u = le u tnat, so u ∈ {bot, tnat}.
          Take Typed witness (tnat, tuniv, wt_tnat). *)
       move=> u Eu. cbn in Eu.
@@ -1735,6 +1782,10 @@ Proof.
         | eapply typing_EvalRel; [ eauto | exact Fρ ]
         | eapply typing_EvalRel; [ eauto | exact Fρ ]
         | move=> ρ' Fρ'; eapply typing_EvalRel; [ eauto | exact Fρ' ] ].
+    + (* t_fix *)
+      eapply InvTyp_Y;
+        [ exact Fρ
+        | eapply typing_EvalRel; [ eauto | exact Fρ ] ].
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1756,6 +1807,8 @@ Proof.
       | ?n ?Γ ?T ?M ?M0 ?M1 ?M' ?M0' ?M1' hT hTM1' hMc hM0c hM1c
       | ?n ?Γ ?M ?N hMN
       | ?n ?Γ ?A ?A' ?B ?M ?M' TAc TA'c TBc TMc TM'c hAconv hMconv
+      | ?n ?Γ ?A ?g hAy hgy
+      | ?n ?Γ ?A ?g ?g' hAy hgy hg'y hggy
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
     all: move=> ρ Fρ.
     + (* c_conv: M = N : A, A = B : U_i ⟹ M = N : B *)
@@ -1907,6 +1960,32 @@ Proof.
       * exact (conv_EvalRel _ _ _ _ _ hAconv).
       * exact (typing_EvalRel _ _ _ _ TBc).
       * exact (conv_EvalRel _ _ _ _ _ hMconv).
+    + (* c_fix: Y-unfolding [fix g == app g (fix g)] *)
+      have iA : InvTyped Γ A Core.tuniv ρ := typing_EvalRel _ _ _ _ hAy ρ Fρ.
+      have ig : InvTyped Γ g (Core.tpi A (⟨↑⟩ A)) ρ
+        := typing_EvalRel _ _ _ _ hgy ρ Fρ.
+      have iY : InvTyped Γ (Core.fix_ g) A ρ := InvTyp_Y Fρ ig.
+      unfold InvConv. split; [ exact iY | ]. split.
+      * move: (@InvTyp_App n Γ A A⟨↑⟩ g (Core.fix_ g) ρ Fρ ig).
+        rewrite subst1_shift. done.
+      * split; move=> u H.
+        -- exact (proj1 (EvalRel_fix_unfold g ρ u) H).
+        -- exact (proj2 (EvalRel_fix_unfold g ρ u) H).
+    + (* c_fix_cong: relabel the Kleene step through the step functions' InvConv *)
+      have iA : InvTyped Γ A Core.tuniv ρ := typing_EvalRel _ _ _ _ hAy ρ Fρ.
+      have ig : InvTyped Γ g (Core.tpi A (⟨↑⟩ A)) ρ
+        := typing_EvalRel _ _ _ _ hgy ρ Fρ.
+      have ig' : InvTyped Γ g' (Core.tpi A (⟨↑⟩ A)) ρ
+        := typing_EvalRel _ _ _ _ hg'y ρ Fρ.
+      move: (conv_EvalRel _ _ _ _ _ hggy ρ Fρ) => [_ [_ [fwdg bwdg]]].
+      unfold InvConv.
+      split; [ exact (InvTyp_Y Fρ ig) | ].
+      split; [ exact (InvTyp_Y Fρ ig') | ].
+      split.
+      * move=> u [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
+        move=> p w Hst. exact (fwdg _ Hst).
+      * move=> u [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
+        move=> p w Hst. exact (bwdg _ Hst).
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.
       eapply InvConv_tpi; eauto.

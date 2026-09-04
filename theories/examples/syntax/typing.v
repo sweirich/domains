@@ -86,6 +86,13 @@ Inductive typing : forall {n} (Γ : Ctx n), Tm n -> Tm n -> Prop :=
     typing Γ M0 (T[zero..]) ->
     typing (ctx_extend Γ tnat) M1 T[rho] ->
     typing Γ (ncase M M0 M1) (T[M..])
+  (* fixpoints (Agda [ty-Y]): a step function [g : A -> A] has a fixpoint.
+     The codomain is [A⟨↑⟩] -- [A] weakened, i.e. no dependency on the
+     argument -- so [app g (fix_ g) : A⟨↑⟩[(fix_ g)..] = A]. *)
+  | t_fix n (Γ : Ctx n) A g :
+    typing Γ A tuniv ->
+    typing Γ g (tpi A A⟨↑⟩) ->
+    typing Γ (fix_ g) A
   (* universes *)
   | t_tpi n (Γ : Ctx n) A B : 
     typing Γ A tuniv ->
@@ -178,6 +185,20 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     conv Γ A A' tuniv ->
     conv (ctx_extend Γ A) M M' B ->
     conv Γ (abs A M) (abs A' M') (tpi A B)
+  (* Y-unfolding (Agda [conv-Y]) and its congruence (Agda [conv-Y-cong]).
+     As with [c_abs], the congruence carries typings for both step functions;
+     they are admissible (via [conv_typing]) but semantic adequacy needs
+     [semantic_typing] of each side. *)
+  | c_fix n (Γ : Ctx n) A g :
+    typing Γ A tuniv ->
+    typing Γ g (tpi A A⟨↑⟩) ->
+    conv Γ (fix_ g) (app g (fix_ g)) A
+  | c_fix_cong n (Γ : Ctx n) A g g' :
+    typing Γ A tuniv ->
+    typing Γ g (tpi A A⟨↑⟩) ->
+    typing Γ g' (tpi A A⟨↑⟩) ->
+    conv Γ g g' (tpi A A⟨↑⟩) ->
+    conv Γ (fix_ g) (fix_ g') A
   | c_tpi n (Γ : Ctx n) A0 A1 B0 B1 :
     typing Γ A0 tuniv ->
     typing Γ A1 tuniv ->
@@ -321,6 +342,18 @@ Lemma ren_up_shift {n m} (δ : fin n -> fin m) (N : Tm n) :
   (N⟨↑⟩)⟨up_ren δ⟩ = (N⟨δ⟩)⟨↑⟩.
 Proof. asimpl. done. Qed.
 
+(* Weakening commutes with a lifted substitution -- the substitution analogue
+   of [ren_up_shift].  Needed for the codomain [A⟨↑⟩] of a fixpoint's step
+   function. *)
+Lemma subst_up_shift {n m} (σ : fin n -> Tm m) (N : Tm n) :
+  (N⟨↑⟩)[⇑ σ] = (N[σ])⟨↑⟩.
+Proof. asimpl. done. Qed.
+
+(* Substituting into a weakened term does nothing: the fixpoint's result type
+   [A⟨↑⟩[(fix_ g)..]] is just [A]. *)
+Lemma subst1_shift {n} (A N : Tm n) : A⟨↑⟩[N..] = A.
+Proof. asimpl. done. Qed.
+
 (* [rho] -- the [succ (var 0)] shift that types the dependent case's successor
    branch -- commutes with a lifted substitution and with a lifted renaming. *)
 Lemma rho_subst_up {n m} (T : Tm (S n)) (σ : fin n -> Tm m) :
@@ -409,6 +442,12 @@ Proof.
         rewrite rho_ren_up. exact hh. }
       eapply t_case';
         [ exact TT | exact TM | exact TM0 | exact TM1 | first [ asimpl; reflexivity | symmetry; apply subst1_ren_comm ] ].
+    + (* t_fix *)
+      eapply t_fix.
+      * exact (renaming_typing _ _ A tuniv _ _ δ h1 tR wtΔ).
+      * rewrite -ren_up_shift.
+        move: (renaming_typing _ _ g (tpi A A⟨↑⟩) _ _ δ h2 tR wtΔ) => hh.
+        cbn in hh. exact hh.
   - intros tR wtΔ.
     dependent destruction h; subst.
     all: try have EC: ctx (Δ ++ A ⟨δ⟩) by
@@ -506,6 +545,24 @@ Proof.
         | first [ asimpl; reflexivity | symmetry; apply subst1_ren_comm ] ].
     + eapply c_succ.
       eapply renaming_conv with (A:=tnat); eauto.
+    + (* c_fix *)
+      eapply c_fix.
+      * exact (renaming_typing _ _ A tuniv _ _ δ H tR wtΔ).
+      * rewrite -ren_up_shift.
+        move: (renaming_typing _ _ g (tpi A A⟨↑⟩) _ _ δ H0 tR wtΔ) => hh.
+        cbn in hh. exact hh.
+    + (* c_fix_cong *)
+      eapply c_fix_cong.
+      * exact (renaming_typing _ _ A tuniv _ _ δ H tR wtΔ).
+      * rewrite -ren_up_shift.
+        move: (renaming_typing _ _ g (tpi A A⟨↑⟩) _ _ δ H0 tR wtΔ) => hh.
+        cbn in hh. exact hh.
+      * rewrite -ren_up_shift.
+        move: (renaming_typing _ _ g' (tpi A A⟨↑⟩) _ _ δ H1 tR wtΔ) => hh.
+        cbn in hh. exact hh.
+      * rewrite -ren_up_shift.
+        move: (renaming_conv _ _ g g' (tpi A A⟨↑⟩) _ _ δ h tR wtΔ) => hh.
+        cbn in hh. exact hh.
     + (* tpi *)
       have EC0: ctx (Δ ++ A0⟨δ⟩) by
        eapply c_cons; eauto;
@@ -520,6 +577,17 @@ Proof.
       eapply renaming_typing with (A:= tuniv); eauto with renaming.
       eapply renaming_conv with (A:= tuniv); eauto.
       eapply renaming_conv with (A:= tuniv); eauto with renaming.
+Qed.
+
+(* Weakening a type into an extended context. *)
+Lemma typing_weaken_shift {n} (Γ : Ctx n) (A B : Tm n) :
+  typing Γ A tuniv -> typing Γ B tuniv -> typing (Γ ++ B) A⟨↑⟩ tuniv.
+Proof.
+  move=> hA hB.
+  have C : ctx (Γ ++ B) by (eapply c_cons; [ eapply typing_ctx; exact hA | exact hB ]).
+  move: (renaming_typing Γ A tuniv (Γ ++ B) shift hA
+           (typing_renaming_shift Γ B) C) => hh.
+  asimpl in hh. exact hh.
 Qed.
 
 (** * All types in well-formed contexts are well-formed *)
@@ -625,6 +693,13 @@ Proof.
         rewrite rho_subst_up. exact hh. }
       eapply t_case';
         [ exact TT | exact TM | exact TM0 | exact TM1 | asimpl; reflexivity ].
+    + (* t_fix *)
+      eapply t_fix.
+      * move: (substitution_tm _ _ A tuniv _ _ σ h1 tS tΔ) => hh.
+        asimpl in hh. exact hh.
+      * rewrite -subst_up_shift.
+        move: (substitution_tm _ _ g (tpi A A⟨↑⟩) _ _ σ h2 tS tΔ) => hh.
+        cbn in hh. exact hh.
   - dependent destruction h; subst.
     all: try (have EC: ctx (Δ ++ A[σ]) by
        eapply c_cons; eauto;
@@ -737,6 +812,27 @@ Proof.
       eapply substitution_conv with (A:=tuniv); eauto.
       eapply substitution_conv; eauto with renaming.
 
+    + (* c_fix *)
+      cbn. eapply c_fix.
+      * move: (substitution_tm _ _ A tuniv _ _ σ H tS tΔ) => hh.
+        asimpl in hh. exact hh.
+      * rewrite -subst_up_shift.
+        move: (substitution_tm _ _ g (tpi A A⟨↑⟩) _ _ σ H0 tS tΔ) => hh.
+        cbn in hh. exact hh.
+    + (* c_fix_cong *)
+      cbn. eapply c_fix_cong.
+      * move: (substitution_tm _ _ A tuniv _ _ σ H tS tΔ) => hh.
+        asimpl in hh. exact hh.
+      * rewrite -subst_up_shift.
+        move: (substitution_tm _ _ g (tpi A A⟨↑⟩) _ _ σ H0 tS tΔ) => hh.
+        cbn in hh. exact hh.
+      * rewrite -subst_up_shift.
+        move: (substitution_tm _ _ g' (tpi A A⟨↑⟩) _ _ σ H1 tS tΔ) => hh.
+        cbn in hh. exact hh.
+      * rewrite -subst_up_shift.
+        move: (substitution_conv _ _ g g' (tpi A A⟨↑⟩) _ _ σ h tS tΔ) => hh.
+        cbn in hh. exact hh.
+
     + (* tpi *)
       cbn.
       have EC0: ctx (Δ ++ A0[σ]).
@@ -841,7 +937,7 @@ Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
 Proof.
   induction 1;
     repeat match goal with [ H : _ /\ _ |- _ ] => destruct H end;
-    split; eauto using t_conv, t_app, t_succ, t_tpi, t_abs.
+    split; eauto using t_conv, t_app, t_succ, t_tpi, t_abs, t_fix.
   - (* c_app2, second side: [app N M' : B[M..]] *)
     eapply t_conv; [ eapply t_app; eauto | ].
     apply c_sym. eapply conv_subst_arg; eauto.
@@ -887,6 +983,14 @@ Proof.
     eapply t_conv; [ eapply t_abs; eauto | ].
     apply c_sym. eapply c_tpi;
       [ eauto | eauto | eauto | exact tBA' | eauto | apply c_refl; eauto ].
+  - (* c_fix, second side: [app g (fix_ g) : A], using [A⟨↑⟩[(fix_ g)..] = A] *)
+    have hfix : typing Γ (fix_ g) A by (eapply t_fix; eassumption).
+    eapply t_app' with (A := A) (B := A⟨↑⟩);
+      [ eassumption
+      | apply typing_weaken_shift; eassumption
+      | eassumption
+      | exact hfix
+      | apply subst1_shift ].
 Qed.
 
 Lemma ctx_conv_typing {n} (Γ:Ctx n) A A' M B :

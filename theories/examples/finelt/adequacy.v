@@ -295,6 +295,7 @@ Proof.
     | n0 Γ0 cv                            (* t_zero *)
     | n0 Γ0 M0 hM                         (* t_succ *)
     | n0 Γ0 T0 Mc Mc0 Mc1 hTc hMc hMc0 hMc1 (* t_case *)
+    | n0 Γ0 Ay gy hAy hgy                 (* t_fix *)
     | n0 Γ0 A0 B0 hA hB                   (* t_tpi *)
     | n0 Γ0 cv ];                         (* t_univ *)
   move=> m Δ σ σ' CΔ TS TS' CS.
@@ -411,6 +412,17 @@ Proof.
     + have EQ1 : (T0[⇑ σ])[rho] = (T0[rho])[⇑ σ].
       { unfold rho. asimpl. setoid_rewrite rinstInst'_Tm_pointwise. reflexivity. }
       rewrite EQ1; exact convMc1.
+  - (* t_fix: [fix_] congruence.  Both step-function typings come from
+       [conv_typing] of the cross conversion, so they are already stated at the
+       σ-type. *)
+    have CG : conv Δ (gy[σ]) (gy[σ']) (Core.tpi (Ay[σ]) (⟨↑⟩ (Ay[σ]))).
+    { move: (subst_conv_cross _ _ _ _ hgy m Δ σ σ' CΔ TS TS' CS).
+      asimpl. done. }
+    have TAσ : typing Δ Ay[σ] Core.tuniv.
+    { move: (substitution_tm _ Ay Core.tuniv _ σ hAy TS CΔ) => hh.
+      asimpl in hh. exact hh. }
+    have [Tg Tg'] := conv_typing CG.
+    cbn. eapply c_fix_cong; [ exact TAσ | exact Tg | exact Tg' | exact CG ].
   - (* t_tpi *)
     have CAσ : typing Δ A0[σ] Core.tuniv
       by (eapply substitution_tm with (A := Core.tuniv); eauto).
@@ -2680,6 +2692,484 @@ Proof.
     eapply sc_ncase_succ; eassumption.
 Qed.
 
+(** The application core for [Y] (Agda [adequacyV-Y-App-core] /
+    [adequacyE-Y-App-core] in [NAT/Adequacy/YCore.agda] and
+    [NAT/Adequacy/YCross.agda]): validity of the *contractum*
+    [app g (fix_ g) : A] at a value [u] recorded by an edge [v0 ↦ u] of the
+    step function [g], whose key [v0] is a stage-[j] Kleene approximant.
+
+    This mirrors [st_app] at [M := g], [N := fix_ g], [B := A⟨↑⟩], with two
+    changes:
+
+      * the argument's validity (Agda's "Site 1", at the canonical selection
+        key [u_sel] below [v0]) comes from the stage-[j] recursor [IHy] rather
+        than from a [semantic_typing] hypothesis on the argument — that is the
+        whole reason [Y] needs its own core.  The key step is that [u_sel] is
+        again a stage-[j] approximant: [Approx_EvalRel_down] is
+        index-preserving; and
+      * the codomain-type block *collapses*.  Since [B = A⟨↑⟩] is
+        non-dependent, [A⟨↑⟩[⇑σ][(fix_ g)[σ]..] = A[σ]], so [ValTy] at the
+        join comes straight from [STA] and [codomain_type_ValTy] — with its
+        [VNarg] argument-validity requirement — is not needed at all. *)
+Lemma st_fix_app_core (A g : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  forall (j : nat) ρ m (Δ : Ctx m) (σ σ': Sub n m)
+    (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ)
+    (CS : ConvSub Δ Γ σ σ') (Fρ : fits Γ ρ)
+    (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+    (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ),
+  (* the stage-[j] argument recursor *)
+  (forall u' a' (WT' : wt u' a'),
+      Approx (fun p w => EvalRel g ρ (p ↦ w)) j u' -> EvalRel A ρ a' ->
+      (forall RB, max (rk u') (rk a') < RB -> Val RB Δ (Core.fix_ (g[σ])) A[σ] WT') /\
+      (forall RB, max (rk u') (rk a') < RB ->
+          EqVal RB Δ (Core.fix_ (g[σ])) (Core.fix_ (g[σ'])) A[σ] WT')) ->
+  forall u a (WT : wt u a) v0,
+    is_bot u = false ->
+    Approx (fun p w => EvalRel g ρ (p ↦ w)) j v0 ->
+    EvalRel g ρ (v0 ↦ u) ->
+    EvalRel A ρ a ->
+    (forall RB, max (rk u) (rk a) < RB ->
+        Val RB Δ (Core.app (g[σ]) (Core.fix_ (g[σ]))) A[σ] WT) /\
+    (forall RB, max (rk u) (rk a) < RB ->
+        EqVal RB Δ (Core.app (g[σ]) (Core.fix_ (g[σ])))
+                   (Core.app (g[σ']) (Core.fix_ (g[σ']))) A[σ] WT).
+Proof.
+  move=> TA Tg STA STg.
+  move=> j ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ IHy u a WT v0 Hu HAj evEdge evA_a.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have TY : typing Γ (Core.fix_ g) A by (eapply t_fix; [ exact TA | exact Tg ]).
+  have evN : EvalRel (Core.fix_ g) ρ v0 by (exists j; exact HAj).
+  (* enlarge the edge to a well-typed function value (as in [st_app]) *)
+  have IT : InvTyped Γ g (Core.tpi A (⟨↑⟩ A)) ρ.
+  { apply typing_EvalRel. exact Tg. exact Fρ. }
+  have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
+  unfold singleton in LEbig. rewrite Hu in LEbig.
+  have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
+  destruct abig as [ | | | | | b f | ];
+    try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
+  have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
+  have Vv0 : valid v0 := EvalRel_valid evN.
+  have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vv0.
+  have [WTu_sel WTv_sel] : wt u_sel b /\ wt v_sel (app f u_sel).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty WTbig) | exact (wt_abs_inv1 WTbig)
+      | move=> ui vi Hin; exact (wt_abs_inv2 WTbig Hin erefl)
+      | exact Vg | exact Sel ]. }
+  have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+  have evN_usel : EvalRel (Core.fix_ g) ρ u_sel
+    by (eapply EvalRel_down; [ exact Vρ | exact Vusel | exact evN | exact Le_usel ]).
+  (* Site 1: the argument's validity, from the stage-[j] recursor run on the
+     index-preserving down-closure of [HAj] *)
+  have HAsel : Approx (fun p w => EvalRel g ρ (p ↦ w)) j u_sel
+    := Approx_EvalRel_down Vρ HAj Vusel Le_usel.
+  have [valY eqvalY] := IHy u_sel b WTu_sel HAsel evA_b.
+  have TNσ0 : typing Δ ((Core.fix_ g)[σ]) A[σ]
+    by (eapply substitution_tm; [ exact TY | exact TS | exact CΔ ]).
+  have TNσ : typing Δ (Core.fix_ (g[σ])) A[σ] := TNσ0.
+  (* the edge codomain also evaluates the (non-dependent!) codomain type *)
+  have evB_af : EvalRel A ρ (app f u_sel).
+  { destruct (is_bot (app f u_sel)) eqn:Hbaf.
+    - have -> : app f u_sel = bot by apply is_bot_eq; rewrite Hbaf. apply EvalRel_bot.
+    - have NB : ~ is_bot (app f u_sel) by rewrite Hbaf.
+      move: (@EvalRel_Pi_app_type _ A (⟨↑⟩ A) ρ b f evTpi Vρ u_sel
+               (app f u_sel) Vusel erefl NB (Core.fix_ g) evN_usel).
+      rewrite subst1_shift. done. }
+  have Caaf : compatible a (app f u_sel)
+    by (eapply EvalRel_compatible; [ exact Vρ | exact evA_a | exact evB_af ]).
+  have ELub : EvalRel A ρ (lub a (app f u_sel))
+    by (exact (proj2 (EvalRel_compatible_lub Vρ evA_a evB_af) _ erefl)).
+  have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
+  have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  have LEu_vsel : le u v_sel.
+  { rewrite le_fun_cons in LEfun.
+    have LEua := proj1 (andb_prop _ _ LEfun).
+    rewrite Eq_vsel in LEua. exact LEua. }
+  (* work at a fuel above the FUNCTION's rank, then drop to the result fuel *)
+  pose RBf := S (max (max (rk (abs gt)) (rk (tpi b f))) (max (rk u) (rk a))).
+  have RKusel : rk u_sel <= rk_fun gt := rk_Selection_key Sel.
+  have RKb : rk b < rk (tpi b f) by (cbn; lia).
+  have RKfg : rk_fun gt < rk (abs gt) by (cbn; lia).
+  have HfM : max (rk (abs gt)) (rk (tpi b f)) < S RBf by (unfold RBf; lia).
+  have HfN : max (rk u_sel) (rk b) < RBf by (unfold RBf; lia).
+  have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+  { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+    have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+    have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+    unfold RBf; lia. }
+  have Hvsel : rk v_sel < RBf.
+  { have L := rk_Selection_val Sel. have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+    unfold RBf; lia. }
+  (* the codomain-type block, COLLAPSED: the type is the fixed [A[σ]] *)
+  have [VTA _] := STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+                    (lub a (app f u_sel)) tuniv hUc ELub evU.
+  have VTc : Val RBf Δ A[σ] Core.tuniv hUc := VTA RBf HrC.
+  (* the codomain of the Π-edge collapses: [B = A⟨↑⟩] is non-dependent *)
+  have Ecod : forall (X : Tm m), A[σ >> ren_Tm ↑][X .: var] = A[σ]
+    by (move=> X; asimpl; reflexivity).
+  split; move=> RB Hrank.
+  - (* Val conjunct (Agda [adequacyV-Y-App-core]) *)
+    have [valMbig _] :=
+      STg ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ (abs gt) (tpi b f) WTbig evMbig evTpi.
+    have VM := valMbig (S RBf) HfM. rewrite Val_abs in VM. move: VM => [_ VPi].
+    move: VPi => [A0 [B0 [HRpi [CTpi [pav _]]]]].
+    asimpl in HRpi.
+    have [EA0 EB0] := HeadRed_tpi_eq HRpi. subst A0 B0.
+    have Vapp := pav u_sel v_sel Sel WTu_sel (Core.fix_ (g[σ])) TNσ (valY RBf HfN).
+    apply (Val_fuel_any (k := RBf) (k' := RB));
+      [ unfold RBf; lia | unfold RBf; lia | lia | lia | ].
+    asimpl in Vapp. rewrite Ecod in Vapp.
+    exact (@Val_app_transport _ Δ _ _ u v_sel a (app f u_sel)
+             (wt_Selection_abs WTbig Sel) WT hUc Caaf LEu_vsel RBf VTc Vapp).
+  - (* EqVal cross conjunct (Agda [YCross]) *)
+    have convNN'0 : conv Δ ((Core.fix_ g)[σ]) ((Core.fix_ g)[σ']) A[σ].
+    { eapply subst_conv_cross;
+        [ exact TY | exact CΔ | exact TS | exact TS' | exact CS ]. }
+    have convNN' : conv Δ (Core.fix_ (g[σ])) (Core.fix_ (g[σ'])) A[σ] := convNN'0.
+    have [_ eqvalMbig] :=
+      STg ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ (abs gt) (tpi b f) WTbig evMbig evTpi.
+    have EM := eqvalMbig (S RBf) HfM. rewrite EqVal_abs in EM.
+    move: EM => [_ [_ [VPiM' EPi]]].
+    move: EPi => [A0 [B0 [HRpi [CTpi paev]]]].
+    move: VPiM' => [A0' [B0' [HRpi' [CTpi' [_ pae']]]]].
+    asimpl in HRpi. asimpl in HRpi'.
+    have [EA0 EB0] := HeadRed_tpi_eq HRpi. subst A0 B0.
+    have [EA0' EB0'] := HeadRed_tpi_eq HRpi'. subst A0' B0'.
+    have Efun := paev u_sel v_sel Sel WTu_sel (Core.fix_ (g[σ])) TNσ (valY RBf HfN).
+    have Earg := pae' u_sel v_sel Sel WTu_sel (Core.fix_ (g[σ])) (Core.fix_ (g[σ']))
+                   convNN' (eqvalY RBf HfN).
+    have Ecomb := EqVal_trans Hvsel Efun Earg.
+    apply (EqVal_fuel_any (k := RBf) (k' := RB));
+      [ unfold RBf; lia | unfold RBf; lia | lia | lia | ].
+    asimpl in Ecomb. rewrite Ecod in Ecomb.
+    exact (@EqVal_app_transport _ Δ _ _ _ u v_sel a (app f u_sel)
+             (wt_Selection_abs WTbig Sel) WT hUc Caaf LEu_vsel RBf VTc Ecomb).
+Qed.
+
+(** Adequacy for [Y], stage by stage (Agda [adequacyV-Y-approx]): structural
+    recursion on the Kleene index.  Stage [0] contributes only [bot]
+    ([Val_Bot]/[EqVal_Bot]); stage [S j] head-expands along [hr_fix] (justified
+    by [c_fix]) and hands the resulting contractum to [st_fix_app_core], with
+    the stage-[j] instance of *this* lemma as the argument recursor. *)
+Lemma st_fix_approx (A g : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  forall k ρ m (Δ : Ctx m) (σ σ': Sub n m)
+    (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ)
+    (CS : ConvSub Δ Γ σ σ') (Fρ : fits Γ ρ)
+    (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+    (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ),
+  forall u a (WT : wt u a),
+    Approx (fun p w => EvalRel g ρ (p ↦ w)) k u ->
+    EvalRel A ρ a ->
+    (forall RB, max (rk u) (rk a) < RB -> Val RB Δ (Core.fix_ (g[σ])) A[σ] WT) /\
+    (forall RB, max (rk u) (rk a) < RB ->
+        EqVal RB Δ (Core.fix_ (g[σ])) (Core.fix_ (g[σ'])) A[σ] WT).
+Proof.
+  move=> TA Tg STA STg k.
+  induction k as [ | j IH ];
+    move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT HA evA_a.
+  - (* stage 0: the only approximant is [bot] *)
+    move: HA => [Vu Lu].
+    have Eu : u = bot by (apply le_bot_inv; exact Lu). subst u.
+    split; move=> RB Hrank; [ apply Val_Bot | apply EqVal_Bot ].
+  - (* stage [S j] *)
+    destruct (is_bot u) eqn:Hu.
+    { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u.
+      split; move=> RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
+    move: HA => [v0 [HAj evEdge]].
+    have [Vcore Ecore] :
+      (forall RB, max (rk u) (rk a) < RB ->
+          Val RB Δ (Core.app (g[σ]) (Core.fix_ (g[σ]))) A[σ] WT) /\
+      (forall RB, max (rk u) (rk a) < RB ->
+          EqVal RB Δ (Core.app (g[σ]) (Core.fix_ (g[σ])))
+                     (Core.app (g[σ']) (Core.fix_ (g[σ']))) A[σ] WT).
+    { eapply st_fix_app_core;
+        [ exact TA | exact Tg | exact STA | exact STg
+        | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+        | exact EVS | exact CΔ
+        | exact (IH ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ)
+        | exact Hu | exact HAj | exact evEdge | exact evA_a ]. }
+    (* head-expand both sides along [hr_fix] *)
+    have Cfix : conv Γ (Core.fix_ g) (Core.app g (Core.fix_ g)) A
+      by (eapply c_fix; [ exact TA | exact Tg ]).
+    have CfixS00 : conv Δ ((Core.fix_ g)[σ]) ((Core.app g (Core.fix_ g))[σ]) A[σ]
+      by (eapply substitution_conv; [ exact Cfix | exact TS | exact CΔ ]).
+    have CfixS : conv Δ (Core.fix_ (g[σ])) (Core.app (g[σ]) (Core.fix_ (g[σ]))) A[σ]
+      := CfixS00.
+    have CfixS'00 : conv Δ ((Core.fix_ g)[σ']) ((Core.app g (Core.fix_ g))[σ']) A[σ']
+      by (eapply substitution_conv; [ exact Cfix | exact TS' | exact CΔ ]).
+    have CfixS'0 : conv Δ (Core.fix_ (g[σ'])) (Core.app (g[σ']) (Core.fix_ (g[σ']))) A[σ']
+      := CfixS'00.
+    have convA0 : conv Δ A[σ] A[σ'] Core.tuniv[σ].
+    { eapply subst_conv_cross;
+        [ exact TA | exact CΔ | exact TS | exact TS' | exact CS ]. }
+    have convA : conv Δ A[σ] A[σ'] Core.tuniv := convA0.
+    have CfixS' : conv Δ (Core.fix_ (g[σ'])) (Core.app (g[σ']) (Core.fix_ (g[σ']))) A[σ]
+      by (eapply c_conv; [ exact CfixS'0 | apply c_sym; exact convA ]).
+    have HRfix : forall (h : Tm m),
+        HeadRed (Core.fix_ h) (Core.app h (Core.fix_ h))
+      by (move=> h; eapply ms_trans; [ apply hr_fix | apply ms_refl ]).
+    split; move=> RB Hrank.
+    + eapply Val_beta_expand;
+        [ exact (HRfix (g[σ])) | exact CfixS | exact (Vcore RB Hrank) ].
+    + eapply EqVal_headred_expand;
+        [ exact (HRfix (g[σ])) | exact (HRfix (g[σ'])) | exact CfixS | exact CfixS'
+        | exact (Ecore RB Hrank) ].
+Qed.
+
+(** Adequacy for [Y] (Agda [ty-Y] / [NAT/Adequacy/YCore.agda]): every Kleene
+    approximant of [fix_ g] is valid at [A].  All the work is in
+    [st_fix_approx]; here we merely open the existential Kleene index carried
+    by [EvalRel (fix_ g) ρ u]. *)
+Lemma st_fix (A g : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.fix_ g) A.
+Proof.
+  move=> TA Tg STA STg.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT evY evA.
+  move: evY => [k HA].
+  eapply st_fix_approx;
+    [ exact TA | exact Tg | exact STA | exact STg
+    | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+    | exact EVS | exact CΔ | exact HA | exact evA ].
+Qed.
+
+(** The Y-unfolding conversion (Agda [conv-Y]).  Proved from [st_fix] exactly as
+    [sc_beta] is proved from [st_abs]/[st_app]: take the redex's reflexive
+    [EqVal] and contract the second side along [hr_fix], with [c_fix] as the
+    step conversion. *)
+Lemma sc_fix (A g : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.fix_ g) (Core.app g (Core.fix_ g)) A.
+Proof.
+  move=> TA Tg STA STg.
+  have STY : semantic_typing Γ (Core.fix_ g) A
+    by (eapply st_fix; [ exact TA | exact Tg | exact STA | exact STg ]).
+  have TY : typing Γ (Core.fix_ g) A by (eapply t_fix; [ exact TA | exact Tg ]).
+  have Cfix : conv Γ (Core.fix_ g) (Core.app g (Core.fix_ g)) A
+    by (eapply c_fix; [ exact TA | exact Tg ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evY evA RB Hrank.
+  have eqY :=
+    proj2 (STY ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+             CD u a WT evY evA).
+  have CfixS : conv Δ (Core.fix_ g)[σ] ((Core.app g (Core.fix_ g))[σ]) (A[σ])
+    by (eapply substitution_conv; [ exact Cfix | exact TS | exact CD ]).
+  have CreflS : conv Δ (Core.fix_ g)[σ] (Core.fix_ g)[σ] (A[σ])
+    by (apply c_refl; eapply substitution_tm; [ exact TY | exact TS | exact CD ]).
+  eapply EqVal_headred_contract.
+  - apply ms_refl.
+  - eapply ms_trans; [ apply hr_fix | apply ms_refl ].
+  - exact CreflS.
+  - apply c_sym; exact CfixS.
+  - exact (eqY RB Hrank).
+Qed.
+
+(** Congruence for [Y] (Agda [conv-Y-cong] / [NAT/Adequacy/YCross.agda]),
+    stage by stage.  Structural recursion on the Kleene index of the *first*
+    chain: the two fixpoints' approximant chains are related step by step
+    through the step functions' [semantic_conv2].
+
+    The [S j] step is the [EqVal] half of [st_fix_app_core] with the two
+    variations retargeted: the function varies [g[σ] → g'[σ]] (from [SCg]
+    rather than from a cross-substitution) and the argument varies
+    [fix_ (g[σ]) → fix_ (g'[σ])] (from the stage-[j] recursor).  Because a
+    single substitution is used throughout, no [c_conv] retyping is needed on
+    the second side. *)
+Lemma sc_fix_approx (A g g' : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  typing Γ g' (Core.tpi A (⟨↑⟩ A)) ->
+  conv Γ g g' (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_conv2 Γ g g' (Core.tpi A (⟨↑⟩ A)) ->
+  forall k ρ m (Δ : Ctx m) (σ : Sub n m) (TS : typing_subst Δ σ Γ)
+    (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (CΔ : ctx Δ),
+  forall u a (WT : wt u a),
+    Approx (fun p w => EvalRel g ρ (p ↦ w)) k u ->
+    EvalRel A ρ a ->
+    forall RB, max (rk u) (rk a) < RB ->
+      EqVal RB Δ (Core.fix_ (g[σ])) (Core.fix_ (g'[σ])) A[σ] WT.
+Proof.
+  move=> TA Tg Tg' Cgg' STA STg SCg k.
+  induction k as [ | j IH ];
+    move=> ρ m Δ σ TS Fρ VS CΔ u a WT HA evA_a.
+  - (* stage 0: the only approximant is [bot] *)
+    move: HA => [Vu Lu].
+    have Eu : u = bot by (apply le_bot_inv; exact Lu). subst u.
+    move=> RB Hrank. apply EqVal_Bot.
+  - (* stage [S j] *)
+    destruct (is_bot u) eqn:Hu.
+    { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u.
+      move=> RB Hrank. apply EqVal_Bot. }
+    move: HA => [v0 [HAj evEdge]].
+    have Vρ : valid_env ρ := fits_valid_env Fρ.
+    have TY : typing Γ (Core.fix_ g) A by (eapply t_fix; [ exact TA | exact Tg ]).
+    have TY' : typing Γ (Core.fix_ g') A by (eapply t_fix; [ exact TA | exact Tg' ]).
+    have evN : EvalRel (Core.fix_ g) ρ v0 by (exists j; exact HAj).
+    (* --- the App-cross core, mirroring [st_fix_app_core] --- *)
+    have Ecore : forall RB, max (rk u) (rk a) < RB ->
+        EqVal RB Δ (Core.app (g[σ]) (Core.fix_ (g[σ])))
+                   (Core.app (g'[σ]) (Core.fix_ (g'[σ]))) A[σ] WT.
+    { have IT : InvTyped Γ g (Core.tpi A (⟨↑⟩ A)) ρ.
+      { apply typing_EvalRel. exact Tg. exact Fρ. }
+      have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
+      unfold singleton in LEbig. rewrite Hu in LEbig.
+      have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
+      destruct abig as [ | | | | | b f | ];
+        try solve [ exfalso; clear -WTbig; inversion WTbig ].
+      have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
+      have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
+      have Vv0 : valid v0 := EvalRel_valid evN.
+      have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vv0.
+      have [WTu_sel WTv_sel] : wt u_sel b /\ wt v_sel (app f u_sel).
+      { eapply wt_Selection_cod;
+          [ exact (wt_abs_ty WTbig) | exact (wt_abs_inv1 WTbig)
+          | move=> ui vi Hin; exact (wt_abs_inv2 WTbig Hin erefl)
+          | exact Vg | exact Sel ]. }
+      have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+      have evN_usel : EvalRel (Core.fix_ g) ρ u_sel
+        by (eapply EvalRel_down; [ exact Vρ | exact Vusel | exact evN | exact Le_usel ]).
+      have HAsel : Approx (fun p w => EvalRel g ρ (p ↦ w)) j u_sel
+        := Approx_EvalRel_down Vρ HAj Vusel Le_usel.
+      (* argument, first side: [Val] of [fix_ g] from [st_fix] *)
+      have STY : semantic_typing Γ (Core.fix_ g) A
+        by (eapply st_fix; [ exact TA | exact Tg | exact STA | exact STg ]).
+      have [valArg _] :=
+        STY ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS
+          (ValSub_EqValSub VS) CΔ u_sel b WTu_sel evN_usel evA_b.
+      (* argument variation: the stage-[j] recursor *)
+      have eqArg := IH ρ m Δ σ TS Fρ VS CΔ u_sel b WTu_sel HAsel evA_b.
+      have TNσ0 : typing Δ ((Core.fix_ g)[σ]) A[σ]
+        by (eapply substitution_tm; [ exact TY | exact TS | exact CΔ ]).
+      have TNσ : typing Δ (Core.fix_ (g[σ])) A[σ] := TNσ0.
+      have CY : conv Γ (Core.fix_ g) (Core.fix_ g') A
+        by (eapply c_fix_cong; [ exact TA | exact Tg | exact Tg' | exact Cgg' ]).
+      have convNN'0 : conv Δ ((Core.fix_ g)[σ]) ((Core.fix_ g')[σ]) A[σ]
+        by (eapply substitution_conv; [ exact CY | exact TS | exact CΔ ]).
+      have convNN' : conv Δ (Core.fix_ (g[σ])) (Core.fix_ (g'[σ])) A[σ] := convNN'0.
+      (* the edge codomain also evaluates the (non-dependent) codomain type *)
+      have evB_af : EvalRel A ρ (app f u_sel).
+      { destruct (is_bot (app f u_sel)) eqn:Hbaf.
+        - have -> : app f u_sel = bot by apply is_bot_eq; rewrite Hbaf. apply EvalRel_bot.
+        - have NB : ~ is_bot (app f u_sel) by rewrite Hbaf.
+          move: (@EvalRel_Pi_app_type _ A (⟨↑⟩ A) ρ b f evTpi Vρ u_sel
+                   (app f u_sel) Vusel erefl NB (Core.fix_ g) evN_usel).
+          rewrite subst1_shift. done. }
+      have Caaf : compatible a (app f u_sel)
+        by (eapply EvalRel_compatible; [ exact Vρ | exact evA_a | exact evB_af ]).
+      have ELub : EvalRel A ρ (lub a (app f u_sel))
+        by (exact (proj2 (EvalRel_compatible_lub Vρ evA_a evB_af) _ erefl)).
+      have Waf : wt (app f u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTbig Sel).
+      have hUc : wt (lub a (app f u_sel)) tuniv := wt_lub (wt_ty_tuniv WT) Caaf Waf.
+      have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+      have LEu_vsel : le u v_sel.
+      { rewrite le_fun_cons in LEfun.
+        have LEua := proj1 (andb_prop _ _ LEfun).
+        rewrite Eq_vsel in LEua. exact LEua. }
+      move=> RB Hrank.
+      pose RBf := S (max (max (rk (abs gt)) (rk (tpi b f))) (max (rk u) (rk a))).
+      have RKusel : rk u_sel <= rk_fun gt := rk_Selection_key Sel.
+      have RKb : rk b < rk (tpi b f) by (cbn; lia).
+      have RKfg : rk_fun gt < rk (abs gt) by (cbn; lia).
+      have HfM : max (rk (abs gt)) (rk (tpi b f)) < S RBf by (unfold RBf; lia).
+      have HfN : max (rk u_sel) (rk b) < RBf by (unfold RBf; lia).
+      have HrC : max (rk (lub a (app f u_sel))) (rk tuniv) < RBf.
+      { have L1 := rk_lub a (app f u_sel). have L2 := rk_app f u_sel.
+        have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+        have Htu : rk tuniv <= rk (tpi b f) by (cbn; lia).
+        unfold RBf; lia. }
+      have Hvsel : rk v_sel < RBf.
+      { have L := rk_Selection_val Sel. have Hf : rk_fun f < rk (tpi b f) by (cbn; lia).
+        unfold RBf; lia. }
+      (* codomain-type block, COLLAPSED (the type is the fixed [A[σ]]) *)
+      have [VTA _] := STA ρ m Δ σ σ TS TS (ConvSub_refl TS) Fρ VS VS
+                        (ValSub_EqValSub VS) CΔ (lub a (app f u_sel)) tuniv hUc ELub evU.
+      have VTc : Val RBf Δ A[σ] Core.tuniv hUc := VTA RBf HrC.
+      have Ecod : forall (X : Tm m), A[σ >> ren_Tm ↑][X .: var] = A[σ]
+        by (move=> X; asimpl; reflexivity).
+      (* the step functions' conversion, at the enlarged function value *)
+      have EM := SCg ρ m Δ σ TS Fρ VS CΔ (abs gt) (tpi b f) WTbig evMbig evTpi
+                   (S RBf) HfM.
+      rewrite EqVal_abs in EM.
+      move: EM => [_ [_ [VPiM' EPi]]].
+      move: EPi => [A0 [B0 [HRpi [CTpi paev]]]].
+      move: VPiM' => [A0' [B0' [HRpi' [CTpi' [_ pae']]]]].
+      asimpl in HRpi. asimpl in HRpi'.
+      have [EA0 EB0] := HeadRed_tpi_eq HRpi. subst A0 B0.
+      have [EA0' EB0'] := HeadRed_tpi_eq HRpi'. subst A0' B0'.
+      (* function variation: [app g[σ] (fix_ g[σ])] vs [app g'[σ] (fix_ g[σ])] *)
+      have Efun := paev u_sel v_sel Sel WTu_sel (Core.fix_ (g[σ])) TNσ (valArg RBf HfN).
+      (* argument variation: [app g'[σ] (fix_ g[σ])] vs [app g'[σ] (fix_ g'[σ])] *)
+      have Earg := pae' u_sel v_sel Sel WTu_sel (Core.fix_ (g[σ])) (Core.fix_ (g'[σ]))
+                     convNN' (eqArg RBf HfN).
+      have Ecomb := EqVal_trans Hvsel Efun Earg.
+      apply (EqVal_fuel_any (k := RBf) (k' := RB));
+        [ unfold RBf; lia | unfold RBf; lia | lia | lia | ].
+      asimpl in Ecomb. rewrite Ecod in Ecomb.
+      exact (@EqVal_app_transport _ Δ _ _ _ u v_sel a (app f u_sel)
+               (wt_Selection_abs WTbig Sel) WT hUc Caaf LEu_vsel RBf VTc Ecomb). }
+    (* head-expand both sides along [hr_fix] *)
+    have Cfix : conv Γ (Core.fix_ g) (Core.app g (Core.fix_ g)) A
+      by (eapply c_fix; [ exact TA | exact Tg ]).
+    have Cfix' : conv Γ (Core.fix_ g') (Core.app g' (Core.fix_ g')) A
+      by (eapply c_fix; [ exact TA | exact Tg' ]).
+    have CfixS00 : conv Δ ((Core.fix_ g)[σ]) ((Core.app g (Core.fix_ g))[σ]) A[σ]
+      by (eapply substitution_conv; [ exact Cfix | exact TS | exact CΔ ]).
+    have CfixS : conv Δ (Core.fix_ (g[σ])) (Core.app (g[σ]) (Core.fix_ (g[σ]))) A[σ]
+      := CfixS00.
+    have CfixS'00 : conv Δ ((Core.fix_ g')[σ]) ((Core.app g' (Core.fix_ g'))[σ]) A[σ]
+      by (eapply substitution_conv; [ exact Cfix' | exact TS | exact CΔ ]).
+    have CfixS' : conv Δ (Core.fix_ (g'[σ])) (Core.app (g'[σ]) (Core.fix_ (g'[σ]))) A[σ]
+      := CfixS'00.
+    have HRfix : forall (h : Tm m),
+        HeadRed (Core.fix_ h) (Core.app h (Core.fix_ h))
+      by (move=> h; eapply ms_trans; [ apply hr_fix | apply ms_refl ]).
+    move=> RB Hrank.
+    eapply EqVal_headred_expand;
+      [ exact (HRfix (g[σ])) | exact (HRfix (g'[σ])) | exact CfixS | exact CfixS'
+      | exact (Ecore RB Hrank) ].
+Qed.
+
+(** Congruence for [Y] (Agda [conv-Y-cong] / [NAT/Adequacy/YCross.agda]): all
+    the work is in [sc_fix_approx]; here we merely open the existential Kleene
+    index carried by [EvalRel (fix_ g) ρ u]. *)
+Lemma sc_fix_cong (A g g' : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  typing Γ g' (Core.tpi A (⟨↑⟩ A)) ->
+  conv Γ g g' (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ g (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_typing Γ g' (Core.tpi A (⟨↑⟩ A)) ->
+  semantic_conv2 Γ g g' (Core.tpi A (⟨↑⟩ A)) ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.fix_ g) (Core.fix_ g') A.
+Proof.
+  move=> TA Tg Tg' Cgg' STA STg STg' SCg.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a WT evY evA.
+  move: evY => [k HA].
+  eapply sc_fix_approx;
+    [ exact TA | exact Tg | exact Tg' | exact Cgg' | exact STA | exact STg
+    | exact SCg | exact TS | exact Fρ | exact VS | exact CΔ | exact HA | exact evA ].
+Qed.
+
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
 (*
@@ -4278,6 +4768,7 @@ Proof.
     + eapply st_zero; eauto.
     + eapply st_succ; eauto.
     + eapply st_case; eauto.
+    + eapply st_fix; eauto.
     + eapply st_tpi; eauto.
     + eapply st_univ; eauto.
   - move=> h. dependent destruction h.
@@ -4294,6 +4785,8 @@ Proof.
     + eapply sc_ncase; eauto.
     + eapply sc_succ; eauto.
     + eapply sc_abs; eauto.
+    + eapply sc_fix; eauto.
+    + eapply sc_fix_cong; eauto.
     + eapply sc_tpi; eauto.
 Qed.
 
@@ -4526,6 +5019,7 @@ Proof.
     | n Γ cΓ
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
+    | n Γ Ay gy tAy IHAy tgy IHgy
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ]; intros N' hr.
   all: try solve [ inversion hr ].
@@ -4555,6 +5049,9 @@ Proof.
     + eapply c_ncase;
         [ exact tT | exact tMc1 | eapply IHMc; exact hrM
         | apply c_refl; exact tMc0 | apply c_refl; exact tMc1 ].
+  - (* t_fix: the only redex is the Y-unfolding *)
+    inversion hr; subst.
+    eapply c_fix; [ exact tAy | exact tgy ].
 Qed.
 
 (* Agda: subject-red1 : HasType G M A -> HeadRed1 M N -> HasType G N A *)
@@ -4570,6 +5067,7 @@ Proof.
     | n Γ cΓ
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
+    | n Γ Ay gy tAy IHAy tgy IHgy
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ]; intros N' hr.
   all: try solve [ inversion hr ].
@@ -4618,6 +5116,17 @@ Proof.
       * eapply conv_subst_arg;
           [ apply t_nat; exact cΓ | exact tT | exact tMc' | exact tMc
           | apply c_sym; eapply red1_conv; [ exact tMc | exact hrM ] ].
+  - (* t_fix: [fix g] unfolds to [app g (fix g)], typed at [Ay] because
+       [Ay⟨↑⟩[(fix_ g)..] = Ay] *)
+    inversion hr; subst.
+    have TY : typing Γ (Core.fix_ gy) Ay
+      by (eapply t_fix; [ exact tAy | exact tgy ]).
+    eapply t_app' with (A := Ay) (B := Ay⟨↑⟩);
+      [ exact tAy
+      | apply typing_weaken_shift; [ exact tAy | exact tAy ]
+      | exact tgy
+      | exact TY
+      | apply subst1_shift ].
 Qed.
 
 (* Subject reduction for multi-step head reduction. *)
@@ -4744,6 +5253,7 @@ Proof.
     | n Γ cΓ
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
+    | n Γ Ay gy tAy IHAy tgy IHgy
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ].
   - right; left; constructor.
@@ -4766,6 +5276,8 @@ Proof.
       * right; right; eexists; apply hr_succ.
     + right; left; apply ne_ncase; exact neMc.
     + right; right; eexists; apply hr_case; exact stMc.
+  - (* t_fix: always unfolds *)
+    right; right; eexists; apply hr_fix.
   - left; constructor.
   - left; constructor.
 Qed.

@@ -34,6 +34,9 @@ Inductive HeadRed1 (n : nat) : Tm n -> Tm n -> Prop :=
  | hr_case M M' M0 M1 :
     HeadRed1 M M' ->
     HeadRed1 (ncase M M0 M1) (ncase M' M0 M1)
+ (* Y-unfolding (Agda [headred-Y]): [fix g] unfolds to [g (fix g)]. *)
+ | hr_fix g :
+    HeadRed1 (fix_ g) (app g (fix_ g))
 .
 
 (* reflexive-transitive closure *)
@@ -60,7 +63,8 @@ Proof.
     | Ma Mb N0 hM IH
     | M0 M1
     | M0 M1 N0
-    | Mc Mc' M0 M1 hM IH ]; move=> P h2.
+    | Mc Mc' M0 M1 hM IH
+    | g ]; move=> P h2.
   - (* hr_beta vs. a reduction of the [abs] itself *)
     inversion h2; subst; [ reflexivity | ].
     exfalso.
@@ -83,6 +87,8 @@ Proof.
     + exfalso. inversion hM.
     + exfalso. inversion hM.
     + f_equal. eapply IH; eassumption.
+  - (* hr_fix: [fix g] has exactly one redex *)
+    inversion h2; subst; reflexivity.
 Qed.
 
 (* generic head-contraction to a HeadRed1-normal target (covers zero/succ) *)

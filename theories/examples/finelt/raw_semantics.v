@@ -55,6 +55,129 @@ Notation " a ↦ b " := (singleton a b) (at level 70).
     Defining the function case via this "well-typed approximation below [u]"
     (rather than demanding [u] itself be well-typed) is what makes
     [EvalRel_fun_compatible] and the ideal properties go through. *)
+(** [Approx step k u]: [u] approximates the [k]-th Kleene approximant of a
+    fixpoint, where [step p w] reads "the step function maps [p] to [w]" (one
+    edge).  [Y_0 = bot] and [Y_(k+1) = g Y_k].  Recursion is structural in the
+    index [k] and independent of [EvalRel]; supplying this explicit Kleene
+    index at the use site is what keeps [EvalRel]'s fixpoint clause
+    structurally recursive (Agda NAT [Approx]). *)
+Fixpoint Approx (step : elt -> elt -> Prop) (k : nat) (u : elt) : Prop :=
+  match k with
+  | 0 => valid u /\ le u bot
+  | S k => exists p, Approx step k p /\ step p u
+  end.
+
+(* The value recorded by a single edge is valid. *)
+Lemma valid_singleton_val (a b : elt) : valid (a ↦ b) -> valid b.
+Proof.
+  unfold singleton. destruct (is_bot b) eqn:Hb.
+  - move=> _. destruct b; done.
+  - move=> H.
+    move: (valid_fun_subterms_prop _ (valid_abs _ H) a b (or_introl erefl)).
+    by move=> [_ Vb].
+Qed.
+
+(* Every Kleene approximant is valid, given that the step's values are. *)
+Lemma Approx_valid (step : elt -> elt -> Prop) :
+  (forall p w, step p w -> valid w) ->
+  forall k u, Approx step k u -> valid u.
+Proof.
+  move=> Hs k. induction k as [ | k IH ]; move=> u H.
+  - exact (proj1 H).
+  - move: H => [p [_ Hst]]. exact (Hs p u Hst).
+Qed.
+
+(* One-step unfolding of [lub] on function tables. *)
+Lemma lub_abs (f g : list (elt * elt)) :
+  lub (abs f) (abs g) = if compatible_fun f g then abs (f ++ g) else bot.
+Proof. reflexivity. Qed.
+
+(* Constructing and inverting the validity of a single edge. *)
+Lemma valid_singleton (a b : elt) : valid a -> valid b -> valid (a ↦ b).
+Proof.
+  move=> Va Vb. unfold singleton. destruct (is_bot b) eqn:Hb; [ done | ].
+  have Nb : ~~ le b bot
+    by (apply /negP => H; move: H => /le_bot_inv Eb; subst b; done).
+  cbn. rewrite andbT /_valid_fun /=.
+  rewrite (compatible_refl Va) (compatible_refl Vb) Va Vb Nb. done.
+Qed.
+
+Lemma valid_singleton_key (a b : elt) :
+  valid (a ↦ b) -> is_bot b = false -> valid a.
+Proof.
+  unfold singleton. move=> H Hb. rewrite Hb in H.
+  move: (valid_fun_subterms_prop _ (valid_abs _ H) a b (or_introl erefl)).
+  by move=> [Va _].
+Qed.
+
+(* A single edge is monotone in the value it records. *)
+Lemma le_singleton_val (p u u' : elt) :
+  valid p -> valid u' -> le u' u -> le (p ↦ u') (p ↦ u).
+Proof.
+  move=> Vp Vu' L. unfold singleton.
+  destruct (is_bot u') eqn:Hu'.
+  - destruct u'; try done. all: apply le_bot'.
+  - destruct (is_bot u) eqn:Hu.
+    + exfalso. destruct u; try done.
+      all: move: L => /le_bot_inv Eu'; subst u'; done.
+    + rewrite le_abs le_fun_cons. apply /andP. split.
+      * rewrite app_cons_eq app_nil_eq lub_bot_r (le_refl Vp) /=. exact L.
+      * apply le_fun_nil.
+Qed.
+
+(* Kleene approximants are downward closed, given a downward-closed step. *)
+Lemma Approx_down (step : elt -> elt -> Prop) :
+  (forall p w w', step p w -> valid w' -> le w' w -> step p w') ->
+  forall k u u', Approx step k u -> valid u' -> le u' u -> Approx step k u'.
+Proof.
+  move=> Hs k. induction k as [ | k IH ]; move=> u u' H Vu' L.
+  - move: H => [_ Lb]. split; [ exact Vu' | ].
+    move: Lb => /le_bot_inv Eu. subst u.
+    move: L => /le_bot_inv Eu'. subst u'. apply le_bot'.
+  - move: H => [p [Hp Hst]].
+    exists p. split; [ exact Hp | exact (Hs _ _ _ Hst Vu' L) ].
+Qed.
+
+(* Join-closure of the Kleene approximants (Agda [YSup]).  Induction on the
+   first index, with the second universally quantified; the [bot] approximants
+   are absorbed because [lub bot x = x]. *)
+Lemma Approx_sup (step : elt -> elt -> Prop)
+  (Hmerge : forall p1 w1 p2 w2,
+      step p1 w1 -> step p2 w2 -> is_bot w1 = false -> is_bot w2 = false ->
+      compatible p1 p2 ->
+      compatible w1 w2 /\ step (lub p1 p2) (lub w1 w2)) :
+  forall k1 a k2 b, Approx step k1 a -> Approx step k2 b ->
+    compatible a b /\ exists k, Approx step k (lub a b).
+Proof.
+  induction k1 as [ | k1 IH ]; move=> a k2 b HA HB.
+  - move: HA => [Va La]. move: La => /le_bot_inv Ea. subst a.
+    split; [ done | exists k2; rewrite lub_bot_l; exact HB ].
+  - destruct (is_bot a) eqn:Ha.
+    { destruct a; try done.
+      split; [ done | exists k2; rewrite lub_bot_l; exact HB ]. }
+    destruct (is_bot b) eqn:Hb.
+    { destruct b; try done.
+      split; [ apply compatible_bot | exists (S k1); rewrite lub_bot_r; exact HA ]. }
+    destruct k2 as [ | k2 ].
+    { exfalso. move: HB => [_ Lb]. move: Lb => /le_bot_inv Eb. subst b. done. }
+    move: HA => [p1 [Hp1 Hs1]]. move: HB => [p2 [Hp2 Hs2]].
+    move: (IH p1 k2 p2 Hp1 Hp2) => [Cp [kp Hkp]].
+    move: (Hmerge _ _ _ _ Hs1 Hs2 Ha Hb Cp) => [Cab Hst].
+    split; [ exact Cab | ].
+    exists (S kp), (lub p1 p2). split; [ exact Hkp | exact Hst ].
+Qed.
+
+(* Relabelling the step along a pointwise implication (Agda [Approx-mon]). *)
+Lemma Approx_mon (step step' : elt -> elt -> Prop) :
+  (forall p w, step p w -> step' p w) ->
+  forall k u, Approx step k u -> Approx step' k u.
+Proof.
+  move=> Hs k. induction k as [ | k IH ]; move=> u H.
+  - exact H.
+  - move: H => [p [Hp Hst]].
+    exists p. split; [ exact (IH _ Hp) | exact (Hs _ _ Hst) ].
+Qed.
+
 Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
   (* NOTE: this says that we can find a well-typed approximation for
      any argument u, even if u is not itself well-typed.
@@ -123,9 +246,9 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
           | _      => False
           end
   | fix_ M => fun ρ b =>
-        (* fixpoint: placeholder (bot only) pending the Kleene-approximant
-           semantics (Agda NAT [Y]/[Approx]). *)
-        if is_bot b then True else False
+        (* Y: the union over the Kleene index of the approximants, the step
+           being single-edge application of [M] (Agda NAT [EvalRel (Y g)]). *)
+        exists k, Approx (fun p w => EvalRel M ρ (p ↦ w)) k b
   end.
 
 
@@ -209,8 +332,11 @@ Proof.
     move=> [Vu [Vf [WTu [E1 _]]]].
     eapply valid_tpi_intro; eauto.
   - (* tuniv *) destruct u; try done.
-  - (* fix_ *) destruct (is_bot u) eqn:h; try done.
-    destruct u; try done.
+  - (* fix_: every Kleene approximant is valid, since each step edge records
+       a valid value *)
+    move=> [k HA].
+    eapply Approx_valid; [ | exact HA ].
+    move=> p w Hst. eapply valid_singleton_val. exact (IHM _ _ Hst).
 Qed.
 
 (** * monotonicity *)
@@ -284,8 +410,11 @@ Proof.
     eapply le_refl; eauto with valid.
   - (* M = tuniv n *)
     destruct u; try done.
-  - (* M = fix_ *)
-    exact h1.
+  - (* M = fix_: relabel the step along the environment monotonicity of [M] *)
+    move: h1 => [k HA].
+    exists k. eapply Approx_mon; [ | exact HA ].
+    move=> p w Hst.
+    eapply IHM; [ exact Hst | exact V1 | exact V2 | exact h2 ].
 Qed.
 
 
@@ -298,7 +427,9 @@ Proof.
   all: try solve [ apply le_bot' ].
   all: try solve [ done ].
   (* ncase *)
-  exists bot. split; [ apply IHM1 | split; [ done | apply le_bot' ] ].
+  - exists bot. split; [ apply IHM1 | split; [ done | apply le_bot' ] ].
+  (* fix_: [bot] is the 0-th Kleene approximant *)
+  - exists 0. split; [ done | apply le_bot' ].
 Qed.
 
 (** Downward closure: any valid element below an approximation is itself an
@@ -442,13 +573,46 @@ Proof.
   - (* tuniv *)
     have Vt: valid tuniv by done.
     eapply (le_trans (v := u)); eauto.
-  - (* fix_ (bot-only placeholder) *)
-    destruct (is_bot u') eqn:Hu'.
-    + destruct u'; done.
-    + destruct (is_bot u) eqn:Hu.
-      ++ destruct u; try done. apply le_bot_inv in LE. subst u'.
-         cbn in Hu'. done.
-      ++ done.
+  - (* fix_: the Kleene approximants are downward closed, since a single edge
+       of the step function is monotone in the value it records *)
+    move: ER1 => [k HA]. exists k.
+    eapply Approx_down; [ | exact HA | exact Vu' | exact LE ].
+    move=> q w w' Hst Vw' Lw.
+    have Vsing : valid (q ↦ w) := EvalRel_valid Hst.
+    destruct (is_bot w) eqn:Hw.
+    + (* the edge records [bot], so [q ↦ w] is [bot] and so is [q ↦ w'] *)
+      have Ew' : is_bot w' = true.
+      { destruct w; try done. move: Lw => /le_bot_inv ->. done. }
+      unfold singleton in Hst |- *. rewrite Hw in Hst. rewrite Ew'. exact Hst.
+    + have Vq : valid q := valid_singleton_key Vsing Hw.
+      eapply IHM;
+        [ exact Vρ | apply valid_singleton; [ exact Vq | exact Vw' ]
+        | exact Hst | apply le_singleton_val; [ exact Vq | exact Vw' | exact Lw ] ].
+Qed.
+
+(** Index-preserving down-closure of the Kleene approximants of [fix_ M]
+    (Agda: the [yArgVal] clauses of [NAT/Adequacy/YCore.agda], which obtain
+    the same effect by case-splitting the target so that [EvalRel-down] on
+    [Y gg] reduces and re-exposes the *same* index).  Using [Approx_down]
+    directly is what makes the Coq version a one-liner: the existential index
+    of [EvalRel (fix_ M)] is never opened, so it cannot be lost. *)
+Lemma Approx_EvalRel_down {n} (M : Tm n) (ρ : Env n) :
+  valid_env ρ ->
+  forall k u u', Approx (fun p w => EvalRel M ρ (p ↦ w)) k u ->
+    valid u' -> le u' u ->
+    Approx (fun p w => EvalRel M ρ (p ↦ w)) k u'.
+Proof.
+  move=> Vρ. apply Approx_down.
+  move=> q w w' Hst Vw' Lw.
+  have Vsing : valid (q ↦ w) := EvalRel_valid Hst.
+  destruct (is_bot w) eqn:Hw.
+  - have Ew' : is_bot w' = true.
+    { destruct w; try done. move: Lw => /le_bot_inv ->. done. }
+    unfold singleton in Hst |- *. rewrite Hw in Hst. rewrite Ew'. exact Hst.
+  - have Vq : valid q := valid_singleton_key Vsing Hw.
+    eapply EvalRel_down;
+      [ exact Vρ | apply valid_singleton; [ exact Vq | exact Vw' ]
+      | exact Hst | apply le_singleton_val; [ exact Vq | exact Vw' | exact Lw ] ].
 Qed.
 
 
@@ -885,12 +1049,52 @@ Proof.
     all: cbn.
     all: split; auto.
     all: move=> c h; inversion h; subst c; done.
-  - (* fix_ (bot-only placeholder) *)
+  - (* fix_: the Kleene approximants are join-closed.  Two single edges of the
+       step function merge into one edge at the joined key and joined value,
+       and that merged edge is *below* the join of the two tables -- so
+       [EvalRel_down] on [M] delivers it (Agda [YSup] / [singletonSup]). *)
     move=> H1 H2.
-    destruct a; cbn in H1; try done.
-    destruct b; cbn in H2; try done.
-    split; first done.
-    move=> c h. cbn in h. inversion h; subst c. cbn. done.
+    have HM : forall p1 w1 p2 w2,
+        EvalRel M ρ (p1 ↦ w1) -> EvalRel M ρ (p2 ↦ w2) ->
+        is_bot w1 = false -> is_bot w2 = false -> compatible p1 p2 ->
+        compatible w1 w2 /\ EvalRel M ρ ((lub p1 p2) ↦ (lub w1 w2)).
+    { move=> p1 w1 p2 w2 Hs1 Hs2 Hw1 Hw2 Cp.
+      have Vs1 : valid (p1 ↦ w1) := EvalRel_valid Hs1.
+      have Vs2 : valid (p2 ↦ w2) := EvalRel_valid Hs2.
+      have Vp1 : valid p1 := valid_singleton_key Vs1 Hw1.
+      have Vp2 : valid p2 := valid_singleton_key Vs2 Hw2.
+      have Vw1 : valid w1 := valid_singleton_val Vs1.
+      have Vw2 : valid w2 := valid_singleton_val Vs2.
+      move: (IHM ρ _ _ Vρ Hs1 Hs2) => [Cs Hlub].
+      have Cf : compatible_fun ((p1,w1) :: nil) ((p2,w2) :: nil).
+      { move: Cs. unfold singleton. rewrite Hw1 Hw2. by cbn. }
+      have Cw : compatible w1 w2.
+      { move: Cf. cbn. move=> H.
+        move: H => /andP. move=> [H _]. move: H => /andP. move=> [H _].
+        move: H => /implyP. move=> H. exact (H Cp). }
+      split; [ exact Cw | ].
+      have Vlp : valid (lub p1 p2) := valid_lub Cp Vp1 Vp2.
+      have Vlw : valid (lub w1 w2) := valid_lub Cw Vw1 Vw2.
+      have Nlw : is_bot (lub w1 w2) = false.
+      { destruct (lub w1 w2) eqn:E; try done.
+        exfalso. move: (lub_bot_inv _ _ Cw E) => [E1 _]. subst w1. done. }
+      have Big : EvalRel M ρ (abs ((p1,w1) :: (p2,w2) :: nil)).
+      { move: (Hlub _ erefl). unfold singleton. rewrite Hw1 Hw2.
+        rewrite lub_abs Cf. by cbn. }
+      eapply EvalRel_down;
+        [ exact Vρ
+        | apply valid_singleton; [ exact Vlp | exact Vlw ]
+        | exact Big
+        | ].
+      unfold singleton. rewrite Nlw.
+      rewrite le_abs le_fun_cons. apply /andP. split; [ | apply le_fun_nil ].
+      rewrite !app_cons_eq app_nil_eq lub_bot_r.
+      rewrite (le_lub_left Cp Vp1 Vp2) (le_lub_right Cp Vp1 Vp2) /=.
+      apply le_refl; exact Vlw. }
+    move: H1 => [k1 HA]. move: H2 => [k2 HB].
+    move: (Approx_sup HM HA HB) => [Cab [k Hk]].
+    split; [ exact Cab | ].
+    move=> c LUB. subst c. exists k. exact Hk.
 Qed.
 
 (** Any two approximations of a term are compatible. *)
