@@ -120,6 +120,33 @@ Proof.
       move=> p w Hst. exact (proj1 (IHM _ ξ ρ ρ' _ EQ) Hst).
     + move=> [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
       move=> p w Hst. exact (proj2 (IHM _ ξ ρ ρ' _ EQ) Hst).
+  - (* tid: componentwise, no binders *)
+    cbn. destruct a; try done. split.
+    all: move=> [V [EA [E0 E1]]].
+    all: split; [ exact V | ].
+    all: try (rewrite -> IHM1 in EA; eauto);
+         try (rewrite -> IHM2 in E0; eauto);
+         try (rewrite -> IHM3 in E1; eauto).
+    all: split; [ | split ]; eauto.
+    all: try (rewrite -> IHM1; eauto);
+         try (rewrite -> IHM2; eauto);
+         try (rewrite -> IHM3; eauto).
+  - (* rfl *)
+    cbn. destruct a; try done. split.
+    + move=> H. rewrite -> IHM in H; eauto.
+    + move=> H. rewrite -> IHM; eauto.
+  - (* jcase — renaming commutes through the proof dispatch *)
+    cbn. split.
+    + move=> [w [EM Hb]]. exists w. split.
+      * rewrite -> IHM3 in EM; eauto.
+      * destruct w as [ | | | | | | | | v ]; cbn in Hb |- *; try contradiction.
+        -- exact Hb.
+        -- rewrite -> IHM2 in Hb; eauto.
+    + move=> [w [EM Hb]]. exists w. split.
+      * rewrite -> IHM3; eauto.
+      * destruct w as [ | | | | | | | | v ]; cbn in Hb |- *; try contradiction.
+        -- exact Hb.
+        -- rewrite -> IHM2; eauto.
 Qed.
 
 
@@ -226,6 +253,20 @@ Proof.
     move: E => [k HA]. exists k.
     eapply Approx_mon; [ | exact HA ].
     move=> p w Hst. eapply IHM; eauto.
+  - (* tid: componentwise *)
+    destruct u; try done.
+    move: E => [V [EA [E0 E1]]].
+    split; [ exact V | ].
+    split; [ eapply IHM1; eauto | ].
+    split; [ eapply IHM2; eauto | eapply IHM3; eauto ].
+  - (* rfl *)
+    destruct u; try done. eapply IHM; eauto.
+  - (* jcase *)
+    move: E => [w [EM Hb]]. exists w. split.
+    + eapply IHM3; eauto.
+    + destruct w as [ | | | | | | | | v ]; try contradiction.
+      * exact Hb.
+      * eapply IHM2; eauto.
 Qed.
 
 (** Single-variable specialization: an approximation [u] of body [B] in an
@@ -357,6 +398,20 @@ Proof.
     move: E => [k HA]. exists k.
     eapply Approx_mon; [ | exact HA ].
     move=> p w Hst. eapply IHM; eauto.
+  - (* tid: componentwise *)
+    destruct u; try done.
+    move: E => [V [EA [E0 E1]]].
+    split; [ exact V | ].
+    split; [ eapply IHM1; eauto | ].
+    split; [ eapply IHM2; eauto | eapply IHM3; eauto ].
+  - (* rfl *)
+    destruct u; try done. eapply IHM; eauto.
+  - (* jcase *)
+    move: E => [w [EM Hb]]. exists w. split.
+    + eapply IHM3; eauto.
+    + destruct w as [ | | | | | | | | v ]; try contradiction.
+      * exact Hb.
+      * eapply IHM2; eauto.
 Qed.
 
 (** * Forward substitution with witness environment
@@ -870,6 +925,57 @@ Proof.
         + eapply EvalRel_mono_env; [ exact E2 | exact V2 | exact V3 | exact L2 ]. }
     move: (gen k u HA) => [ρ' [V' [S' A']]].
     exists ρ'. split; [ exact V' | split; [ exact S' | exists k; exact A' ] ].
+  - (* tid: three component witnesses, combined pairwise *)
+    destruct u as [ | | | | | | | t v w | ].
+    1:{ (* bot *) exists bot_env. split; [|split].
+        - by apply bot_env_valid.
+        - by apply SubRel_bot_env.
+        - by cbn. }
+    all: try (exfalso; cbn in E; done).
+    move: E => [Vu [EA [E0 E1]]].
+    move: (IHM1 _ _ _ _ Vρ EA) => [ρ1 [V1 [S1 F1]]].
+    move: (IHM2 _ _ _ _ Vρ E0) => [ρ2 [V2 [S2 F2]]].
+    move: (IHM3 _ _ _ _ Vρ E1) => [ρ3 [V3 [S3 F3]]].
+    move: (combine_fwd Vρ V1 V2 S1 S2) => [ρ12 [V12 [S12 [L1 L2]]]].
+    move: (combine_fwd Vρ V12 V3 S12 S3) => [ρ' [Vρ' [SR' [L12 L3]]]].
+    exists ρ'. split; [ exact Vρ' | split; [ exact SR' | ] ].
+    cbn. split; [ exact Vu | ].
+    split.
+    { eapply EvalRel_mono_env; [ exact F1 | exact V1 | exact Vρ' | ].
+      eapply le_env_trans;
+        [ exact V1 | exact V12 | exact Vρ' | exact L1 | exact L12 ]. }
+    split.
+    { eapply EvalRel_mono_env; [ exact F2 | exact V2 | exact Vρ' | ].
+      eapply le_env_trans;
+        [ exact V2 | exact V12 | exact Vρ' | exact L2 | exact L12 ]. }
+    eapply EvalRel_mono_env; [ exact F3 | exact V3 | exact Vρ' | exact L3 ].
+  - (* rfl: the witness of the witness *)
+    destruct u as [ | | | | | | | | w ].
+    1:{ exists bot_env. split; [|split].
+        - by apply bot_env_valid.
+        - by apply SubRel_bot_env.
+        - by cbn. }
+    all: try (exfalso; cbn in E; done).
+    move: (IHM _ _ _ _ Vρ E) => [ρ' [Vρ' [SR' F]]].
+    exists ρ'. split; [ exact Vρ' | split; [ exact SR' | exact F ] ].
+  - (* jcase — forward witness, assembled from the scrutinee and the edge *)
+    move: E => [w [EM Hb]].
+    destruct w as [ | | | | | | | | v ]; cbn in Hb; try contradiction.
+    + (* bot: u = bot *)
+      move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u.
+      exists bot_env. split; [|split].
+      * by apply bot_env_valid.
+      * by apply SubRel_bot_env.
+      * apply EvalRel_bot.
+    + (* rfl v: the branch is the edge [v ↦ u] of the base *)
+      move: (IHM3 _ _ _ _ Vρ EM) => [ρ0 [V0 [SR0 E0]]].
+      move: (IHM2 _ _ _ _ Vρ Hb) => [ρ1 [V1 [SR1 E1]]].
+      move: (@combine_fwd _ _ σ ρ ρ0 ρ1 Vρ V0 V1 SR0 SR1)
+        => [ρ' [Vρ' [SR' [LE0 LE1]]]].
+      exists ρ'. split; [ exact Vρ' | split; [ exact SR' | ] ].
+      cbn. exists (rfl v). split.
+      * eapply EvalRel_mono_env; [ exact E0 | exact V0 | exact Vρ' | exact LE0 ].
+      * cbn. eapply EvalRel_mono_env; [ exact E1 | exact V1 | exact Vρ' | exact LE1 ].
 Qed.
 
 (** ** EvalRel_subst1_forward as a corollary *)

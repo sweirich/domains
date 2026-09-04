@@ -1,0 +1,15 @@
+From Stdlib Require Import Relations List Program
+     ssreflect ssrfun ssrbool.
+From Stdlib Require Import Classes.RelationClasses 
+  Classes.Morphisms Lia Arith.
+
+Set Implicit Arguments.
+Unset Strict Implicit.
+Unset Printing Implicit Defensive.
+
+Require Import smpl.Smpl.
+Require Import utils.all.
+
+Require Import syntax.syntax.
+Require Import syntax.typing.
+Require Import syntax.relations.

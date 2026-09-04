@@ -10,3 +10,6 @@ tuniv   : Tm
 fix_    : Tm -> Tm
 
 
+tid     : Tm -> Tm -> Tm -> Tm
+rfl     : Tm -> Tm
+jcase   : Tm -> Tm -> Tm -> Tm

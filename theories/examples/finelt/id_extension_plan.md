@@ -105,24 +105,55 @@ New in `findom.v`: `tid`/`rfl` clauses of `rk`, `compatible`, `lub`, `le`,
 `valid`, `le_inv_view`, plus `le_tid_inv` and `le_rfl_inv`.
 New in `types.v`: `wt_tid` and `wt_rfl` (Coquand's rule, as above).
 
+## Step 2 (done): syntax and evaluation
+
+`syntax.sig` / `syntax.v` gained the three binder-free constructors
+
+```
+tid   : Tm -> Tm -> Tm -> Tm     -- Id A a b
+rfl   : Tm -> Tm                 -- Ref a
+jcase : Tm -> Tm -> Tm -> Tm     -- J C d p
+```
+
+The installed `as2-exe` has an incompatible grammar (it rejects the
+`Tm(var) : Type` header of both `.sig` files in this repo), so the substitution
+boilerplate was generated *by analogy* instead: for a binder-free constructor
+every clause of `ren_Tm`, `subst_Tm`, `idSubst_Tm`, `extRen_Tm`, `ext_Tm`,
+`compRenRen_Tm`, `compRenSubst_Tm`, `compSubstRen_Tm`, `compSubstSubst_Tm` and
+`rinst_inst_Tm` applies the recursor unchanged to every argument — exactly as
+for `app` — so all ten sites were derived mechanically from the existing `fix_`
+clause. `syntax.sig` is kept in sync for whenever a matching `as2-exe` is
+available.
+
+`raw_semantics.v` gained the three `EvalRel` clauses (transcribed from
+`ID/Model/Eval.agda`: `tid` behaves like `tpi`, `rfl` like `abs`, `jcase` like
+`ncase` with the proof branch an `app` edge) and the `tid`/`rfl`/`jcase` cases
+of all five closure lemmas. `eval_substitution.v` gained the four
+renaming/substitution lemmas' cases.
+
+The `jcase` join-closure needed the same *merged-edge* argument as `fix_`: two
+edges `va ↦ a`, `vb ↦ b` of the base merge to `(va ⊔ vb) ↦ (a ⊔ b)`, which is
+below `abs [(va,a);(vb,b)]`, so `EvalRel_down` delivers it.
+
+`typing_semantics.v`, `raw_validity.v` and `adequacy.v` needed *no* changes:
+no typing rule mentions the new terms yet, so the derivation-recursive
+`Fixpoint`s have no new cases. The tree is green and admit-free.
+
 ## Remaining work, in dependency order
 
 1. **`Val`/`EqVal` clauses for `tid`/`rfl`** (Agda `ID/Validity/Core.agda`):
    the `Red3`-style leaves, i.e. `HeadRed M (Ref M₁)` plus `conv Γ M (Ref M₁) A`
    at the `rfl` code, mirroring what we already do for `zero`/`succ`.
-2. **Syntax**: add `tid`/`rfl`/`jcase` to `syntax.sig` and regenerate with
-   `as2-exe` (available at `~/.local/bin/as2-exe`); define `motive_ty`/`base_ty`;
-   add the typing, conversion and reduction rules above.
-3. **`EvalRel` clauses** for the three new terms, then the five closure lemmas
-   (`valid`, `mono_env`, `bot`, `down`, `compatible_lub`) and the substitution
-   lemmas. The `J` join-closure is the `ncase` argument, not the `Y` one.
-4. **Soundness**: `InvTyp_Id`, `InvTyp_Ref`, `InvTyp_J` — `InvTyp_J` should be
+2. **Rules**: define `motive_ty`/`base_ty` and add the typing, conversion and
+   reduction rules above. This is the first step that forces new cases in
+   `typing_EvalRel` / `conv_EvalRel` and in the adequacy drivers.
+3. **Soundness**: `InvTyp_Id`, `InvTyp_Ref`, `InvTyp_J` — `InvTyp_J` should be
    as cheap as `InvTyp_Y` turned out to be, since the `JBranch` `RefEl` clause
    *is* an `App` edge and `InvTyp_App` needs nothing from its argument.
-5. **Adequacy**: the `J` driver — Agda splits it over
+4. **Adequacy**: the `J` driver — Agda splits it over
    `JApp / JAppE / JCase / JDriver / JEndpoint / JMotive / JRef / JTypeEq`.
    This is the bulk of the work and the only genuinely new mathematics.
-6. **`IdInjectivity.agda`** — the payoff, on the model of `piInjectivity`.
+5. **`IdInjectivity.agda`** — the payoff, on the model of `piInjectivity`.
 
 ## Gotchas found so far
 
