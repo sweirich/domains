@@ -139,11 +139,53 @@ below `abs [(va,a);(vb,b)]`, so `EvalRel_down` delivers it.
 no typing rule mentions the new terms yet, so the derivation-recursive
 `Fixpoint`s have no new cases. The tree is green and admit-free.
 
+## The logical relation for Id (read off `ID/Validity/Stratified.agda`)
+
+This maps cleanly onto the existing Coq structure: `Val` at `a = tuniv` already
+dispatches to `Rec.ValTy` on the *value* code, so only **two new arms** are
+needed — a `tid` arm in `Rec.ValTy`/`Rec.EqValTy`, and a `(rfl, tid)` arm in
+`Val`/`EqVal`. There is **no Selection edge** for `Id` (it is proof-irrelevant),
+so none of the `PiApp`/`PiEdge` machinery is duplicated.
+
+`Rec.ValTy Γ M (tid t u v)` — Agda `RValTyId` — records that the *type* term
+reduces to an `Id`:
+
+* `HeadRed M (tid A₀ a₀ b₀)` and (our `Red3`) `conv Γ M (tid A₀ a₀ b₀) tuniv`;
+* `typing Γ A₀ tuniv`, `typing Γ a₀ A₀`, `typing Γ b₀ A₀`;
+* `ValTy Γ A₀ t` — the domain is a valid type at the domain code;
+* `wt u t` and `wt v t` — the endpoints at the **membership** level; and
+* `Val Γ a₀ A₀ u t`, `Val Γ b₀ A₀ v t` — the endpoints **logically**, which is
+  what lets the diagonal `EqValTy` be built by reflexivity and what feeds the
+  J motive edges.
+
+`Val Γ M A (rfl w) (tid t u v)` — Agda `RValId`, paired with
+`Rec.ValTy Γ A (tid t u v)` — records that the *term* reduces to a `Ref`:
+
+* `HeadRed M (rfl w₀)` and `conv Γ M (rfl w₀) A`;
+* **`conv Γ w₀ a₀ A₀` and `conv Γ w₀ b₀ A₀`** — the witness is convertible to
+  *both* endpoints.  This is the heart of the fragment: it is Coquand's
+  membership rule (`w ≤ u`, `w ≤ v`) lifted to the syntax, and it is what
+  Id-injectivity reads back off;
+* `wt (rfl w) (tid t u v)`; and
+* `EqVal Γ w₀ a₀ A₀ w t`, `EqVal Γ w₀ b₀ A₀ w t` — the same two facts
+  logically.
+
+`Rec.EqValTy Γ M N (tid t u v)` is both `RValTyId`s plus `REqValTyId`: the two
+`Id`-normal forms' components are convertible (`conv A₀ A₀' tuniv`,
+`conv a₀ a₀' A₀`, `conv b₀ b₀' A₀`), `EqValTy A₀ A₀' t`, and the *reducible*
+endpoint equalities `EqVal a₀ a₀' A₀ u t` / `EqVal b₀ b₀' A₀ v t` — needed to
+forward-transport a value record's endpoint facts across a type conversion.
+`EqVal` at `(rfl w, tid …)` is symmetric: both `RValId`s plus `REqValId`.
+
+Everything at a `rfl` *type* code, and at any other value code under an `tid`
+type code, is `True` — as for the existing `tnat` fragment.
+
 ## Remaining work, in dependency order
 
-1. **`Val`/`EqVal` clauses for `tid`/`rfl`** (Agda `ID/Validity/Core.agda`):
-   the `Red3`-style leaves, i.e. `HeadRed M (Ref M₁)` plus `conv Γ M (Ref M₁) A`
-   at the `rfl` code, mirroring what we already do for `zero`/`succ`.
+1. **`Val`/`EqVal` clauses for `tid`/`rfl`**, as just described, and the
+   `tid`/`rfl` cases of `raw_validity.v`'s ~30 structural lemmas — which stop
+   being trivial at that point (head expansion/contraction, up/down/restrict,
+   fuel stability, and the PER).
 2. **Rules**: define `motive_ty`/`base_ty` and add the typing, conversion and
    reduction rules above. This is the first step that forces new cases in
    `typing_EvalRel` / `conv_EvalRel` and in the adequacy drivers.
