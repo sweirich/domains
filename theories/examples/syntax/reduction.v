@@ -37,6 +37,13 @@ Inductive HeadRed1 (n : nat) : Tm n -> Tm n -> Prop :=
  (* Y-unfolding (Agda [headred-Y]): [fix g] unfolds to [g (fix g)]. *)
  | hr_fix g :
     HeadRed1 (fix_ g) (app g (fix_ g))
+ (* based-J (Agda [headred-J]/[headred-J-scrut]): [jcase C d p] fires on a
+    *literal* [rfl a], contracting to [app d a]; otherwise the proof reduces. *)
+ | hr_jcase C d a :
+    HeadRed1 (jcase C d (rfl a)) (app d a)
+ | hr_jcase_scrut C d p p' :
+    HeadRed1 p p' ->
+    HeadRed1 (jcase C d p) (jcase C d p')
 .
 
 (* reflexive-transitive closure *)
@@ -64,7 +71,9 @@ Proof.
     | M0 M1
     | M0 M1 N0
     | Mc Mc' M0 M1 hM IH
-    | g ]; move=> P h2.
+    | g
+    | Cj dj aj
+    | Cj dj pj pj' hP IHP ]; move=> P h2.
   - (* hr_beta vs. a reduction of the [abs] itself *)
     inversion h2; subst; [ reflexivity | ].
     exfalso.
@@ -89,6 +98,14 @@ Proof.
     + f_equal. eapply IH; eassumption.
   - (* hr_fix: [fix g] has exactly one redex *)
     inversion h2; subst; reflexivity.
+  - (* hr_jcase vs. a reduction of the [rfl] proof *)
+    inversion h2; subst; [ reflexivity | ].
+    exfalso.
+    match goal with [ H : HeadRed1 (rfl _) _ |- _ ] => inversion H end.
+  - (* hr_jcase_scrut: the proof cannot be both an [rfl] and reducible *)
+    inversion h2; subst.
+    + exfalso. inversion hP.
+    + f_equal. eapply IHP; eassumption.
 Qed.
 
 (* generic head-contraction to a HeadRed1-normal target (covers zero/succ) *)

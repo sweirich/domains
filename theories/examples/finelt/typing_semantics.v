@@ -1688,6 +1688,84 @@ Proof.
   exact (proj2 (EvalRel_fix_unfold g ρ v) EAppv).
 Qed.
 
+(* =====================================================================
+   Soundness of the identity fragment (Agda [ID/Model/Soundness.agda]).
+
+   *** THE FOUR REMAINING GAPS OF THE [ID] PORT ARE HERE AND IN
+       [adequacy.v]. ***
+
+   [InvTyp_Id] and [InvTyp_Ref] are the type/value formers and mirror
+   [InvTyp_Pi] and [InvTyp_Lam].  [InvTyp_J] should be as cheap as
+   [InvTyp_Y] turned out to be: [EvalRel]'s [jcase] clause puts the proof's
+   value [w] in front, and on the informative branch [w = rfl w'] the
+   result is recorded by the edge [w' ↦ c] of the base -- which is exactly
+   the [app] clause, and [InvTyp_App] requires *nothing* of its argument.
+   ===================================================================== *)
+
+Lemma InvTyp_Id {n} (Γ : Ctx n) (A a b : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvTyped Γ a A ρ ->
+  InvTyped Γ b A ρ ->
+  InvTyped Γ (Core.tid A a b) Core.tuniv ρ.
+Admitted.
+
+Lemma InvTyp_Ref {n} (Γ : Ctx n) (A a : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvTyped Γ a A ρ ->
+  InvTyped Γ (Core.rfl a) (Core.tid A a a) ρ.
+Admitted.
+
+Lemma InvTyp_J {n} (Γ : Ctx n) (A a b C d p : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ C (motive_ty A) ρ ->
+  InvTyped Γ d (base_ty A C) ρ ->
+  InvTyped Γ p (Core.tid A a b) ρ ->
+  InvTyped Γ (Core.jcase C d p) (Core.app (Core.app (Core.app C a) b) p) ρ.
+Admitted.
+
+(* The four conversion cases.  [InvConv_Id]/[InvConv_Ref] are congruences of
+   the formers; [InvConv_J_beta] is the [rfl]-diagonal contraction, whose two
+   sides have the *same* type, so it needs no type transport; [InvConv_J] is
+   the eliminator's congruence. *)
+Lemma InvConv_Id {n} (Γ : Ctx n) (A A' a a' b b' : Tm n) ρ :
+  fits Γ ρ ->
+  InvConv Γ A A' Core.tuniv ρ ->
+  InvConv Γ a a' A ρ ->
+  InvConv Γ b b' A ρ ->
+  InvConv Γ (Core.tid A a b) (Core.tid A' a' b') Core.tuniv ρ.
+Admitted.
+
+Lemma InvConv_Ref {n} (Γ : Ctx n) (A a a' : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvConv Γ a a' A ρ ->
+  InvConv Γ (Core.rfl a) (Core.rfl a') (Core.tid A a a) ρ.
+Admitted.
+
+Lemma InvConv_J_beta {n} (Γ : Ctx n) (A a0 C d : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvTyped Γ a0 A ρ ->
+  InvTyped Γ C (motive_ty A) ρ ->
+  InvTyped Γ d (base_ty A C) ρ ->
+  InvConv Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
+            (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0)) ρ.
+Admitted.
+
+Lemma InvConv_J {n} (Γ : Ctx n) (A a b C C' d d' p p' : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ C (motive_ty A) ρ ->
+  InvTyped Γ d (base_ty A C) ρ ->
+  InvTyped Γ p (Core.tid A a b) ρ ->
+  InvConv Γ C C' (motive_ty A) ρ ->
+  InvConv Γ d d' (base_ty A C) ρ ->
+  InvConv Γ p p' (Core.tid A a b) ρ ->
+  InvConv Γ (Core.jcase C d p) (Core.jcase C' d' p')
+            (Core.app (Core.app (Core.app C a) b) p) ρ.
+Admitted.
+
 (** Theorem 1 — typing soundness (Agda: [theorem1]): a typing derivation
     [Γ ⊢ M : A] yields [Γ ⊨ M ∈ A], i.e. [M] is invertibly typed under every
     fitting environment.  Mutually defined with [conv_EvalRel] — conversion
@@ -1786,6 +1864,23 @@ Proof.
       eapply InvTyp_Y;
         [ exact Fρ
         | eapply typing_EvalRel; [ eauto | exact Fρ ] ].
+    + (* t_tid *)
+      eapply InvTyp_Id;
+        [ exact Fρ
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ] ].
+    + (* t_rfl *)
+      eapply InvTyp_Ref;
+        [ exact Fρ
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ] ].
+    + (* t_jcase *)
+      eapply InvTyp_J;
+        [ exact Fρ
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ]
+        | eapply typing_EvalRel; [ eauto | exact Fρ ] ].
     + (* t_tpi: tpi A B : tuniv *)
       move: ρ Fρ.
       eapply InvTyp_Pi; eauto.
@@ -1809,6 +1904,11 @@ Proof.
       | ?n ?Γ ?A ?A' ?B ?M ?M' TAc TA'c TBc TMc TM'c hAconv hMconv
       | ?n ?Γ ?A ?g hAy hgy
       | ?n ?Γ ?A ?g ?g' hAy hgy hg'y hggy
+      | ?n ?Γ ?A ?A' ?a ?a' ?b ?b' TAi Tai Tbi cAi cai cbi
+      | ?n ?Γ ?A ?a ?a' TAr Tar car
+      | ?n ?Γ ?A ?a0 ?C ?d TAjb Ta0jb TCjb Tdjb
+      | ?n ?Γ ?A ?a ?b ?C ?C' ?d ?d' ?p ?p'
+          TAj Taj Tbj TCj Tdj Tpj cCj cdj cpj
       | ?n ?Γ ?A0 ?A1 ?B0 ?B1 hA hB ].
     all: move=> ρ Fρ.
     + (* c_conv: M = N : A, A = B : U_i ⟹ M = N : B *)
@@ -1986,6 +2086,33 @@ Proof.
         move=> p w Hst. exact (fwdg _ Hst).
       * move=> u [k HA]. exists k. eapply Approx_mon; [ | exact HA ].
         move=> p w Hst. exact (bwdg _ Hst).
+    + (* c_tid *)
+      eapply InvConv_Id;
+        [ exact Fρ
+        | exact (conv_EvalRel _ _ _ _ _ cAi ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ cai ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ cbi ρ Fρ) ].
+    + (* c_rfl *)
+      eapply InvConv_Ref;
+        [ exact Fρ
+        | exact (typing_EvalRel _ _ _ _ TAr ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ car ρ Fρ) ].
+    + (* c_jcase_beta *)
+      eapply InvConv_J_beta;
+        [ exact Fρ
+        | exact (typing_EvalRel _ _ _ _ TAjb ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ Ta0jb ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ TCjb ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ Tdjb ρ Fρ) ].
+    + (* c_jcase *)
+      eapply InvConv_J;
+        [ exact Fρ
+        | exact (typing_EvalRel _ _ _ _ TCj ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ Tdj ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ Tpj ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ cCj ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ cdj ρ Fρ)
+        | exact (conv_EvalRel _ _ _ _ _ cpj ρ Fρ) ].
     + (* c_tpi: tpi A0 B0 = tpi A1 B1 : tuniv i *)
       move: ρ Fρ.
       eapply InvConv_tpi; eauto.

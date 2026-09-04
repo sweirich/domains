@@ -296,6 +296,9 @@ Proof.
     | n0 Γ0 M0 hM                         (* t_succ *)
     | n0 Γ0 T0 Mc Mc0 Mc1 hTc hMc hMc0 hMc1 (* t_case *)
     | n0 Γ0 Ay gy hAy hgy                 (* t_fix *)
+    | n0 Γ0 Ai ai bi hAi hai hbi          (* t_tid *)
+    | n0 Γ0 Ar ar hAr har                 (* t_rfl *)
+    | n0 Γ0 Aj aj bj Cj dj pj hAj haj hbj hCj hdj hpj (* t_jcase *)
     | n0 Γ0 A0 B0 hA hB                   (* t_tpi *)
     | n0 Γ0 cv ];                         (* t_univ *)
   move=> m Δ σ σ' CΔ TS TS' CS.
@@ -423,6 +426,35 @@ Proof.
       asimpl in hh. exact hh. }
     have [Tg Tg'] := conv_typing CG.
     cbn. eapply c_fix_cong; [ exact TAσ | exact Tg | exact Tg' | exact CG ].
+  - (* t_tid: componentwise congruence *)
+    cbn. eapply c_tid;
+      [ eapply (substitution_tm _ Ai Core.tuniv _ σ); eauto
+      | eapply (substitution_tm _ ai Ai _ σ); eauto
+      | eapply (substitution_tm _ bi Ai _ σ); eauto
+      | exact (subst_conv_cross _ _ _ _ hAi m Δ σ σ' CΔ TS TS' CS)
+      | exact (subst_conv_cross _ _ _ _ hai m Δ σ σ' CΔ TS TS' CS)
+      | exact (subst_conv_cross _ _ _ _ hbi m Δ σ σ' CΔ TS TS' CS) ].
+  - (* t_rfl *)
+    cbn. eapply c_rfl;
+      [ eapply (substitution_tm _ Ar Core.tuniv _ σ); eauto
+      | eapply (substitution_tm _ ar Ar _ σ); eauto
+      | exact (subst_conv_cross _ _ _ _ har m Δ σ σ' CΔ TS TS' CS) ].
+  - (* t_jcase: the derived motive/base types commute with the substitution *)
+    cbn. eapply (@c_jcase _ Δ (Aj[σ]) (aj[σ]) (bj[σ]) (Cj[σ]) (Cj[σ'])
+                          (dj[σ]) (dj[σ']) (pj[σ]) (pj[σ'])).
+    1: eapply (substitution_tm _ Aj Core.tuniv _ σ); eauto.
+    1: eapply (substitution_tm _ aj Aj _ σ); eauto.
+    1: eapply (substitution_tm _ bj Aj _ σ); eauto.
+    1: (rewrite -subst_motive_ty;
+        eapply (substitution_tm _ Cj (motive_ty Aj) _ σ); eauto).
+    1: (rewrite -subst_base_ty;
+        eapply (substitution_tm _ dj (base_ty Aj Cj) _ σ); eauto).
+    1: eapply (substitution_tm _ pj (Core.tid Aj aj bj) _ σ); eauto.
+    1: (rewrite -subst_motive_ty;
+        exact (subst_conv_cross _ _ _ _ hCj m Δ σ σ' CΔ TS TS' CS)).
+    1: (rewrite -subst_base_ty;
+        exact (subst_conv_cross _ _ _ _ hdj m Δ σ σ' CΔ TS TS' CS)).
+    1: exact (subst_conv_cross _ _ _ _ hpj m Δ σ σ' CΔ TS TS' CS).
   - (* t_tpi *)
     have CAσ : typing Δ A0[σ] Core.tuniv
       by (eapply substitution_tm with (A := Core.tuniv); eauto).
@@ -3170,6 +3202,119 @@ Proof.
     | exact SCg | exact TS | exact Fρ | exact VS | exact CΔ | exact HA | exact evA ].
 Qed.
 
+(* =====================================================================
+   Adequacy for the identity fragment (Agda [ID/Adequacy/*]).
+
+   *** THE REMAINING GAPS OF THE [ID] PORT.  The Agda counterpart is the
+       eight-file J driver: [JApp], [JAppE], [JCase], [JDriver],
+       [JEndpoint], [JMotive], [JRef], [JTypeEq]. ***
+
+   [st_tid] and [st_rfl] are the formers and follow [st_tpi] / [st_abs]:
+   the [tid]/[rfl] arms of [Val]/[EqVal] are exactly the records
+   [Rec.ValTyId] / [Rec.ValId] built in [raw_validity.v], and every field is
+   either syntactic (the recorded [HeadRed] and [Red3] conversions, from
+   [red1_conv]) or a component appeal to the hypotheses.
+
+   [st_jcase] is the driver: on the informative branch the proof's value is
+   [rfl w], and [ValId] hands back both the witness's validity and its two
+   endpoint equalities -- which is exactly what the motive's [PiApp] edges
+   need.  [sc_jcase_beta] then head-contracts along [hr_jcase] with
+   [c_jcase_beta] as the step conversion, in the [sc_beta] style; because
+   both sides have the *same* type there is no type transport to do.
+   ===================================================================== *)
+
+Lemma st_tid (A a b : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ a A ->
+  typing Γ b A ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+  semantic_typing Γ b A ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.tid A a b) Core.tuniv.
+Admitted.
+
+Lemma st_rfl (A a : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ a A ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.rfl a) (Core.tid A a a).
+Admitted.
+
+Lemma st_jcase (A a b C d p : Tm n) :
+  typing Γ A Core.tuniv ->
+  typing Γ a A ->
+  typing Γ b A ->
+  typing Γ C (motive_ty A) ->
+  typing Γ d (base_ty A C) ->
+  typing Γ p (Core.tid A a b) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+  semantic_typing Γ b A ->
+  semantic_typing Γ C (motive_ty A) ->
+  semantic_typing Γ d (base_ty A C) ->
+  semantic_typing Γ p (Core.tid A a b) ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.jcase C d p)
+    (Core.app (Core.app (Core.app C a) b) p).
+Admitted.
+
+Lemma sc_tid (A A' a a' b b' : Tm n) :
+  typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
+  conv Γ A A' Core.tuniv -> conv Γ a a' A -> conv Γ b b' A ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+  semantic_typing Γ b A ->
+  semantic_conv2 Γ A A' Core.tuniv ->
+  semantic_conv2 Γ a a' A ->
+  semantic_conv2 Γ b b' A ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.tid A a b) (Core.tid A' a' b') Core.tuniv.
+Admitted.
+
+Lemma sc_rfl (A a a' : Tm n) :
+  typing Γ A Core.tuniv -> typing Γ a A -> conv Γ a a' A ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+  semantic_conv2 Γ a a' A ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.rfl a) (Core.rfl a') (Core.tid A a a).
+Admitted.
+
+Lemma sc_jcase_beta (A a0 C d : Tm n) :
+  typing Γ A Core.tuniv -> typing Γ a0 A ->
+  typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a0 A ->
+  semantic_typing Γ C (motive_ty A) ->
+  semantic_typing Γ d (base_ty A C) ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
+    (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0)).
+Admitted.
+
+Lemma sc_jcase (A a b C C' d d' p p' : Tm n) :
+  typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
+  typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
+  typing Γ p (Core.tid A a b) ->
+  conv Γ C C' (motive_ty A) -> conv Γ d d' (base_ty A C) ->
+  conv Γ p p' (Core.tid A a b) ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing Γ a A ->
+  semantic_typing Γ b A ->
+  semantic_typing Γ C (motive_ty A) ->
+  semantic_typing Γ d (base_ty A C) ->
+  semantic_typing Γ p (Core.tid A a b) ->
+  semantic_conv2 Γ C C' (motive_ty A) ->
+  semantic_conv2 Γ d d' (base_ty A C) ->
+  semantic_conv2 Γ p p' (Core.tid A a b) ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.jcase C d p) (Core.jcase C' d' p')
+    (Core.app (Core.app (Core.app C a) b) p).
+Admitted.
+
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
 (*
@@ -4769,6 +4914,9 @@ Proof.
     + eapply st_succ; eauto.
     + eapply st_case; eauto.
     + eapply st_fix; eauto.
+    + eapply st_tid; eauto.
+    + eapply st_rfl; eauto.
+    + eapply st_jcase; eauto.
     + eapply st_tpi; eauto.
     + eapply st_univ; eauto.
   - move=> h. dependent destruction h.
@@ -4787,6 +4935,10 @@ Proof.
     + eapply sc_abs; eauto.
     + eapply sc_fix; eauto.
     + eapply sc_fix_cong; eauto.
+    + eapply sc_tid; eauto.
+    + eapply sc_rfl; eauto.
+    + eapply sc_jcase_beta; eauto.
+    + eapply sc_jcase; eauto.
     + eapply sc_tpi; eauto.
 Qed.
 
@@ -5001,6 +5153,37 @@ Proof.
   - right; right. eexists. split; [ eassumption | reflexivity ].
 Qed.
 
+Lemma HeadRed1_jcase_inv {n} (C d p : Tm n) (N' : Tm n) :
+  HeadRed1 (Core.jcase C d p) N' ->
+  (exists a, p = Core.rfl a /\ N' = Core.app d a)
+  \/ (exists p', HeadRed1 p p' /\ N' = Core.jcase C d p').
+Proof.
+  move=> h. inversion h; subst.
+  - left. eexists. split; reflexivity.
+  - right. eexists. split; [ eassumption | reflexivity ].
+Qed.
+
+(** The J-beta step, as a conversion at the *derivation's* type.
+
+    *** ADMITTED -- this is where the [ID] fragment needs [idInjectivity],
+        exactly as the beta case of [red1_conv] below needs [piInjectivity]:
+        [c_jcase_beta] states the contraction at the redex's own type
+        [app (app (app C a0) a0) (rfl a0)], while the derivation types
+        [jcase C d (rfl a0)] at [app (app (app C a) b) (rfl a0)].  Matching
+        the two means inverting [typing Γ (rfl a0) (tid A a b)] to get
+        [conv Γ a0 a A] and [conv Γ a0 b A] -- which is precisely what
+        Id-injectivity delivers -- and then transporting along the resulting
+        congruence.  (Note this is *not* the same as Agda's observation that
+        the [conv-J-beta] *rule* needs no Id-injectivity: that is about the
+        rule's two sides having equal types, which they do.) *)
+Lemma jcase_beta_conv {n} (Γ : Ctx n) (A a b C d a0 : Tm n) :
+  typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
+  typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
+  typing Γ (Core.rfl a0) (Core.tid A a b) ->
+  conv Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
+         (Core.app (Core.app (Core.app C a) b) (Core.rfl a0)).
+Admitted.
+
 (** Head reduction is contained in conversion, for well-typed terms.  Each
     contraction is exactly one of the computation rules ([c_beta],
     [c_ncase_Z], [c_ncase_S]) and each congruence step is [c_app1]/[c_ncase].
@@ -5020,6 +5203,10 @@ Proof.
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
     | n Γ Ay gy tAy IHAy tgy IHgy
+    | n Γ Ai ai bi tAi IHAi tai IHai tbi IHbi
+    | n Γ Ar ar tAr IHAr tar IHar
+    | n Γ Aj aj bj Cj dj pj tAj IHAj taj IHaj tbj IHbj
+        tCj IHCj tdj IHdj tpj IHpj
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ]; intros N' hr.
   all: try solve [ inversion hr ].
@@ -5052,6 +5239,19 @@ Proof.
   - (* t_fix: the only redex is the Y-unfolding *)
     inversion hr; subst.
     eapply c_fix; [ exact tAy | exact tgy ].
+  - (* t_jcase: either the J-beta contraction on a literal [rfl], or the proof
+       reduces.  The beta case has to match the redex's own type
+       [tid Aj a0 a0] against the derivation's [tid Aj aj bj] -- exactly as the
+       [app (abs ..)] case above matches through [piInjectivity] -- which is
+       what [id_endpoint_inv] provides. *)
+    apply HeadRed1_jcase_inv in hr.
+    destruct hr as [ [a0 [-> ->]] | [pj' [hrP ->]] ].
+    + eapply jcase_beta_conv;
+        [ exact tAj | exact taj | exact tbj | exact tCj | exact tdj | exact tpj ].
+    + eapply (@c_jcase _ Γ Aj aj bj Cj Cj dj dj pj pj');
+        [ exact tAj | exact taj | exact tbj | exact tCj | exact tdj | exact tpj
+        | apply c_refl; exact tCj | apply c_refl; exact tdj
+        | eapply IHpj; exact hrP ].
 Qed.
 
 (* Agda: subject-red1 : HasType G M A -> HeadRed1 M N -> HasType G N A *)
@@ -5068,6 +5268,10 @@ Proof.
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
     | n Γ Ay gy tAy IHAy tgy IHgy
+    | n Γ Ai ai bi tAi IHAi tai IHai tbi IHbi
+    | n Γ Ar ar tAr IHAr tar IHar
+    | n Γ Aj aj bj Cj dj pj tAj IHAj taj IHaj tbj IHbj
+        tCj IHCj tdj IHdj tpj IHpj
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ]; intros N' hr.
   all: try solve [ inversion hr ].
@@ -5127,6 +5331,13 @@ Proof.
       | exact tgy
       | exact TY
       | apply subst1_shift ].
+  - (* t_jcase: use [red1_conv] and read the second side off [conv_typing];
+       the J-beta case's type matching is packaged in [jcase_beta_conv]. *)
+    have TJ : typing Γ (Core.jcase Cj dj pj)
+                (Core.app (Core.app (Core.app Cj aj) bj) pj)
+      by (eapply t_jcase;
+            [ exact tAj | exact taj | exact tbj | exact tCj | exact tdj | exact tpj ]).
+    exact (proj2 (conv_typing (red1_conv TJ hr))).
 Qed.
 
 (* Subject reduction for multi-step head reduction. *)
@@ -5188,6 +5399,24 @@ Proof.
   cbn in evN. done.
 Qed.
 
+(* Likewise [tid] and [tnat]: at the bottom environment [tid A a b] evaluates
+   to the code [tid bot bot bot], which is not below [tnat]. *)
+Lemma tid_not_tnat {n} (Γ : Ctx n) (A a b : Tm n) :
+  ~ conv Γ (Core.tid A a b) Core.tnat Core.tuniv.
+Proof.
+  move=> d.
+  have cΓ : ctx Γ by eapply conv_ctx; exact d.
+  have IC : InvConv Γ (Core.tid A a b) Core.tnat Core.tuniv bot_env
+    by (eapply conv_EvalRel; [ exact d | exact (@fits_bot_env n Γ cΓ) ]).
+  move: IC => [_ [_ [fwd _]]].
+  have evI : EvalRel (Core.tid A a b) (@bot_env n) (tid bot bot bot).
+  { cbn. split; [ done | ].
+    split; [ apply EvalRel_bot | ].
+    split; [ apply EvalRel_bot | apply EvalRel_bot ]. }
+  have evN : EvalRel Core.tnat (@bot_env n) (tid bot bot bot) := fwd _ evI.
+  cbn in evN. done.
+Qed.
+
 (** * Progress for closed terms
 
     A closed, well-typed term is either a value (weak-head-normal form) or it
@@ -5205,12 +5434,15 @@ Inductive value {n} : Tm n -> Prop :=
 | v_tpi  : forall A B, value (Core.tpi A B)
 | v_zero : value Core.zero
 | v_succ : forall M, value (Core.succ M)
-| v_abs  : forall A M, value (Core.abs A M).
+| v_abs  : forall A M, value (Core.abs A M)
+| v_tid  : forall A a b, value (Core.tid A a b)
+| v_rfl  : forall a, value (Core.rfl a).
 
 Inductive neutral {n} : Tm n -> Prop :=
 | ne_var : forall x, neutral (Core.var x)
 | ne_app : forall M N, neutral M -> neutral (Core.app M N)
-| ne_ncase : forall M M0 M1, neutral M -> neutral (Core.ncase M M0 M1).
+| ne_ncase : forall M M0 M1, neutral M -> neutral (Core.ncase M M0 M1)
+| ne_jcase : forall C d p, neutral p -> neutral (Core.jcase C d p).
 
 (* Canonical forms at Π type (any context): a value of Π type is a λ. *)
 Lemma canonical_pi {n} (Γ : Ctx n) (M : Tm n) (A : Tm n) (B : Tm (S n)) :
@@ -5223,6 +5455,14 @@ Proof.
   - exfalso; exact (tnat_not_tpi (typing_zero_inv HT)).
   - exfalso; exact (tnat_not_tpi (typing_succ_inv HT)).
   - eexists; eexists; reflexivity.
+  - (* v_tid: an [tid] is a type code, so its type is [tuniv] *)
+    exfalso; exact (tuniv_not_tpi (typing_tid_inv HT)).
+  - (* v_rfl: a proof's type is an [tid], which is head-normal *)
+    exfalso.
+    move: (typing_rfl_inv HT) => [A0 cc].
+    destruct (piConv cc) as [B0 [F0 [HR _]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 (Core.tid _ _ _) _ |- _ ] => inversion S end.
 Qed.
 
 (* Canonical forms at [tnat]: a value of type [tnat] is [zero] or a successor. *)
@@ -5237,10 +5477,27 @@ Proof.
   - right; eexists; reflexivity.
   - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
     exact (tpi_not_tnat cPi).
+  - (* v_tid *) exfalso; exact (tuniv_not_tnat (typing_tid_inv HT)).
+  - (* v_rfl: [tid] is head-normal and distinct from [tnat] *)
+    exfalso.
+    move: (typing_rfl_inv HT) => [A0 cc].
+    (* [cc : conv Γ (tid A0 a a) tnat tuniv]; both are head-normal codes *)
+    exact (tid_not_tnat cc).
 Qed.
 
 (* Progress, general form: every well-typed term is a value, a neutral
    (variable-headed) term, or head-reduces. *)
+(** Canonical forms at an [tid] type: a value of identity type is a [rfl].
+
+    *** ADMITTED -- the [tid] analogue of [canonical_pi], and like it, it needs
+        the injectivity of its type former: ruling out each non-[rfl] value
+        means showing its type is not convertible to an [tid], which for the
+        [abs] case goes through [idInjectivity] exactly as [canonical_pi]'s
+        goes through [piConv]. *)
+Lemma canonical_id {n} (Γ : Ctx n) (M : Tm n) (A a b : Tm n) :
+  value M -> typing Γ M (Core.tid A a b) -> exists a0, M = Core.rfl a0.
+Admitted.
+
 Lemma progress_gen {n} (Γ : Ctx n) M A :
   typing Γ M A -> value M \/ neutral M \/ exists N, HeadRed1 M N.
 Proof.
@@ -5254,6 +5511,10 @@ Proof.
     | n Γ P tP IHP
     | n Γ T Mc Mc0 Mc1 tT IHT tMc IHMc tMc0 IHMc0 tMc1 IHMc1
     | n Γ Ay gy tAy IHAy tgy IHgy
+    | n Γ Ai ai bi tAi IHAi tai IHai tbi IHbi
+    | n Γ Ar ar tAr IHAr tar IHar
+    | n Γ Aj aj bj Cj dj pj tAj IHAj taj IHaj tbj IHbj
+        tCj IHCj tdj IHdj tpj IHpj
     | n Γ A B tA IHA tB IHB
     | n Γ cΓ ].
   - right; left; constructor.
@@ -5278,13 +5539,24 @@ Proof.
     + right; right; eexists; apply hr_case; exact stMc.
   - (* t_fix: always unfolds *)
     right; right; eexists; apply hr_fix.
+  - (* t_tid: a type code is a value *) left; constructor.
+  - (* t_rfl: a proof is a value *) left; constructor.
+  - (* t_jcase: a value proof at an [tid] type is a [rfl] and the eliminator
+       fires (hr_jcase); a neutral proof makes the eliminator neutral; a
+       stepping proof steps by hr_jcase_scrut. *)
+    destruct IHpj as [ vp | [ nep | [pj' stp] ] ].
+    + destruct (canonical_id vp tpj) as [a0 ->].
+      right; right; eexists; apply hr_jcase.
+    + right; left; apply ne_jcase; exact nep.
+    + right; right; eexists; apply hr_jcase_scrut; exact stp.
   - left; constructor.
   - left; constructor.
 Qed.
 
 (* A closed term has no neutral (variable-headed) subterm. *)
 Lemma neutral_not_closed (M : Tm 0) : neutral M -> False.
-Proof. induction 1 as [ x | M N ne IH | M M0 M1 ne IH ]. - destruct x. - exact IH. - exact IH. Qed.
+Proof. induction 1 as [ x | M N ne IH | M M0 M1 ne IH | C d p ne IH ].
+       - destruct x. - exact IH. - exact IH. - exact IH. Qed.
 
 (* Progress for closed terms. *)
 Lemma progress (M A : Tm 0) :

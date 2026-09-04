@@ -259,7 +259,67 @@ Every non-trivial case is therefore a standalone lemma taking the fuel-`k`
 induction hypotheses as parameters, applied with `eapply`; the same trick is
 what makes the transport lemmas above readable.
 
-## Remaining work, in dependency order
+## Step 4 (done): the rules
+
+`typing.v` gained `motive_ty`/`base_ty` with their four renaming/substitution
+commutation lemmas, the three typing rules (`t_tid`, `t_rfl`, `t_jcase`) and
+the four conversion rules (`c_tid`, `c_rfl`, `c_jcase_beta`, `c_jcase`), and
+`reduction.v` gained `hr_jcase`/`hr_jcase_scrut` with `HeadRed1_det`'s cases.
+
+The substantive syntactic content is the **type of the eliminator**: `jcase C d
+p` has the binder-free type `app (app (app C a) b) p`, and showing that this
+*is* a type is `motive_app_typing`, built from `motive_id_typing`,
+`motive_cod1_typing`, `motive_cod2_typing`, `motive_app1_typing`,
+`motive_app2_typing`. Its diagonal instance `base_app_typing` is exactly the
+second side of `c_jcase_beta`; `motive_app_conv` and `base_ty_conv` are the
+congruences that retype the primed side of `c_jcase`. All of that is proved,
+as are the renaming/substitution and `conv_typing` cases for the seven new
+rules, and `subst_conv_cross`, `red1_conv`, `subject_red1`, `progress_gen`.
+
+Two gotchas worth recording:
+
+* `asimpl` normalises the substituted motive types into *subst* form while
+  leaving hand-written `A⟨↑⟩` in *ren* form, so `reflexivity` fails. The fix is
+  autosubst2's own `substify` tactic: `asimpl; substify; asimpl; reflexivity`.
+* `t_jcase`/`c_jcase_beta`/`c_jcase`'s conclusions do not mention `A`, so
+  `eapply` leaves it as an evar. Pin it by discharging the first premise
+  explicitly (`eapply (renaming_typing _ _ A tuniv _ _ δ); eauto`) before the
+  rest.
+* `Γ ++ A ++ A⟨↑⟩` parses right-associated — write `(Γ ++ A) ++ A⟨↑⟩`.
+
+## What is left: the J driver
+
+The tree compiles and every other part of the development is verified; the
+remaining gaps are exactly the identity fragment's *semantic* content, 16
+`Admitted`s in three groups.
+
+**Soundness** (`typing_semantics.v`): `InvTyp_Id`, `InvTyp_Ref`, `InvTyp_J`,
+`InvConv_Id`, `InvConv_Ref`, `InvConv_J_beta`, `InvConv_J`. The formers mirror
+`InvTyp_Pi`/`InvTyp_Lam`. `InvTyp_J` should be as cheap as `InvTyp_Y` turned
+out to be: `EvalRel`'s `jcase` clause puts the proof's value in front, and on
+the informative branch `rfl w'` the result is recorded by the edge `w' ↦ c` of
+the base — which is the `app` clause, and `InvTyp_App` requires *nothing* of
+its argument.
+
+**Adequacy** (`adequacy.v`): `st_tid`, `st_rfl`, `st_jcase`, `sc_tid`,
+`sc_rfl`, `sc_jcase_beta`, `sc_jcase` — Agda's eight-file J driver (`JApp`,
+`JAppE`, `JCase`, `JDriver`, `JEndpoint`, `JMotive`, `JRef`, `JTypeEq`). The
+`tid`/`rfl` arms of `Val`/`EqVal` are the records already built in
+`raw_validity.v`, so `st_tid`/`st_rfl` are assembly; `st_jcase` is the real
+driver, and `sc_jcase_beta` head-contracts along `hr_jcase` with
+`c_jcase_beta` as the step conversion, in the `sc_beta` style (with no type
+transport, since both sides have the same type).
+
+**Id-injectivity** (`adequacy.v`): `jcase_beta_conv` and `canonical_id`. Both
+are the `tid` analogues of things `piConv` provides for Π: matching a J-beta
+redex's own type `app (app (app C a0) a0) (rfl a0)` against the derivation's
+`app (app (app C a) b) (rfl a0)`, and ruling out non-`rfl` values at an
+identity type. They follow from `idInjectivity`, which is the natural next
+step: run `adequacyEqSub` at the bottom environment and read the components
+out of the resulting `EqValTyId`, exactly as `piConv` reads them out of
+`EqValTyPi`.
+
+## Remaining work, in dependency order## Remaining work, in dependency order
 2. **Rules**: define `motive_ty`/`base_ty` and add the typing, conversion and
    reduction rules above. This is the first step that forces new cases in
    `typing_EvalRel` / `conv_EvalRel` and in the adequacy drivers.
