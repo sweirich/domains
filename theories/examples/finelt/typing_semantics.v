@@ -1986,39 +1986,10 @@ Proof.
     have Lxw'' : le x w''
       by (eapply (@le_trans x w' w'');
           [ exact Vx | exact Vw' | exact Vw'' | exact LExw | exact Lw'w'' ]).
-    (* peel the three application edges off the codomain *)
-    cbn [EvalRel] in EBx. rewrite Bfa in EBx.
-    move: EBx => [w1 [EB1 Erf]].
-    have NB1 : is_bot (w1 ↦ app fa w') = false by (rewrite /singleton Bfa).
-    rewrite NB1 in EB1. move: EB1 => [w2 [EB2 Ev2]].
-    have NB2 : is_bot (w2 ↦ (w1 ↦ app fa w')) = false by (rewrite /singleton NB1).
-    rewrite NB2 in EB2. move: EB2 => [w3 [EB3 Ev3]].
-    cbn in Ev2, Ev3, Erf.
-    (* ... and rebuild them against [a], [b], [p] *)
-    have G3 : EvalRel C ρ (w3 ↦ (w2 ↦ (w1 ↦ app fa w')))
-      by (eapply EvalRel_unwk; exact EB3).
-    have Ga : EvalRel a ρ w3.
-    { move: Ev3 => [Vw3 Lw3]. eapply EvalRel_down;
-        [ exact Vρ | exact Vw3 | exact Eaw
-        | eapply (@le_trans w3 x w'');
-            [ exact Vw3 | exact Vx | exact Vw'' | exact Lw3 | exact Lxw'' ] ]. }
-    have Gb : EvalRel b ρ w2.
-    { move: Ev2 => [Vw2 Lw2]. eapply EvalRel_down;
-        [ exact Vρ | exact Vw2 | exact Ebw
-        | eapply (@le_trans w2 x w'');
-            [ exact Vw2 | exact Vx | exact Vw'' | exact Lw2 | exact Lxw'' ] ]. }
-    have Gp : EvalRel p ρ w1.
-    { destruct w1 as [ | | | | | | | | w0 ]; try done.
-      - apply EvalRel_bot.
-      - move: Erf => [Vw0 Lw0].
-        eapply EvalRel_down; [ exact Vρ | (cbn; exact Vw0) | exact Epp | ].
-        apply le_rfl_intro. eapply (@le_trans w0 x w'');
-          [ exact Vw0 | exact Vx | exact Vw'' | exact Lw0 | exact Lxw'' ]. }
-    have G2 : EvalRel (Core.app C a) ρ (w2 ↦ (w1 ↦ app fa w')).
-    { cbn [EvalRel]. rewrite NB2. exists w3. split; [ exact G3 | exact Ga ]. }
-    have G1 : EvalRel (Core.app (Core.app C a) b) ρ (w1 ↦ app fa w').
-    { cbn [EvalRel]. rewrite NB1. exists w2. split; [ exact G2 | exact Gb ]. }
-    cbn [EvalRel]. rewrite Bfa. exists w1. split; [ exact G1 | exact Gp ].
+    (* the two spines agree code-wise: [EvalRel_base_cod_spine] *)
+    eapply EvalRel_base_cod_spine;
+      [ exact Vρ | exact Vx | exact Lxw'' | exact Eaw | exact Ebw | exact Epp
+      | exact EBx ].
 Qed.
 
 Lemma InvTyp_J {n} (Γ : Ctx n) (A a b C d p : Tm n) ρ :

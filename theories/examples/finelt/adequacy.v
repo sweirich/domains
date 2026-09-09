@@ -3679,6 +3679,42 @@ Proof.
              = Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0)
       by (asimpl; reflexivity).
     rewrite EqB in Vapp.
+    (* ---- the goal's type also takes the edge's codomain code ----
+       [d]'s codomain edge instantiates the motive at codes below the selected
+       argument, and Coquand's rule makes [a], [b] and [p] all take the
+       witness, so [EvalRel_base_cod_spine] converts that instantiation into
+       one of the *goal's* spine.  This is what makes [a0] and [app fd u_sel]
+       compatible, hence [Val_app_transport] applicable. *)
+    have Eaw'' : EvalRel a ρ w''
+      by (eapply EvalRel_down;
+          [ exact Vρ | exact Vw'' | exact eva_up | exact (wt_rfl_le_lhs WTp) ]).
+    have Ebw'' : EvalRel b ρ w''
+      by (eapply EvalRel_down;
+          [ exact Vρ | exact Vw'' | exact evb_vp | exact (wt_rfl_le_rhs WTp) ]).
+    have [xs [WTxs [LExs EBxs]]] :
+      exists xs (_ : wt xs ad2), le xs u_sel
+        /\ EvalRel (Core.app (Core.app (Core.app C⟨↑⟩ (Core.var var_zero))
+                                (Core.var var_zero))
+                      (Core.rfl (Core.var var_zero)))
+             (xs .: ρ) (app fd u_sel)
+      by (apply (EBfun u_sel (app fd u_sel) Vusel); reflexivity).
+    have Vxs : valid xs := wt_valid_tm WTxs.
+    have LExsw'' : le xs w''
+      by (eapply (@le_trans xs u_sel w'');
+          [ exact Vxs | exact Vusel | exact Vw'' | exact LExs | exact LEuselw'' ]).
+    have evT_af :
+      EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ (app fd u_sel)
+      by (eapply EvalRel_base_cod_spine;
+          [ exact Vρ | exact Vxs | exact LExsw'' | exact Eaw'' | exact Ebw''
+          | exact evPbig | exact EBxs ]).
+    have Caf : compatible a0 (app fd u_sel)
+      by (eapply EvalRel_compatible; [ exact Vρ | exact evT | exact evT_af ]).
+    have Waf : wt (app fd u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTd Sel).
+    have hUcT : wt (lub a0 (app fd u_sel)) tuniv
+      := wt_lub (wt_ty_tuniv WT) Caf Waf.
+    have evT_lub :
+      EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ (lub a0 (app fd u_sel))
+      := proj2 (EvalRel_compatible_lub Vρ evT evT_af) _ erefl.
     admit.
   - (* ---------- the [EqVal] conjunct ---------- *)
     admit.
