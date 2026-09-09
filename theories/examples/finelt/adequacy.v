@@ -4889,6 +4889,11 @@ Proof.
   - exact (eqJ RB Hrank).
 Qed.
 
+(** Congruence of the [J] eliminator.  The same shape as [st_jcase]'s [EqVal]
+    conjunct, with the primed *terms* in place of a second substitution -- so
+    everything lives at one [σ] and no cross-substitution transport is needed.
+    [jcase_motive_EqVal] and [jcase_type_spine] are reused unchanged: both
+    speak about the *unprimed* spine, which is the goal's type. *)
 Lemma sc_jcase (A a b C C' d d' p p' : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
   typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
@@ -4907,7 +4912,295 @@ Lemma sc_jcase (A a b C C' d d' p p' : Tm n) :
 (* ------------------------- *)
   semantic_conv2 Γ (Core.jcase C d p) (Core.jcase C' d' p')
     (Core.app (Core.app (Core.app C a) b) p).
-Admitted.
+Proof.
+  move=> TA Ta Tb TC Td Tp cC cd cp STA STa STb STC STd STp SCC SCd SCp.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a0 WT evJ evT RB Hrank.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have CSd : ConvSub Δ Γ σ σ := ConvSub_refl TS.
+  have EVSd : EqValSub Δ Γ σ σ ρ := ValSub_EqValSub VS.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  destruct (is_bot u) eqn:Hu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply EqVal_Bot. }
+  (* ---- the proof's value drives both eliminators ---- *)
+  cbn in evJ. move: evJ => [wp [evP Ebr]].
+  destruct wp as [ | | | | | | | | w' ]; try done.
+  { move: Ebr => [_ /le_bot_inv Eu]. subst u. by rewrite /= in Hu. }
+  have ITp : InvTyped Γ p (Core.tid A a b) ρ := typing_EvalRel Tp Fρ.
+  have [pv [ap [WTp [LEp [evPbig evIdCode]]]]] := ITp _ evP.
+  move: (le_rfl_inv LEp) => [w'' [Epv Lw'w'']]. subst pv.
+  destruct ap as [ | | | | | | | t up vp | ];
+    try solve [ cbn in evIdCode; done | (move: (wt_bot_inv WTp); discriminate) ].
+  have evIdC := evIdCode. cbn in evIdC.
+  move: evIdC => [Vid [evA_t [eva_up evb_vp]]].
+  (* ---- the two witnesses, from [SCp]'s [EqValId] ---- *)
+  have eqP := SCp ρ m Δ σ TS Fρ VS CΔ (rfl w'') (tid t up vp) WTp evPbig evIdCode.
+  have eqPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+      ValTy k Δ (Core.tid A a b)[σ] (wt_rfl_ty WTp)
+      /\ ValId k Δ p[σ] (Core.tid A a b)[σ] WTp
+      /\ ValId k Δ p'[σ] (Core.tid A a b)[σ] WTp
+      /\ EqValId k Δ p[σ] p'[σ] (Core.tid A a b)[σ] WTp.
+  { move=> k Hk. have hh := eqP (S k) ltac:(lia). rewrite EqVal_rfl in hh. exact hh. }
+  pose kP := S (max (rk (rfl w'')) (rk (tid t up vp))).
+  have HkP : max (rk (rfl w'')) (rk (tid t up vp)) < kP by (unfold kP; lia).
+  have [_ [IdP [IdP' EqIdP]]] := eqPk kP HkP.
+  move: IdP =>
+    [A1 [a1 [b1 [HRid1 [P0 [HRp [cvPp [cvPa [cvPb [VP0 [EP0a EP0b]]]]]]]]]]].
+  cbn in HRid1. have [Z1 [Z2 Z3]] := HeadRed_tid_eq HRid1. subst A1 a1 b1.
+  move: IdP' =>
+    [A2 [a2 [b2 [HRid2 [P0' [HRp' [cvPp' [cvPa' [cvPb' [VP0' [EP0a' EP0b']]]]]]]]]]].
+  cbn in HRid2. have [Y1 [Y2 Y3]] := HeadRed_tid_eq HRid2. subst A2 a2 b2.
+  move: EqIdP =>
+    [_ [_ [M0 [N0 [HRm [HRn [A3 [a3 [b3 [HRid3 [cvMN EqMN]]]]]]]]]]].
+  cbn in HRid3. have [X1 [X2 X3]] := HeadRed_tid_eq HRid3. subst A3 a3 b3.
+  have EM : M0 = P0 by (eapply HeadRed_rfl_det; [ exact HRm | exact HRp ]).
+  have EN : N0 = P0' by (eapply HeadRed_rfl_det; [ exact HRn | exact HRp' ]).
+  subst M0 N0.
+  (* the witness data at every fuel *)
+  have IdPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+      Val k Δ P0 A[σ] (wt_rfl_wit WTp)
+      /\ EqVal k Δ P0 a[σ] A[σ] (wt_rfl_wit WTp)
+      /\ EqVal k Δ P0 b[σ] A[σ] (wt_rfl_wit WTp).
+  { move=> k Hk. have [_ [Idk _]] := eqPk k Hk.
+    move: Idk =>
+      [B1 [c1 [e1 [HRk [Q [HRq [cq [cqa [cqb [VQ [EQa EQb]]]]]]]]]]].
+    cbn in HRk. have [W1 [W2 W3]] := HeadRed_tid_eq HRk. subst B1 c1 e1.
+    have EQ : Q = P0 by (eapply HeadRed_rfl_det; [ exact HRq | exact HRp ]).
+    subst Q. split; [ exact VQ | split; [ exact EQa | exact EQb ] ]. }
+  have EqPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+      EqVal k Δ P0 P0' A[σ] (wt_rfl_wit WTp).
+  { move=> k Hk. have [_ [_ [_ EqIdk]]] := eqPk k Hk.
+    move: EqIdk =>
+      [_ [_ [M1 [N1 [HRm1 [HRn1 [B2 [c2 [e2 [HRk2 [cv2 Eq2]]]]]]]]]]].
+    cbn in HRk2. have [V1 [V2 V3]] := HeadRed_tid_eq HRk2. subst B2 c2 e2.
+    have EM1 : M1 = P0 by (eapply HeadRed_rfl_det; [ exact HRm1 | exact HRp ]).
+    have EN1 : N1 = P0' by (eapply HeadRed_rfl_det; [ exact HRn1 | exact HRp' ]).
+    subst M1 N1. exact Eq2. }
+  (* ---- the syntactic side of both drivers ---- *)
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have Tas : typing Δ a[σ] A[σ]
+    by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have Tbs : typing Δ b[σ] A[σ]
+    by (eapply substitution_tm; [ exact Tb | exact TS | exact CΔ ]).
+  have TCs : typing Δ C[σ] (motive_ty A[σ]).
+  { move: (substitution_tm _ _ _ _ _ TC TS CΔ) => hh.
+    rewrite subst_motive_ty in hh. exact hh. }
+  have Tds : typing Δ d[σ] (base_ty A[σ] C[σ]).
+  { move: (substitution_tm _ _ _ _ _ Td TS CΔ) => hh.
+    rewrite subst_base_ty in hh. exact hh. }
+  have Tps : typing Δ p[σ] (Core.tid A[σ] a[σ] b[σ]).
+  { move: (substitution_tm _ _ _ _ _ Tp TS CΔ) => hh. cbn in hh. exact hh. }
+  have TP0 : typing Δ P0 A[σ] := proj1 (conv_typing cvPa).
+  have TP0' : typing Δ P0' A[σ] := proj1 (conv_typing cvPa').
+  have cCs : conv Δ C[σ] C'[σ] (motive_ty A[σ]).
+  { move: (substitution_conv _ _ _ _ _ σ cC TS CΔ) => hh.
+    rewrite subst_motive_ty in hh. exact hh. }
+  have cds : conv Δ d[σ] d'[σ] (base_ty A[σ] C[σ]).
+  { move: (substitution_conv _ _ _ _ _ σ cd TS CΔ) => hh.
+    rewrite subst_base_ty in hh. exact hh. }
+  have cps : conv Δ p[σ] p'[σ] (Core.tid A[σ] a[σ] b[σ]).
+  { move: (substitution_conv _ _ _ _ _ σ cp TS CΔ) => hh. cbn in hh. exact hh. }
+  have TC's : typing Δ C'[σ] (motive_ty A[σ]) := proj2 (conv_typing cCs).
+  have Td's : typing Δ d'[σ] (base_ty A[σ] C'[σ]).
+  { eapply t_conv; [ exact (proj2 (conv_typing cds)) | ].
+    eapply base_ty_conv; [ exact TAs | exact TCs | exact TC's | exact cCs ]. }
+  have Tp's : typing Δ p'[σ] (Core.tid A[σ] a[σ] b[σ]) := proj2 (conv_typing cps).
+  have DRIVE : conv Δ (Core.jcase C[σ] d[σ] p[σ]) (Core.app d[σ] P0)
+                 (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+    by (eapply jcase_drive_conv;
+        [ exact TAs | exact TP0 | exact Tas | exact Tbs | exact TCs | exact Tds
+        | exact Tps | exact cvPa | exact cvPb | exact cvPp ]).
+  have HRJ : HeadRed (Core.jcase C[σ] d[σ] p[σ]) (Core.app d[σ] P0)
+    by (eapply HeadRed_jcase; exact HRp).
+  have DRIVE' : conv Δ (Core.jcase C'[σ] d'[σ] p'[σ]) (Core.app d'[σ] P0')
+                  (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]).
+  { eapply c_conv.
+    - eapply jcase_drive_conv;
+        [ exact TAs | exact TP0' | exact Tas | exact Tbs | exact TC's
+        | exact Td's | exact Tp's | exact cvPa' | exact cvPb' | exact cvPp' ].
+    - apply c_sym. eapply motive_app_conv;
+        [ exact TAs | exact Tas | exact Tbs | exact TCs | exact TC's
+        | exact Tps | exact cCs | exact cps ]. }
+  have HRJ' : HeadRed (Core.jcase C'[σ] d'[σ] p'[σ]) (Core.app d'[σ] P0')
+    by (eapply HeadRed_jcase; exact HRp').
+  (* ---- [d]'s value edge at the witness (as in [st_jcase]) ---- *)
+  have Vw'  : valid w'  by (move: (EvalRel_valid evP); cbn; done).
+  have Vw'' : valid w'' by (move: (EvalRel_valid evPbig); cbn; done).
+  have ITd : InvTyped Γ d (base_ty A C) ρ := typing_EvalRel Td Fρ.
+  have [vd [ad [WTd [LEd [evDbig evBase]]]]] := ITd _ Ebr.
+  unfold singleton in LEd. rewrite Hu in LEd.
+  have [g [Evd LEfun]] := le_abs_inv LEd. subst vd.
+  destruct ad as [ | | | | | bd fd | | | ];
+    try solve [ exfalso; clear -WTd; inversion WTd ].
+  have evBaseC := evBase. rewrite /base_ty in evBaseC. cbn in evBaseC.
+  move: evBaseC => [Vbd [Vfd [evA_bd [ad2 [evA_bd2 EBfun]]]]].
+  have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTd)).
+  have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vw'.
+  have [WTu_sel WTv_sel] : wt u_sel bd /\ wt v_sel (app fd u_sel).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty WTd) | exact (wt_abs_inv1 WTd)
+      | move=> ui vi Hin; exact (wt_abs_inv2 WTd Hin erefl)
+      | exact Vg | exact Sel ]. }
+  have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+  have LEu_vsel : le u v_sel.
+  { rewrite le_fun_cons in LEfun.
+    have LEua := proj1 (andb_prop _ _ LEfun).
+    rewrite Eq_vsel in LEua. exact LEua. }
+  have Wt_t  : wt t tuniv := wt_ty_tuniv (wt_rfl_wit WTp).
+  have Wt_bd : wt bd tuniv := wt_tpi_dom (wt_abs_ty WTd).
+  have Cbdt : compatible bd t
+    by (eapply EvalRel_compatible; [ exact Vρ | exact evA_bd | exact evA_t ]).
+  have hUlub : wt (lub bd t) tuniv := wt_lub Wt_bd Cbdt Wt_t.
+  have evA_lub : EvalRel A ρ (lub bd t)
+    := proj2 (EvalRel_compatible_lub Vρ evA_bd evA_t) _ erefl.
+  have [valA_lub _] :=
+    STA ρ m Δ σ σ TS TS CSd Fρ VS VS EVSd CΔ (lub bd t) tuniv hUlub evA_lub evU.
+  have LEuselw'' : le u_sel w''
+    by (eapply (@le_trans u_sel w' w'');
+        [ exact Vusel | exact Vw' | exact Vw'' | exact Le_usel | exact Lw'w'' ]).
+  have VargK : forall k,
+      max (rk (lub bd t)) (rk tuniv) < k ->
+      max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+      Val k Δ P0 A[σ] WTu_sel.
+  { move=> k Hk1 Hk2.
+    eapply (@Val_app_transport _ Δ P0 A[σ] u_sel w'' bd t
+              (wt_rfl_wit WTp) WTu_sel hUlub);
+      [ exact Cbdt | exact LEuselw'' | exact (valA_lub k Hk1)
+      | exact (proj1 (IdPk k Hk2)) ]. }
+  pose RBf := S (max (max (rk (abs g)) (rk (tpi bd fd)))
+                     (max (max (rk u) (rk a0))
+                          (max (rk (rfl w'')) (rk (tid t up vp))))).
+  have RKlub : rk (lub bd t) <= max (rk bd) (rk t) := rk_lub bd t.
+  have RKbd : rk bd < rk (tpi bd fd) by (cbn; lia).
+  have RKt  : rk t < rk (tid t up vp) by (cbn; lia).
+  have RKpi : 1 <= rk (tpi bd fd) by (cbn; lia).
+  have RKtu : rk tuniv = 1 by reflexivity.
+  have HfD : max (rk (abs g)) (rk (tpi bd fd)) < S RBf by (unfold RBf; lia).
+  have HfA : max (rk (lub bd t)) (rk tuniv) < RBf by (unfold RBf; lia).
+  have HfP : max (rk (rfl w'')) (rk (tid t up vp)) < RBf by (unfold RBf; lia).
+  have RKvsel : rk v_sel <= rk_fun g := rk_Selection_val Sel.
+  have RKg : rk_fun g < rk (abs g) by (cbn; lia).
+  have RKfd : rk_fun fd < rk (tpi bd fd) by (cbn; lia).
+  have RKcod : rk (app fd u_sel) <= rk_fun fd := rk_app fd u_sel.
+  have RKlubT : rk (lub a0 (app fd u_sel)) <= max (rk a0) (rk (app fd u_sel))
+    := rk_lub a0 (app fd u_sel).
+  (* the core: [d]'s cross edge, then [d'[σ]]'s argument edge *)
+  have eqDbig := SCd ρ m Δ σ TS Fρ VS CΔ (abs g) (tpi bd fd) WTd evDbig evBase.
+  have ED := eqDbig (S RBf) HfD. rewrite EqVal_abs in ED.
+  move: ED => [_ [_ [VPid' EPid]]].
+  move: EPid => [A0e2 [B0e2 [HRpi2 [CTpi2 paev]]]].
+  rewrite subst_base_ty /base_ty in HRpi2.
+  have [Ea2 Eb2] := HeadRed_tpi_eq HRpi2. subst A0e2 B0e2.
+  move: VPid' => [A0e3 [B0e3 [HRpi3 [CTpi3 [pav' pae']]]]].
+  rewrite subst_base_ty /base_ty in HRpi3.
+  have [Ea3 Eb3] := HeadRed_tpi_eq HRpi3. subst A0e3 B0e3.
+  have EqPsel : EqVal RBf Δ P0 P0' A[σ] WTu_sel.
+  { eapply (@EqVal_app_transport _ Δ P0 P0' A[σ] u_sel w'' bd t
+              (wt_rfl_wit WTp) WTu_sel hUlub);
+      [ exact Cbdt | exact LEuselw'' | exact (valA_lub RBf HfA)
+      | exact (EqPk RBf HfP) ]. }
+  have EA1 := paev u_sel v_sel Sel WTu_sel P0 TP0 (VargK RBf HfA HfP).
+  have EA2 := pae' u_sel v_sel Sel WTu_sel P0 P0' cvMN EqPsel.
+  have EqB : (Core.app (Core.app (Core.app (C[σ])⟨↑⟩ (Core.var var_zero))
+                          (Core.var var_zero))
+                (Core.rfl (Core.var var_zero)))[P0..]
+           = Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0)
+    by (asimpl; reflexivity).
+  rewrite EqB in EA1. rewrite EqB in EA2.
+  have EAcore : EqVal RBf Δ (Core.app d[σ] P0) (Core.app d'[σ] P0')
+                  (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+                  (wt_Selection_abs WTd Sel).
+  { eapply (EqVal_trans (M2 := Core.app d'[σ] P0));
+      [ (unfold RBf; lia) | exact EA1 | exact EA2 ]. }
+  (* ---- the goal type at the edge's codomain code ---- *)
+  have Eaw'' : EvalRel a ρ w''
+    by (eapply EvalRel_down;
+        [ exact Vρ | exact Vw'' | exact eva_up | exact (wt_rfl_le_lhs WTp) ]).
+  have Ebw'' : EvalRel b ρ w''
+    by (eapply EvalRel_down;
+        [ exact Vρ | exact Vw'' | exact evb_vp | exact (wt_rfl_le_rhs WTp) ]).
+  have [xs [WTxs [LExs EBxs]]] :
+    exists xs (_ : wt xs ad2), le xs u_sel
+      /\ EvalRel (Core.app (Core.app (Core.app C⟨↑⟩ (Core.var var_zero))
+                              (Core.var var_zero))
+                    (Core.rfl (Core.var var_zero)))
+           (xs .: ρ) (app fd u_sel)
+    by (apply (EBfun u_sel (app fd u_sel) Vusel); reflexivity).
+  have Vxs : valid xs := wt_valid_tm WTxs.
+  have LExsw'' : le xs w''
+    by (eapply (@le_trans xs u_sel w'');
+        [ exact Vxs | exact Vusel | exact Vw'' | exact LExs | exact LEuselw'' ]).
+  have evT_af :
+    EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ (app fd u_sel)
+    by (eapply EvalRel_base_cod_spine;
+        [ exact Vρ | exact Vxs | exact LExsw'' | exact Eaw'' | exact Ebw''
+        | exact evPbig | exact EBxs ]).
+  have Caf : compatible a0 (app fd u_sel)
+    by (eapply EvalRel_compatible; [ exact Vρ | exact evT | exact evT_af ]).
+  have Waf : wt (app fd u_sel) tuniv := wt_ty_tuniv (wt_Selection_abs WTd Sel).
+  have hUcT : wt (lub a0 (app fd u_sel)) tuniv
+    := wt_lub (wt_ty_tuniv WT) Caf Waf.
+  have evT_lub :
+    EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ (lub a0 (app fd u_sel))
+    := proj2 (EvalRel_compatible_lub Vρ evT evT_af) _ erefl.
+  have Bfa : is_bot (app fd u_sel) = false.
+  { destruct (is_bot (app fd u_sel)) eqn:Hb; [ | reflexivity ].
+    exfalso.
+    have E : app fd u_sel = bot by (apply is_bot_eq; rewrite Hb).
+    move: WTv_sel. rewrite E => WTr.
+    move: (wt_bot_inv WTr) => Ev. rewrite Ev in LEu_vsel.
+    move: LEu_vsel => /le_bot_inv Eu. subst u. by rewrite /= in Hu. }
+  have [ws1 [ws2 [ws3 [evC3s [Ls3 [Ls2 [Ls1 [evas3 [evbs2 evps1]]]]]]]]] :=
+    EvalRel_base_cod_spine_codes Vρ Vxs LExsw'' Eaw'' Ebw'' evPbig Bfa EBxs.
+  have EQTY : forall kk, max (rk (app fd u_sel)) (rk tuniv) < kk ->
+      EqVal kk Δ (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+                 (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                 Core.tuniv Waf.
+  { eapply jcase_motive_EqVal;
+      [ exact TA | exact Ta | exact Tb | exact TC | exact Tp
+      | exact STA | exact STa | exact STb | exact STC | exact STp
+      | exact TS | exact TS | exact CSd | exact Fρ | exact VS | exact VS
+      | exact EVSd | exact CΔ | exact evPbig | exact evA_t
+      | exact HRp | exact cvPa | exact cvPb | exact cvPp | exact IdPk
+      | exact Bfa | exact evC3s | exact Ls3 | exact Ls2 | exact Ls1
+      | exact evas3 | exact evbs2 | exact evps1 ]. }
+  have ETY : EqValTy RBf Δ
+      (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+      (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Waf.
+  { have hh := EQTY (S RBf) ltac:(unfold RBf; lia).
+    rewrite EqVal_tuniv in hh. exact (proj2 (proj2 hh)). }
+  have CVTY : conv Δ
+      (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+      (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv
+    by (eapply motive_app_conv_witness;
+        [ exact TAs | exact TP0 | exact Tas | exact Tbs | exact TCs | exact Tps
+        | exact cvPa | exact cvPb | exact cvPp ]).
+  have VTgoal : Val RBf Δ
+      (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv hUcT.
+  { eapply jcase_type_spine;
+      [ exact TA | exact Ta | exact Tb | exact TC | exact Tp
+      | exact STa | exact STb | exact STC | exact STp
+      | exact TS | exact TS | exact CSd | exact Fρ | exact VS | exact VS
+      | exact EVSd | exact CΔ | exact evT_lub | (unfold RBf; lia) ]. }
+  have EAgoal : EqVal RBf Δ (Core.app d[σ] P0) (Core.app d'[σ] P0')
+                  (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                  (wt_Selection_abs WTd Sel).
+  { eapply (EqVal_EqVal_fwd
+              (B := Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]));
+      [ (unfold RBf; lia) | (unfold RBf; lia) | exact CVTY | exact EAcore
+      | exact ETY ]. }
+  (* ---- finish ---- *)
+  apply (EqVal_fuel_any (k := RBf) (k' := RB));
+    [ (unfold RBf; lia) | (unfold RBf; lia)
+    | (cbn in Hrank |- *; lia) | (cbn in Hrank |- *; lia) | ].
+  eapply EqVal_headred_expand;
+    [ exact HRJ | exact HRJ' | exact DRIVE | exact DRIVE' | ].
+  eapply (@EqVal_app_transport _ Δ (Core.app d[σ] P0) (Core.app d'[σ] P0')
+            (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+            u v_sel a0 (app fd u_sel)
+            (wt_Selection_abs WTd Sel) WT hUcT);
+    [ exact Caf | exact LEu_vsel | exact VTgoal | exact EAgoal ].
+Qed.
 
 (* t_nrec: T : (Γ ++ tnat) ⊢ tuniv i, M0 : T[zero..], M1 : tpi tnat (tpi T U⟨↑⟩)
    ⟹ nrec T M0 M1 : tpi tnat T *)
