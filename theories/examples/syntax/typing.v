@@ -1391,6 +1391,82 @@ Proof.
     [ exact TIdab | apply t_univ; exact cIdab | exact C4 | exact Tp | reflexivity ].
 Qed.
 
+(* ------------------------------------------------------------------
+   Driving [jcase] to its base branch.
+
+   These three are the *syntactic* half of the adequacy driver for [J].  The
+   semantic driver learns from the logical relation that the proof [p] reduces
+   to some [rfl P0] whose witness [P0] is convertible to **both** endpoints
+   (Coquand's membership rule read off [ValId]).  Given that, [jcase C d p]
+   converts to [app d P0], and the diagonal type the [c_jcase_beta] rule
+   produces converts to the goal type -- so no Id-injectivity is needed here
+   beyond the two endpoint conversions the relation already stores.
+   ------------------------------------------------------------------ *)
+
+(* Coquand's rule as a retyping: a witness below both endpoints inhabits the
+   *off-diagonal* identity type. *)
+Lemma rfl_offdiag_typing {n} (Γ : Ctx n) (A P0 a b : Tm n) :
+  typing Γ A tuniv -> typing Γ P0 A -> typing Γ a A -> typing Γ b A ->
+  conv Γ P0 a A -> conv Γ P0 b A ->
+  typing Γ (rfl P0) (tid A a b).
+Proof.
+  move=> TA TP Ta Tb ca cb.
+  eapply t_conv; [ eapply t_rfl; [ exact TA | exact TP ] | ].
+  eapply c_tid;
+    [ exact TA | exact TP | exact TP | apply c_refl; exact TA | exact ca | exact cb ].
+Qed.
+
+(* [c_jcase_beta]'s diagonal type converts to the goal's type. *)
+Lemma motive_app_conv_witness {n} (Γ : Ctx n) (A P0 a b C p : Tm n) :
+  typing Γ A tuniv -> typing Γ P0 A -> typing Γ a A -> typing Γ b A ->
+  typing Γ C (motive_ty A) -> typing Γ p (tid A a b) ->
+  conv Γ P0 a A -> conv Γ P0 b A ->
+  conv Γ p (rfl P0) (tid A a b) ->
+  conv Γ (app (app (app C P0) P0) (rfl P0)) (app (app (app C a) b) p) tuniv.
+Proof.
+  move=> TA TP Ta Tb TC Tp ca cb cp.
+  have TRd : typing Γ (rfl P0) (tid A P0 P0)
+    by (eapply t_rfl; [ exact TA | exact TP ]).
+  have TRo : typing Γ (rfl P0) (tid A a b)
+    by (eapply rfl_offdiag_typing;
+        [ exact TA | exact TP | exact Ta | exact Tb | exact ca | exact cb ]).
+  eapply c_trans.
+  - (* move the two endpoint arguments *)
+    eapply motive_app_conv_args;
+      [ exact TA | exact TP | exact Ta | exact TP | exact Tb | exact TC | exact TRd
+      | exact ca | exact cb ].
+  - (* ... then the proof argument *)
+    eapply motive_app_conv;
+      [ exact TA | exact Ta | exact Tb | exact TC | exact TC | exact TRo
+      | apply c_refl; exact TC | apply c_sym; exact cp ].
+Qed.
+
+(* The driver conversion: [jcase C d p] converts to the base branch applied to
+   the witness, *at the goal's type*.  This is the [conv] side of the
+   [Val_beta_expand] / [EqVal_headred_expand] appeal in [st_jcase]/[sc_jcase];
+   the [HeadRed] side is [reduction.HeadRed_jcase]. *)
+Lemma jcase_drive_conv {n} (Γ : Ctx n) (A P0 a b C d p : Tm n) :
+  typing Γ A tuniv -> typing Γ P0 A -> typing Γ a A -> typing Γ b A ->
+  typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
+  typing Γ p (tid A a b) ->
+  conv Γ P0 a A -> conv Γ P0 b A ->
+  conv Γ p (rfl P0) (tid A a b) ->
+  conv Γ (jcase C d p) (app d P0) (app (app (app C a) b) p).
+Proof.
+  move=> TA TP Ta Tb TC Td Tp ca cb cp.
+  eapply c_trans.
+  - (* the scrutinee converts to a literal [rfl] *)
+    eapply c_jcase;
+      [ exact TA | exact Ta | exact Tb | exact TC | exact Td | exact Tp
+      | apply c_refl; exact TC | apply c_refl; exact Td | exact cp ].
+  - (* ... which contracts, and the diagonal type it lands at converts back *)
+    eapply c_conv.
+    + eapply c_jcase_beta; [ exact TA | exact TP | exact TC | exact Td ].
+    + eapply motive_app_conv_witness;
+        [ exact TA | exact TP | exact Ta | exact Tb | exact TC | exact Tp
+        | exact ca | exact cb | exact cp ].
+Qed.
+
 Lemma conv_typing {n} {Γ : Ctx n} {M N A : Tm n} :
   Γ ⊢e M ≡ N ∈ A -> Γ ⊢e M ∈ A /\ Γ ⊢e N ∈ A.
 Proof.

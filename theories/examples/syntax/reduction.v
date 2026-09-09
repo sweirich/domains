@@ -272,3 +272,28 @@ Qed.
 
 
 
+(* ============================================================
+   Head reduction for [jcase].
+
+   [jcase] reduces in its *proof* argument ([hr_jcase_scrut]) and contracts
+   once that argument is a literal [rfl] ([hr_jcase]).  So a proof that
+   head-reduces to an [rfl] drives the whole eliminator to the base branch,
+   which is what the adequacy driver for [J] needs.
+   ============================================================ *)
+
+Lemma HeadRed_jcase_scrut {n} (C d : Tm n) (p p' : Tm n) :
+  HeadRed p p' -> HeadRed (jcase C d p) (jcase C d p').
+Proof.
+  move=> h. induction h.
+  - apply ms_refl.
+  - eapply ms_trans; [ apply hr_jcase_scrut; eassumption | assumption ].
+Qed.
+
+(* [jcase C d p] with [p] reducing to [rfl P0] drives to [app d P0]. *)
+Lemma HeadRed_jcase {n} (C d p P0 : Tm n) :
+  HeadRed p (rfl P0) -> HeadRed (jcase C d p) (app d P0).
+Proof.
+  move=> h.
+  eapply ms_app; [ eapply HeadRed_jcase_scrut; exact h | ].
+  eapply ms_trans; [ apply hr_jcase | apply ms_refl ].
+Qed.
