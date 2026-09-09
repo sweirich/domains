@@ -4521,8 +4521,135 @@ Proof.
                 (wt_Selection_abs WTd Sel) WT hUcT);
         [ exact Caf | exact LEu_vsel | exact VTgoal | exact VappT ].
     + (* ---------- the [EqVal] conjunct ---------- *)
-      admit.
-Admitted.
+      (* the σ'-side witness, from [STp]'s [EqVal] conjunct's [EqValId] *)
+      have [_ eqP] :=
+        STp ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+            (rfl w'') (tid t up vp) WTp evPbig evIdCode.
+      have eqPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+          ValTy k Δ (Core.tid A a b)[σ] (wt_rfl_ty WTp)
+          /\ ValId k Δ p[σ] (Core.tid A a b)[σ] WTp
+          /\ ValId k Δ p[σ'] (Core.tid A a b)[σ] WTp
+          /\ EqValId k Δ p[σ] p[σ'] (Core.tid A a b)[σ] WTp.
+      { move=> k Hk. have hh := eqP (S k) ltac:(lia).
+        rewrite EqVal_rfl in hh. exact hh. }
+      have [_ [_ [IdP' EqIdP]]] := eqPk kP HkP.
+      move: EqIdP =>
+        [_ [_ [M0 [N0 [HRm [HRn
+          [A0e [a0e [b0e [HRide [cvMN EqMN]]]]]]]]]]].
+      cbn in HRide. have [Z1 [Z2 Z3]] := HeadRed_tid_eq HRide. subst A0e a0e b0e.
+      have EM : M0 = P0 by (eapply HeadRed_rfl_det; [ exact HRm | exact HRp ]).
+      subst M0.
+      move: IdP' =>
+        [A2 [a2 [b2 [HRid2 [Q0 [HRq [cvq [cvqa [cvqb [VQ [EqQa EqQb]]]]]]]]]]].
+      cbn in HRid2. have [Y1 [Y2 Y3]] := HeadRed_tid_eq HRid2. subst A2 a2 b2.
+      have EQ0 : Q0 = N0 by (eapply HeadRed_rfl_det; [ exact HRq | exact HRn ]).
+      subst Q0.
+      (* ... at every fuel, with [HeadRed_rfl_det] pinning both witnesses *)
+      have EqPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+          EqVal k Δ P0 N0 A[σ] (wt_rfl_wit WTp).
+      { move=> k Hk. have [_ [_ [_ EqIdk]]] := eqPk k Hk.
+        move: EqIdk =>
+          [_ [_ [M1 [N1 [HRm1 [HRn1
+            [A1 [a1 [b1 [HRid1 [cv1 Eq1]]]]]]]]]]].
+        cbn in HRid1. have [X1 [X2 X3]] := HeadRed_tid_eq HRid1. subst A1 a1 b1.
+        have EM1 : M1 = P0 by (eapply HeadRed_rfl_det; [ exact HRm1 | exact HRp ]).
+        have EN1 : N1 = N0 by (eapply HeadRed_rfl_det; [ exact HRn1 | exact HRn ]).
+        subst M1 N1. exact Eq1. }
+      (* ---- the σ'-side driver, retyped to the σ-side goal type ---- *)
+      have TAs' : typing Δ A[σ'] Core.tuniv
+        by (move: (substitution_tm _ _ _ _ _ TA TS' CΔ) => hh; cbn in hh; exact hh).
+      have Tas' : typing Δ a[σ'] A[σ']
+        by (eapply substitution_tm; [ exact Ta | exact TS' | exact CΔ ]).
+      have Tbs' : typing Δ b[σ'] A[σ']
+        by (eapply substitution_tm; [ exact Tb | exact TS' | exact CΔ ]).
+      have TCs' : typing Δ C[σ'] (motive_ty A[σ']).
+      { move: (substitution_tm _ _ _ _ _ TC TS' CΔ) => hh.
+        rewrite subst_motive_ty in hh. exact hh. }
+      have Tds' : typing Δ d[σ'] (base_ty A[σ'] C[σ']).
+      { move: (substitution_tm _ _ _ _ _ Td TS' CΔ) => hh.
+        rewrite subst_base_ty in hh. exact hh. }
+      have Tps' : typing Δ p[σ'] (Core.tid A[σ'] a[σ'] b[σ']).
+      { move: (substitution_tm _ _ _ _ _ Tp TS' CΔ) => hh. cbn in hh. exact hh. }
+      have cAcross : conv Δ A[σ] A[σ'] Core.tuniv
+        := subst_conv_cross TA CΔ TS TS' CS.
+      have cacross : conv Δ a[σ] a[σ'] A[σ] := subst_conv_cross Ta CΔ TS TS' CS.
+      have cbcross : conv Δ b[σ] b[σ'] A[σ] := subst_conv_cross Tb CΔ TS TS' CS.
+      have TN0 : typing Δ N0 A[σ] := proj1 (conv_typing cvqa).
+      have TN0' : typing Δ N0 A[σ']
+        by (eapply t_conv; [ exact TN0 | exact cAcross ]).
+      have cvqa' : conv Δ N0 a[σ'] A[σ'].
+      { eapply c_conv; [ | exact cAcross ].
+        eapply c_trans; [ exact cvqa | exact cacross ]. }
+      have cvqb' : conv Δ N0 b[σ'] A[σ'].
+      { eapply c_conv; [ | exact cAcross ].
+        eapply c_trans; [ exact cvqb | exact cbcross ]. }
+      have cIdcross : conv Δ (Core.tid A[σ] a[σ] b[σ])
+                             (Core.tid A[σ'] a[σ'] b[σ']) Core.tuniv
+        by (eapply c_tid;
+            [ exact TAs | exact Tas | exact Tbs | exact cAcross
+            | exact cacross | exact cbcross ]).
+      have cvq' : conv Δ p[σ'] (Core.rfl N0) (Core.tid A[σ'] a[σ'] b[σ']).
+      { eapply c_conv; [ | exact cIdcross ]. move: cvq. cbn. done. }
+      have Tcross : conv Δ
+          (Core.app (Core.app (Core.app C[σ'] a[σ']) b[σ']) p[σ'])
+          ((Core.app (Core.app (Core.app C a) b) p)[σ]) Core.tuniv.
+      { have Ttype : typing Γ (Core.app (Core.app (Core.app C a) b) p) Core.tuniv
+          by (eapply motive_app_typing;
+              [ exact TA | exact Ta | exact Tb | exact TC | exact Tp ]).
+        apply c_sym.
+        move: (subst_conv_cross Ttype CΔ TS TS' CS) => hh. cbn in hh. exact hh. }
+      have DRIVE' : conv Δ (Core.jcase C[σ'] d[σ'] p[σ']) (Core.app d[σ'] N0)
+                      ((Core.app (Core.app (Core.app C a) b) p)[σ]).
+      { eapply c_conv; [ | exact Tcross ].
+        eapply jcase_drive_conv;
+          [ exact TAs' | exact TN0' | exact Tas' | exact Tbs' | exact TCs'
+          | exact Tds' | exact Tps' | exact cvqa' | exact cvqb' | exact cvq' ]. }
+      have HRJ' : HeadRed (Core.jcase C[σ'] d[σ'] p[σ']) (Core.app d[σ'] N0)
+        by (eapply HeadRed_jcase; exact HRn).
+      (* ---- the core: [d]'s cross edge, then its argument edge ---- *)
+      have [_ eqDbig] :=
+        STd ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+            (abs g) (tpi bd fd) WTd evDbig evBase.
+      have ED := eqDbig (S RBf) HfD. rewrite EqVal_abs in ED.
+      move: ED => [_ [_ [VPid' EPid]]].
+      move: EPid => [A0e2 [B0e2 [HRpi2 [CTpi2 paev]]]].
+      rewrite subst_base_ty /base_ty in HRpi2.
+      have [Ea2 Eb2] := HeadRed_tpi_eq HRpi2. subst A0e2 B0e2.
+      move: VPid' => [A0e3 [B0e3 [HRpi3 [CTpi3 [pav' pae']]]]].
+      rewrite subst_base_ty /base_ty in HRpi3.
+      have [Ea3 Eb3] := HeadRed_tpi_eq HRpi3. subst A0e3 B0e3.
+      have EqPsel : EqVal RBf Δ P0 N0 A[σ] WTu_sel.
+      { eapply (@EqVal_app_transport _ Δ P0 N0 A[σ] u_sel w'' bd t
+                  (wt_rfl_wit WTp) WTu_sel hUlub);
+          [ exact Cbdt | exact LEuselw'' | exact (valA_lub RBf HfA)
+          | exact (EqPk RBf HfP) ]. }
+      have EA1 := paev u_sel v_sel Sel WTu_sel P0 TP0 (VargK RBf HfA HfP).
+      have EA2 := pae' u_sel v_sel Sel WTu_sel P0 N0 cvMN EqPsel.
+      rewrite EqB in EA1. rewrite EqB in EA2.
+      have EAcore : EqVal RBf Δ (Core.app d[σ] P0) (Core.app d[σ'] N0)
+                      (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+                      (wt_Selection_abs WTd Sel).
+      { eapply (EqVal_trans (M2 := Core.app d[σ'] P0));
+          [ (unfold RBf; lia) | exact EA1 | exact EA2 ]. }
+      (* ---- finish, exactly as the [Val] half ---- *)
+      have EAgoal : EqVal RBf Δ (Core.app d[σ] P0) (Core.app d[σ'] N0)
+                      (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                      (wt_Selection_abs WTd Sel).
+      { eapply (EqVal_EqVal_fwd
+                  (B := Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]));
+          [ (unfold RBf; lia) | (unfold RBf; lia) | exact CVTY | exact EAcore
+          | exact ETY ]. }
+      apply (EqVal_fuel_any (k := RBf) (k' := RB));
+        [ (unfold RBf; lia) | (unfold RBf; lia)
+        | (cbn in Hrank |- *; lia) | (cbn in Hrank |- *; lia) | ].
+      eapply EqVal_headred_expand;
+        [ exact HRJ | exact HRJ' | exact DRIVE | exact DRIVE' | ].
+      eapply (@EqVal_app_transport _ Δ (Core.app d[σ] P0) (Core.app d[σ'] N0)
+                (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                u v_sel a0 (app fd u_sel)
+                (wt_Selection_abs WTd Sel) WT hUcT);
+        [ exact Caf | exact LEu_vsel | exact VTgoal | exact EAgoal ].
+Qed.
 
 (** [c_tid] congruence.  Unlike [sc_tpi] this needs no [semantic_typing] of the
     primed components: the primed side's [ValTyId] record is read off the
