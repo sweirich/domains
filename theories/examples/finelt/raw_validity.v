@@ -4046,3 +4046,75 @@ Proof.
   move: LEf. rewrite le_fun_cons => LEf'.
   exact (proj1 (andb_prop _ _ LEf')).
 Qed.
+
+
+(* ============================================================
+   Coquand's rule at the *reducible* level.
+
+   A witness that is [Val] at the domain and both convertible and reducibly
+   equal to two endpoints makes [rfl P0] a [ValId] at the **off-diagonal**
+   identity type [tid A0 x y].  These are the [st_rfl] records with the
+   endpoints arbitrary rather than the diagonal, and they are what the [J]
+   driver's motive walk feeds to its third application step: the motive's
+   third domain is an identity type whose endpoints are the *witness* on the
+   walk's left and the *endpoints* on its right.
+
+   The [ValTy] of the identity type is taken as a hypothesis rather than
+   rebuilt: the caller already has it, from the level above of the walk.
+   ============================================================ *)
+
+Lemma Val_rfl_offdiag {q} (Δ : Ctx q) (A0 P0 x y : Tm q) w0 c0 xc yc
+  (h : wt (rfl w0) (tid c0 xc yc)) k :
+  ValTy k Δ (Core.tid A0 x y) (wt_rfl_ty h) ->
+  typing Δ (Core.rfl P0) (Core.tid A0 x y) ->
+  conv Δ P0 x A0 -> conv Δ P0 y A0 ->
+  Val k Δ P0 A0 (wt_rfl_wit h) ->
+  EqVal k Δ P0 x A0 (wt_rfl_wit h) ->
+  EqVal k Δ P0 y A0 (wt_rfl_wit h) ->
+  Val (S k) Δ (Core.rfl P0) (Core.tid A0 x y) h.
+Proof.
+  move=> VTy TR cx cy VP Ex Ey.
+  rewrite Val_rfl. split; [ exact VTy | ].
+  exists A0, x, y. split; [ apply ms_refl | ].
+  exists P0. split; [ apply ms_refl | ].
+  split; [ apply c_refl; exact TR | ].
+  split; [ exact cx | ]. split; [ exact cy | ].
+  split; [ exact VP | ]. split; [ exact Ex | exact Ey ].
+Qed.
+
+(* ... and the binary form against any [Q] that head-reduces to the same
+   [rfl P0] (in the driver, [Q] is the proof term [p[σ]] itself). *)
+Lemma EqVal_rfl_offdiag {q} (Δ : Ctx q) (A0 P0 x y Q : Tm q) w0 c0 xc yc
+  (h : wt (rfl w0) (tid c0 xc yc)) k :
+  ValTy k Δ (Core.tid A0 x y) (wt_rfl_ty h) ->
+  typing Δ (Core.rfl P0) (Core.tid A0 x y) ->
+  typing Δ P0 A0 ->
+  HeadRed Q (Core.rfl P0) ->
+  conv Δ Q (Core.rfl P0) (Core.tid A0 x y) ->
+  conv Δ P0 x A0 -> conv Δ P0 y A0 ->
+  Val k Δ P0 A0 (wt_rfl_wit h) ->
+  EqVal k Δ P0 x A0 (wt_rfl_wit h) ->
+  EqVal k Δ P0 y A0 (wt_rfl_wit h) ->
+  EqVal (S k) Δ (Core.rfl P0) Q (Core.tid A0 x y) h.
+Proof.
+  move=> VTy TR TP HRq cvQ cx cy VP Ex Ey.
+  have IdL : ValId k Δ (Core.rfl P0) (Core.tid A0 x y) h.
+  { exists A0, x, y. split; [ apply ms_refl | ].
+    exists P0. split; [ apply ms_refl | ].
+    split; [ apply c_refl; exact TR | ].
+    split; [ exact cx | ]. split; [ exact cy | ].
+    split; [ exact VP | ]. split; [ exact Ex | exact Ey ]. }
+  have IdR : ValId k Δ Q (Core.tid A0 x y) h.
+  { exists A0, x, y. split; [ apply ms_refl | ].
+    exists P0. split; [ exact HRq | ].
+    split; [ exact cvQ | ].
+    split; [ exact cx | ]. split; [ exact cy | ].
+    split; [ exact VP | ]. split; [ exact Ex | exact Ey ]. }
+  rewrite EqVal_rfl.
+  split; [ exact VTy | ]. split; [ exact IdL | ]. split; [ exact IdR | ].
+  split; [ exact IdL | ]. split; [ exact IdR | ].
+  exists P0, P0. split; [ apply ms_refl | ]. split; [ exact HRq | ].
+  exists A0, x, y. split; [ apply ms_refl | ].
+  split; [ apply c_refl; exact TP | ].
+  eapply Val_EqVal; exact VP.
+Qed.

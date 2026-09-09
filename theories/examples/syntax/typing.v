@@ -1407,6 +1407,62 @@ Lemma motive_cod3_subst {n} (p : Tm n) :
   (tuniv : Tm (S n))[p..] = tuniv.
 Proof. reflexivity. Qed.
 
+(* The spine types are congruent in their instantiating arguments.  This is the
+   syntactic half of the per-level type transports in the [J] driver's motive
+   walk: the walk's left side instantiates the motive at the witness and its
+   right side at the endpoints, so the two sides' *types* drift apart level by
+   level and have to be reconciled by [EqVal_EqVal_fwd], which wants both a
+   [conv] (these lemmas) and an [EqValTy] (the [PiEdgeEqTy] component of the
+   level above). *)
+Lemma motive_cod2_inst_conv {n} (Γ : Ctx n) (A a a' b : Tm n) :
+  typing Γ A tuniv -> typing Γ a A -> typing Γ a' A -> typing Γ b A ->
+  conv Γ a a' A ->
+  conv Γ (tpi (tid A a b) tuniv) (tpi (tid A a' b) tuniv) tuniv.
+Proof.
+  move=> TA Ta Ta' Tb ca.
+  have cG : ctx Γ by (eapply typing_ctx; exact TA).
+  have TId : typing Γ (tid A a b) tuniv
+    by (eapply t_tid; [ exact TA | exact Ta | exact Tb ]).
+  have TId' : typing Γ (tid A a' b) tuniv
+    by (eapply t_tid; [ exact TA | exact Ta' | exact Tb ]).
+  have cI : ctx (Γ ++ tid A a b) by (eapply c_cons; [ exact cG | exact TId ]).
+  have cI' : ctx (Γ ++ tid A a' b) by (eapply c_cons; [ exact cG | exact TId' ]).
+  eapply c_tpi;
+    [ exact TId | exact TId'
+    | (apply t_univ; exact cI) | (apply t_univ; exact cI')
+    | (eapply c_tid;
+       [ exact TA | exact Ta | exact Tb | apply c_refl; exact TA
+       | exact ca | apply c_refl; exact Tb ])
+    | (apply c_refl; apply t_univ; exact cI) ].
+Qed.
+
+Lemma motive_cod1_inst_conv {n} (Γ : Ctx n) (A a a' : Tm n) :
+  typing Γ A tuniv -> typing Γ a A -> typing Γ a' A -> conv Γ a a' A ->
+  conv Γ (tpi A (tpi (tid A⟨↑⟩ a⟨↑⟩ (var var_zero)) tuniv))
+         (tpi A (tpi (tid A⟨↑⟩ a'⟨↑⟩ (var var_zero)) tuniv)) tuniv.
+Proof.
+  move=> TA Ta Ta' ca.
+  have cG : ctx Γ by (eapply typing_ctx; exact TA).
+  have cA : ctx (Γ ++ A) by (eapply c_cons; [ exact cG | exact TA ]).
+  have TA1 : typing (Γ ++ A) A⟨↑⟩ tuniv
+    by (eapply typing_weaken_shift; [ exact TA | exact TA ]).
+  have Tv : typing (Γ ++ A) (var var_zero) A⟨↑⟩
+    by (eapply t_var'; [ reflexivity | exact cA ]).
+  have Ta1 : typing (Γ ++ A) a⟨↑⟩ A⟨↑⟩
+    by (eapply typing_weaken1; [ exact Ta | exact TA ]).
+  have Ta1' : typing (Γ ++ A) a'⟨↑⟩ A⟨↑⟩
+    by (eapply typing_weaken1; [ exact Ta' | exact TA ]).
+  have ca1 : conv (Γ ++ A) a⟨↑⟩ a'⟨↑⟩ A⟨↑⟩
+    by (eapply conv_weaken1; [ exact ca | exact TA ]).
+  eapply c_tpi;
+    [ exact TA | exact TA
+    | (eapply motive_cod2_typing; [ exact TA | exact Ta ])
+    | (eapply motive_cod2_typing; [ exact TA | exact Ta' ])
+    | (apply c_refl; exact TA)
+    | (eapply motive_cod2_inst_conv;
+       [ exact TA1 | exact Ta1 | exact Ta1' | exact Tv | exact ca1 ]) ].
+Qed.
+
 (* ------------------------------------------------------------------
    Driving [jcase] to its base branch.
 
