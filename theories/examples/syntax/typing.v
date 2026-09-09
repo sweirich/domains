@@ -1436,6 +1436,33 @@ Proof.
     | (apply c_refl; apply t_univ; exact cI) ].
 Qed.
 
+(* ... and in the second endpoint.  The [J] driver needs both: its level-2
+   composite has to be retargeted all the way to the *right* spine's type
+   [tpi (tid A a b) tuniv], because that is the only one whose [ValTy] is
+   available at the level-3 domain code -- the code's endpoints approximate
+   [a] and [b], and the witness's own data cannot reach the [b] one. *)
+Lemma motive_cod2_inst_conv2 {n} (Γ : Ctx n) (A a b b' : Tm n) :
+  typing Γ A tuniv -> typing Γ a A -> typing Γ b A -> typing Γ b' A ->
+  conv Γ b b' A ->
+  conv Γ (tpi (tid A a b) tuniv) (tpi (tid A a b') tuniv) tuniv.
+Proof.
+  move=> TA Ta Tb Tb' cb.
+  have cG : ctx Γ by (eapply typing_ctx; exact TA).
+  have TId : typing Γ (tid A a b) tuniv
+    by (eapply t_tid; [ exact TA | exact Ta | exact Tb ]).
+  have TId' : typing Γ (tid A a b') tuniv
+    by (eapply t_tid; [ exact TA | exact Ta | exact Tb' ]).
+  have cI : ctx (Γ ++ tid A a b) by (eapply c_cons; [ exact cG | exact TId ]).
+  have cI' : ctx (Γ ++ tid A a b') by (eapply c_cons; [ exact cG | exact TId' ]).
+  eapply c_tpi;
+    [ exact TId | exact TId'
+    | (apply t_univ; exact cI) | (apply t_univ; exact cI')
+    | (eapply c_tid;
+       [ exact TA | exact Ta | exact Tb | apply c_refl; exact TA
+       | apply c_refl; exact Ta | exact cb ])
+    | (apply c_refl; apply t_univ; exact cI) ].
+Qed.
+
 Lemma motive_cod1_inst_conv {n} (Γ : Ctx n) (A a a' : Tm n) :
   typing Γ A tuniv -> typing Γ a A -> typing Γ a' A -> conv Γ a a' A ->
   conv Γ (tpi A (tpi (tid A⟨↑⟩ a⟨↑⟩ (var var_zero)) tuniv))

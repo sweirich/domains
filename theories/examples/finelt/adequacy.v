@@ -3970,7 +3970,7 @@ Proof.
   have [VP2 [_ EqB2]] :=
     transW b2 u2 WTu2 (S (S RB0)) Lu2 evA_b2
       ltac:(unfold RB0; lia) ltac:(unfold RB0; lia).
-  have [VPf2 _] :=
+  have [VPf2 [EqA2f EqB2f]] :=
     transW b2 uf2 WTuf2 (S (S RB0)) Luf2 evA_b2
       ltac:(unfold RB0; lia) ltac:(unfold RB0; lia).
   (* the right spine, level 2 *)
@@ -3996,19 +3996,38 @@ Proof.
   { rewrite -motive_cod2_subst.
     eapply spine_EqVal_arg;
       [ apply ms_refl | exact V1R' | exact cvPb | exact EqB2 ]. }
-  (* ... land at different types, and [PiEdgeEqTy] of the level above
-     reconciles them.  Note the fuel: [PiEdgeEqTy] inside [EqValTy k] yields an
-     [EqVal k], and turning that back into an [EqValTy] costs one unit, so the
-     result has to be raised with [EqVal_fuel_any] first. *)
+  (* ... land at different types.  Both are retargeted all the way to the
+     *right* spine's type [tpi (tid A[σ] a[σ] b[σ]) tuniv]: that is the only
+     one whose [ValTy] is available at the level-3 domain code, since the
+     code's endpoints approximate [a] and [b] and the witness's own data
+     cannot reach the [b] one.
+
+     Two reconciling [EqValTy]s are needed.  Varying the *first* endpoint is
+     [PiEdgeEqTy] of [ETy1] (the level above's type equality); varying the
+     *second* is [PiEdgeEq] of the right level-1 type's own [ValTy].  Note the
+     fuel: [PiEdge*] inside [ValTy k] / [EqValTy k] yields a [k]-level
+     [EqVal], and turning that back into an [EqValTy] costs a unit, so each
+     result is raised with [EqVal_fuel_any] first. *)
   rewrite !motive_cod1_subst in ETy1'.
   move: ETy1' =>
     [VTX [VTY [AX [BX [HRX [AY [BY [HRY [cAXY [cBXY [Vpi2 [EdomXY peety]]]]]]]]]]]].
   have [EAX EBX] := HeadRed_tpi_eq HRX. subst AX BX.
   have [EAY EBY] := HeadRed_tpi_eq HRY. subst AY BY.
+  have VT1R : ValTy (S (S RB0)) Δ
+      (Core.tpi A[σ] (Core.tpi (Core.tid ((A[σ])⟨↑⟩) ((a[σ])⟨↑⟩)
+                         (Core.var var_zero)) Core.tuniv)) (wt_abs_ty hC2)
+    by (move: V1R'; rewrite Val_abs; move=> [hh _]; exact hh).
+  move: VT1R => [AR [BR [HRR [TAR [TBR [VpiR [VdomR [pevR peeR]]]]]]]].
+  have [EAR EBR] := HeadRed_tpi_eq HRR. subst AR BR.
   have cvTy2 : conv Δ (Core.tpi (Core.tid A[σ] P0 P0) Core.tuniv)
                       (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv) Core.tuniv
     by (eapply motive_cod2_inst_conv;
         [ exact TAs | exact TP0 | exact Tas | exact TP0 | exact cvPa ]).
+  have cvTy3 : conv Δ (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+                      (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv) Core.tuniv
+    by (eapply motive_cod2_inst_conv2;
+        [ exact TAs | exact Tas | exact TP0 | exact Tbs | exact cvPb ]).
+  (* (i) the first endpoint moves *)
   have ETy2 : EqValTy (S (S RB0)) Δ
       (Core.tpi (Core.tid A[σ] P0 P0) Core.tuniv)
       (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
@@ -4023,17 +4042,187 @@ Proof.
         [ (unfold RB0; lia) | (unfold RB0; lia)
         | (unfold RB0; lia) | (unfold RB0; lia) | exact hh ]. }
     rewrite EqVal_tuniv in hh2. exact (proj2 (proj2 hh2)). }
+  (* (ii) ... and the second *)
+  have ETy3 : EqValTy (S (S RB0)) Δ
+      (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+      (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv)
+      (wt_Selection_codU hCod2 SelF2).
+  { have hh := peeR uf2 (app f2 u2) SelF2 WTuf2 P0 b[σ] cvPb EqB2f.
+    rewrite !motive_cod2_subst in hh.
+    have hh2 : EqVal (S (S (S RB0))) Δ
+        (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+        (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv)
+        Core.tuniv (wt_Selection_codU (wt_abs_ty hC2) SelF2).
+    { eapply (EqVal_fuel_any (k := S (S RB0)) (k' := S (S (S RB0))));
+        [ (unfold RB0; lia) | (unfold RB0; lia)
+        | (unfold RB0; lia) | (unfold RB0; lia) | exact hh ]. }
+    rewrite EqVal_tuniv in hh2.
+    eapply EqValTy_irr. exact (proj2 (proj2 hh2)). }
   have E2 : EqVal (S (S RB0)) Δ (Core.app (Core.app C[σ] P0) P0)
               (Core.app (Core.app C[σ] a[σ]) b[σ])
-              (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+              (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv)
               (wt_Selection_abs hC2 Sel2).
-  { eapply (EqVal_trans (M2 := Core.app (Core.app C[σ] a[σ]) P0));
-      [ (unfold RB0; lia) | | exact E2b ].
-    eapply (EqVal_EqVal_fwd (B := Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv));
-      [ (unfold RB0; lia) | (unfold RB0; lia) | exact cvTy2 | exact E2a
-      | exact ETy2 ]. }
-  admit.
-Admitted.
+  { have E2a' : EqVal (S (S RB0)) Δ (Core.app (Core.app C[σ] P0) P0)
+                  (Core.app (Core.app C[σ] a[σ]) P0)
+                  (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+                  (wt_Selection_abs hC2 Sel2).
+    { eapply (EqVal_EqVal_fwd (B := Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv));
+        [ (unfold RB0; lia) | (unfold RB0; lia) | exact cvTy2 | exact E2a
+        | exact ETy2 ]. }
+    have E2ab : EqVal (S (S RB0)) Δ (Core.app (Core.app C[σ] P0) P0)
+                  (Core.app (Core.app C[σ] a[σ]) b[σ])
+                  (Core.tpi (Core.tid A[σ] a[σ] P0) Core.tuniv)
+                  (wt_Selection_abs hC2 Sel2).
+    { eapply (EqVal_trans (M2 := Core.app (Core.app C[σ] a[σ]) P0));
+        [ (unfold RB0; lia) | exact E2a' | exact E2b ]. }
+    eapply (EqVal_EqVal_fwd (B := Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv));
+      [ (unfold RB0; lia) | (unfold RB0; lia) | exact cvTy3 | exact E2ab
+      | exact ETy3 ]. }
+  (* ---- level 3: the proof argument ---- *)
+  rewrite Eq_v2 in LEn1.
+  have [g1 [b1 [f1 [Ev2 [Ecod1 LEn0]]]]] := spine_descend HaT LEn1 WTv2.
+  clear Eq_v2. subst v2.
+  (* the level-3 function code, obtained by rewriting a plain [wt] statement --
+     no generalise-dance needed for this one *)
+  have hC1 : wt (abs g1) (tpi b1 f1) by (rewrite -Ecod1; exact WTv2).
+  have NBcod1 : ~ is_bot (app f2 u2) by (rewrite Ecod1; done).
+  have Rcod1t : rk (tpi b1 f1) <= rk_fun f2 by (rewrite -Ecod1; exact Rcod2b).
+  have evCod1 : EvalRel (Core.tpi (Core.tid A a b) Core.tuniv) ρ (app f2 u2).
+  { rewrite -motive_cod2_subst.
+    eapply EvalRel_Pi_app_type;
+      [ exact evCod2C | exact Vρ | exact Vu2 | reflexivity | exact NBcod1
+      | exact evb_u2 ]. }
+  rewrite Ecod1 in evCod1. have evCod1C := evCod1.
+  cbn [EvalRel] in evCod1.
+  move: evCod1 => [Vb1 [Vf1 [evId_b1 [a1' [evId_b1' EB1fun]]]]].
+  have Vg1 : valid_fun g1 := proj1 (andb_prop _ _ (wt_valid_tm hC1)).
+  have Vw1 : valid w1 := EvalRel_valid evp1.
+  have [u1 [v1 [Sel1 [Le_u1 Eq_v1]]]] := selectionBelow Vg1 Vw1.
+  have [WTu1 WTv1] : wt u1 b1 /\ wt v1 (app f1 u1).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty hC1) | exact (wt_abs_inv1 hC1)
+      | move=> ui vi Hin; exact (wt_abs_inv2 hC1 Hin erefl)
+      | exact Vg1 | exact Sel1 ]. }
+  have Vu1 : valid u1 := wt_valid_tm WTu1.
+  have Rg1 : rk_fun g1 < rk (abs g1) by (cbn; lia).
+  have Rb1 : rk b1 < rk (tpi b1 f1) by (cbn; lia).
+  have Rf1 : rk_fun f1 < rk (tpi b1 f1) by (cbn; lia).
+  have Ru1 : rk u1 <= rk_fun g1 := rk_Selection_key Sel1.
+  have Rv1 : rk v1 <= rk_fun g1 := rk_Selection_val Sel1.
+  have Rcod1b : rk (app f1 u1) <= rk_fun f1 := rk_app f1 u1.
+  have Lu1 : le u1 (rfl wmax)
+    by (eapply (@le_trans u1 w1 (rfl wmax));
+        [ exact Vu1 | exact Vw1 | (cbn; exact Vwmax) | exact Le_u1 | exact L1 ]).
+  (* now move [V2R] / [E2] onto the level-3 function code.  Their index is
+     [wt_Selection_abs hC2 Sel2], which does not mention [b1], so the case
+     analysis in the argument lemmas below stays local. *)
+  move: E2. move: V2R.
+  move: (wt_Selection_abs hC2 Sel2).
+  rewrite Ecod1.
+  move=> hC1' V2R'0 E2'0.
+  have V2R' : Val (S (S RB0)) Δ (Core.app (Core.app C[σ] a[σ]) b[σ])
+                (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv) hC1.
+  { eapply Val_irr. exact V2R'0. }
+  have E2' : EqVal (S (S RB0)) Δ (Core.app (Core.app C[σ] P0) P0)
+               (Core.app (Core.app C[σ] a[σ]) b[σ])
+               (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv) hC1.
+  { eapply EqVal_irr. exact E2'0. }
+  have evp_u1 : EvalRel p ρ u1
+    by (eapply EvalRel_down; [ exact Vρ | exact Vu1 | exact evp1 | exact Le_u1 ]).
+  (* ---- the level-3 arguments: Coquand's rule at the level-3 domain code.
+     The domain type is the *right* spine's [tid A[σ] a[σ] b[σ]], whose [ValTy]
+     at that code is available because the code's endpoints approximate [a] and
+     [b].  The code analysis is local to this [have]. *)
+  have TRoff : typing Δ (Core.rfl P0) (Core.tid A[σ] a[σ] b[σ])
+    by (eapply rfl_offdiag_typing;
+        [ exact TAs | exact TP0 | exact Tas | exact Tbs | exact cvPa | exact cvPb ]).
+  have [VargL EargR] :
+      Val (S RB0) Δ (Core.rfl P0) (Core.tid A[σ] a[σ] b[σ]) WTu1
+      /\ EqVal (S RB0) Δ (Core.rfl P0) p[σ] (Core.tid A[σ] a[σ] b[σ]) WTu1.
+  { destruct b1 as [ | | | | | | | tb xb yb | ];
+      try solve [ (split; exact I) | (cbn in evId_b1; done) ].
+    destruct u1 as [ | | | | | | | | u0 ]; try solve [ (split; exact I) ].
+    cbn in evId_b1. move: evId_b1 => [Vidb [evA_tb [ev_xb ev_yb]]].
+    have Rtb : rk tb < rk (tid tb xb yb) by (cbn; lia).
+    have Rxb : rk xb < rk (tid tb xb yb) by (cbn; lia).
+    have Ryb : rk yb < rk (tid tb xb yb) by (cbn; lia).
+    have Rlub_tb : rk (lub tb tc) <= max (rk tb) (rk tc) := rk_lub tb tc.
+    have Lu0 : le u0 wmax.
+    { move: (le_rfl_inv Lu1) => [w' [Ew Lw]].
+      have Ew' : wmax = w' by (injection Ew; done). subst w'. exact Lw. }
+    have [VP1 [EqA1 EqB1]] :=
+      transW tb u0 (wt_rfl_wit WTu1) RB0 Lu0 evA_tb
+        ltac:(unfold RB0; lia) ltac:(unfold RB0; lia).
+    have [valA_tb _] :=
+      STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+          tb tuniv (wt_tid_dom (wt_rfl_ty WTu1)) evA_tb evU.
+    have [valA_xb _] :=
+      STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+          xb tb (wt_tid_lhs (wt_rfl_ty WTu1)) ev_xb evA_tb.
+    have [valB_yb _] :=
+      STb ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+          yb tb (wt_tid_rhs (wt_rfl_ty WTu1)) ev_yb evA_tb.
+    have VTid : ValTy RB0 Δ (Core.tid A[σ] a[σ] b[σ]) (wt_rfl_ty WTu1).
+    { rewrite ValTy_tid.
+      exists A[σ], a[σ], b[σ]. split; [ apply ms_refl | ].
+      split; [ exact TAs | ]. split; [ exact Tas | ]. split; [ exact Tbs | ].
+      split; [ exact (wt_valid_tm (wt_rfl_ty WTu1)) | ].
+      split; [ exact (valA_tb RB0 ltac:(unfold RB0; cbn; lia)) | ].
+      split; [ exact (valA_xb RB0 ltac:(unfold RB0; lia))
+             | exact (valB_yb RB0 ltac:(unfold RB0; lia)) ]. }
+    split.
+    - eapply Val_rfl_offdiag;
+        [ exact VTid | exact TRoff | exact cvPa | exact cvPb
+        | exact VP1 | exact EqA1 | exact EqB1 ].
+    - eapply EqVal_rfl_offdiag;
+        [ exact VTid | exact TRoff | exact TP0 | exact HRp | exact cvPp
+        | exact cvPa | exact cvPb | exact VP1 | exact EqA1 | exact EqB1 ]. }
+  (* ---- level 3's two steps; both land at [tuniv], so no transport ---- *)
+  have E3a : EqVal (S RB0) Δ
+               (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+               (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) (Core.rfl P0))
+               ((Core.tuniv : Tm (S m))[(Core.rfl P0)..])
+               (wt_Selection_abs hC1 Sel1).
+  { eapply spine_EqVal_fun;
+      [ apply ms_refl | exact E2' | exact TRoff | exact VargL ]. }
+  have E3b : EqVal (S RB0) Δ
+               (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) (Core.rfl P0))
+               (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+               ((Core.tuniv : Tm (S m))[(Core.rfl P0)..])
+               (wt_Selection_abs hC1 Sel1).
+  { eapply spine_EqVal_arg;
+      [ apply ms_refl | exact V2R' | (apply c_sym; exact cvPp) | exact EargR ]. }
+  have E3 : EqVal (S RB0) Δ
+              (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+              (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+              Core.tuniv (wt_Selection_abs hC1 Sel1).
+  { eapply (EqVal_trans
+              (M2 := Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) (Core.rfl P0)));
+      [ (unfold RB0; lia) | exact E3a | exact E3b ]. }
+  (* ---- land on the requested code ---- *)
+  have evUf : EvalRel Core.tuniv ρ (app f1 u1).
+  { destruct (is_bot (app f1 u1)) eqn:Hbf.
+    - have E : app f1 u1 = bot by (apply is_bot_eq; rewrite Hbf).
+      rewrite E. apply EvalRel_bot.
+    - have hh : EvalRel ((Core.tuniv : Tm (S n))[p..]) ρ (app f1 u1).
+      { eapply EvalRel_Pi_app_type;
+          [ exact evCod1C | exact Vρ | exact Vu1 | reflexivity
+          | (rewrite Hbf; done) | exact evp_u1 ]. }
+      exact hh. }
+  have Lf1 : le (app f1 u1) tuniv by (move: evUf; cbn; done).
+  have LEaTv1 : le aT v1 by (rewrite Eq_v1 in LEn0; exact LEn0).
+  have hUtu : wt tuniv tuniv := wt_tuniv.
+  have Waf1 : wt (app f1 u1) tuniv := wt_ty_tuniv WTv1.
+  have VTU : Val (S RB0) Δ Core.tuniv Core.tuniv hUtu by exact I.
+  apply (EqVal_fuel_any (k := S RB0) (k' := k));
+    [ (unfold RB0; lia) | (unfold RB0; lia) | lia | (cbn in Hk |- *; lia) | ].
+  eapply (@EqVal_transport_up _ Δ
+            (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+            (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv
+            v1 aT (app f1 u1) tuniv
+            (wt_Selection_abs hC1 Sel1) hAf Waf1 hUtu);
+    [ exact LEaTv1 | exact Lf1 | exact VTU | exact E3 ].
+Qed.
 
 (** Adequacy of the [J] eliminator (Agda ID's
     [JApp / JAppE / JCase / JDriver / JEndpoint / JMotive / JRef / JTypeEq]).
