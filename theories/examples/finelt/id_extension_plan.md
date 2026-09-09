@@ -363,3 +363,83 @@ situation.
 * `Set Implicit Arguments` makes *all* of `le_trans`'s `u v w` implicit (they
   occur in later argument types), so `with (v := …)` fails — use `@le_trans u v w`.
 * `[ … | | ]` with two adjacent bars lexes `||` as one token; write `| | `.
+
+---
+
+## Status (final for this pass): 2 admits, both the adequacy-level J driver
+
+Everything except `st_jcase` and `sc_jcase` in `adequacy.v` is proved.
+`typing_semantics.v` is admit-free, so **subject reduction and Π-injectivity
+now hold with the ID fragment in the syntax**; what is missing is only the
+adequacy of the eliminator itself.
+
+Landed in this pass (14 admits → 2):
+
+| lemma | how |
+|---|---|
+| `InvTyp_Id`, `InvTyp_Ref`, `InvConv_Id`, `InvConv_Ref` | congruences of the formers, via the new `InvTyped_ty_transport` / `InvTyp_Ref_gen` |
+| `InvTyp_J` (as `InvTyp_J_gen`) | `InvTyp_App`'s value argument + the code-wise spine match below |
+| `InvConv_J_beta` | `InvTyp_J` / `InvTyp_App` at `base_ty`'s codomain, `asimpl` for the substitution |
+| `InvConv_J` | `InvTyp_J_gen` (free term motive) + one `InvTyped_ty_transport` along `EvalRel_app_tr` |
+| `st_tid`, `st_rfl` | the `*_Val_edge` / `*_EqVal_edge` split used for `tpi`/`abs` |
+| `sc_tid` | primed `ValTyId` read off the component `semantic_conv2`s with `EqVal_Val2`; endpoints moved `A[σ] → A'[σ]` by `Val_EqVal_fwd`, whose `EqValTy` is `SCA` taken at fuel `S RB` |
+| `sc_rfl` | `st_rfl_EqVal_edge` with the second *substitution* replaced by the second *term* |
+| `sc_jcase_beta` | the `sc_ncase_Z` shape: `st_jcase` on the diagonal + `EqVal_headred_contract` |
+
+### Why `InvTyp_J` was cheap and `st_jcase` is not
+
+`InvTyp_J` works because the two application spines match **code-wise**.
+`d : base_ty A C = tpi A (app (app (app C⟨↑⟩ 0) 0) (rfl 0))`, so `d`'s codomain
+edge at the witness gives an `x ≤ w'` with
+
+    EvalRel (app (app (app C⟨↑⟩ 0) 0) (rfl 0)) (x .: ρ) (app fa w')
+
+— `C` applied to the *witness* three times — while the goal needs `C` applied
+to `a`, `b` and `p`.  They meet by Coquand's membership rule: `p`'s enlargement
+is an `rfl w''` with `wt (rfl w'') (tid tp up vp)`, hence `le w'' up` and
+`le w'' vp`, and `up`/`vp` are values of `a`/`b`.  So `a` and `b` *both*
+evaluate the witness, and every argument code below `x ≤ w' ≤ w''` is an
+approximation of `a`, of `b`, and (wrapped in `rfl`) of `p`.  **No
+motive-agreement argument is needed.**
+
+At the adequacy level that shortcut is gone, because `Val`/`EqVal` carry
+*syntactic* conversions alongside the code.  Both remaining admits hinge on the
+same missing lemma, Agda's `JTypeEq`:
+
+    EqValTy k Δ (app (app (app C[σ] P0) P0) (rfl P0))
+                (app (app (app C[σ] a[σ]) b[σ]) p[σ]) h
+
+where `P0` is the witness *term* delivered by `STp`'s `ValId` record
+(`HeadRed p[σ] (rfl P0)`, `conv Δ P0 a[σ] A[σ]`, `conv Δ P0 b[σ] A[σ]`, plus
+the two reducible equalities `EqVal Δ P0 a[σ] A[σ]` and `EqVal Δ P0 b[σ] A[σ]`
+— this is where `idInjectivity` is really used).
+
+### Recipe for `st_jcase`
+
+1. `STp` at the code `rfl w'` gives the `ValId` record for `p[σ]`: the witness
+   term `P0`, `HeadRed p[σ] (Core.rfl P0)`, the two endpoint convs, `Val P0
+   A[σ]`, and `EqVal P0 a[σ] A[σ]` / `EqVal P0 b[σ] A[σ]`.
+2. `HeadRed (jcase C d p)[σ] (app d[σ] P0)` — lift (1)'s `HeadRed` through
+   `hr_jcase_scrut` (a `HeadRed_jcase_scrut` congruence lemma is still needed
+   in `reduction.v`, on the model of `HeadRed_app`) and then one `hr_jcase`.
+3. `STd`'s Π-edge at the argument `P0` gives
+   `Val RB Δ (app d[σ] P0) (app (app (app C[σ] P0) P0) (rfl P0))` — this is
+   `st_app`'s machinery, so factor whatever `st_app` uses rather than redoing it.
+4. **`JTypeEq`** (the work): three `PiAppEq` steps on `STC`'s `EqValPi` for
+   `C[σ] : motive_ty A[σ]`, with argument equalities `EqVal P0 a[σ] A[σ]`,
+   `EqVal P0 b[σ] A[σ]` and `EqVal (rfl P0) p[σ] (tid A[σ] a[σ] b[σ])`.  The
+   third comes from `EqValId_headred_expand` off the diagonal `EqVal (rfl P0)
+   (rfl P0)`, since `p[σ] →* rfl P0`.  Note that `motive_ty`'s third domain is
+   `tid A⟨↑⟩⟨↑⟩ 1 0`, which instantiates to `tid A[σ] P0 P0` on the left and
+   `tid A[σ] a[σ] b[σ]` on the right, so this step itself needs a type
+   transport (`EqVal_EqVal_fwd` along `c_tid` of the two endpoint convs).
+5. Transport (3) along (4) with `Val_EqVal_fwd`, then head-expand along (2)
+   with `Val_headred_expand`.  The syntactic conversion the expansion needs is
+   `c_jcase` (congruence, to rewrite `p[σ]` to `rfl P0`) followed by
+   `c_jcase_beta`.
+
+`sc_jcase` is the same five steps with `EqValPi`/`EqVal_headred_expand` in
+place of `ValPi`/`Val_headred_expand`, plus `SCd`'s edge at `EqVal P0 P0'`; it
+reuses (4) unchanged.  So **`JTypeEq` is the single remaining piece of
+mathematics** — worth stating as its own top-level lemma in `adequacy.v` and
+proving before touching either driver.
