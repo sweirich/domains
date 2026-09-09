@@ -3223,6 +3223,112 @@ Qed.
    both sides have the *same* type there is no type transport to do.
    ===================================================================== *)
 
+(* ---- the identity *type* former, on the model of [st_tpi] ---- *)
+
+Lemma st_tid_Val_edge (A a b : Tm n)
+  (TA : typing Γ A Core.tuniv) (Ta : typing Γ a A) (Tb : typing Γ b A)
+  (STA : semantic_typing Γ A Core.tuniv)
+  (STa : semantic_typing Γ a A) (STb : semantic_typing Γ b A)
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a0 (WT : wt u a0)
+  (evId : EvalRel (Core.tid A a b) ρ u) (evU0 : EvalRel Core.tuniv ρ a0) :
+  forall RB, max (rk u) (rk a0) < RB ->
+    Val RB Δ (Core.tid A a b)[σ] Core.tuniv[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have Tas : typing Δ a[σ] A[σ] by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have Tbs : typing Δ b[σ] A[σ] by (eapply substitution_tm; [ exact Tb | exact TS | exact CΔ ]).
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  cbn in evId.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  destruct u as [ | | | | | | | t v w | ]; try done.
+  - (* u = bot *) apply Val_Bot.
+  - (* u = tid t v w *)
+    move: evId => [Vid [evAt [evav evbw]]].
+    have Eatu : a0 = tuniv by (inversion WT; auto). subst a0.
+    have [valA _] :=
+      STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ t tuniv (wt_tid_dom WT) evAt evU.
+    have [valLhs _] :=
+      STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ v t (wt_tid_lhs WT) evav evAt.
+    have [valRhs _] :=
+      STb ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ w t (wt_tid_rhs WT) evbw evAt.
+    rewrite Val_tuniv. rewrite ValTy_tid.
+    (* the domain sits at [tuniv], whose rank is 1, so the low-fuel boundary
+       needs the same [rk_bot_inv] dodge as [st_tpi] *)
+    have valDom : Val RB Δ A[σ] Core.tuniv (wt_tid_dom WT).
+    { destruct (le_lt_dec 2 RB) as [HRB|HRB].
+      - eapply Val_irr; eapply valA; cbn in Hrank |- *; lia.
+      - have Et : t = bot by (apply rk_bot_inv; cbn in Hrank; lia).
+        move: (wt_tid_dom WT). rewrite Et. move=> ww. apply Val_Bot. }
+    exists A[σ]. exists a[σ]. exists b[σ].
+    split; [ apply ms_refl | ].
+    split; [ exact TAs | ]. split; [ exact Tas | ]. split; [ exact Tbs | ].
+    split; [ exact (wt_valid_tm WT) | ].
+    split; [ exact valDom | ].
+    split.
+    + eapply Val_irr. eapply valLhs. cbn in Hrank |- *; lia.
+    + eapply Val_irr. eapply valRhs. cbn in Hrank |- *; lia.
+Qed.
+
+Lemma st_tid_EqVal_edge (A a b : Tm n)
+  (TA : typing Γ A Core.tuniv) (Ta : typing Γ a A) (Tb : typing Γ b A)
+  (STA : semantic_typing Γ A Core.tuniv)
+  (STa : semantic_typing Γ a A) (STb : semantic_typing Γ b A)
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a0 (WT : wt u a0)
+  (evId : EvalRel (Core.tid A a b) ρ u) (evU0 : EvalRel Core.tuniv ρ a0) :
+  forall RB, max (rk u) (rk a0) < RB ->
+    EqVal RB Δ (Core.tid A a b)[σ] (Core.tid A a b)[σ'] Core.tuniv[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  have evId0 := evId. cbn in evId.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  destruct u as [ | | | | | | | t v w | ]; try done.
+  - (* u = bot *) apply EqVal_Bot.
+  - move: evId => [Vid [evAt [evav evbw]]].
+    have Eatu : a0 = tuniv by (inversion WT; auto). subst a0.
+    have VMv : Val (S RB) Δ (Core.tid A a b)[σ] Core.tuniv[σ] WT
+      by (eapply st_tid_Val_edge; eassumption).
+    have VNv : Val (S RB) Δ (Core.tid A a b)[σ'] Core.tuniv[σ'] WT.
+    { eapply st_tid_Val_edge with (σ' := σ'); try eassumption.
+      - exact (ConvSub_refl TS').
+      - exact (ValSub_EqValSub VS'). }
+    rewrite Val_tuniv in VMv. rewrite Val_tuniv in VNv.
+    have convAA' : conv Δ A[σ] A[σ'] Core.tuniv := subst_conv_cross TA CΔ TS TS' CS.
+    have convaa' : conv Δ a[σ] a[σ'] A[σ] := subst_conv_cross Ta CΔ TS TS' CS.
+    have convbb' : conv Δ b[σ] b[σ'] A[σ] := subst_conv_cross Tb CΔ TS TS' CS.
+    have [_ eqA] :=
+      STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ t tuniv (wt_tid_dom WT) evAt evU.
+    have [_ eqLhs] :=
+      STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ v t (wt_tid_lhs WT) evav evAt.
+    have [_ eqRhs] :=
+      STb ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ w t (wt_tid_rhs WT) evbw evAt.
+    have eqDom : EqVal RB Δ A[σ] A[σ'] Core.tuniv (wt_tid_dom WT).
+    { destruct (le_lt_dec 2 RB) as [HRB|HRB].
+      - eapply EqVal_irr; eapply eqA; cbn in Hrank |- *; lia.
+      - have Et : t = bot by (apply rk_bot_inv; cbn in Hrank; lia).
+        move: (wt_tid_dom WT). rewrite Et. move=> ww. apply EqVal_Bot. }
+    rewrite EqVal_tuniv.
+    split; [ exact VMv | ]. split; [ exact VNv | ].
+    rewrite EqValTy_tid.
+    split; [ exact VMv | ]. split; [ exact VNv | ].
+    exists A[σ]. exists a[σ]. exists b[σ]. split; [ apply ms_refl | ].
+    exists A[σ']. exists a[σ']. exists b[σ']. split; [ apply ms_refl | ].
+    split; [ exact convAA' | ]. split; [ exact convaa' | ]. split; [ exact convbb' | ].
+    split; [ exact (wt_valid_tm WT) | ].
+    split; [ exact eqDom | ].
+    split.
+    + eapply EqVal_irr. eapply eqLhs. cbn in Hrank |- *; lia.
+    + eapply EqVal_irr. eapply eqRhs. cbn in Hrank |- *; lia.
+Qed.
+
 Lemma st_tid (A a b : Tm n) :
   typing Γ A Core.tuniv ->
   typing Γ a A ->
@@ -3232,7 +3338,143 @@ Lemma st_tid (A a b : Tm n) :
   semantic_typing Γ b A ->
 (* ------------------------- *)
   semantic_typing Γ (Core.tid A a b) Core.tuniv.
-Admitted.
+Proof.
+  move=> TA Ta Tb STA STa STb.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a0 WT evId evU0.
+  split.
+  - eapply st_tid_Val_edge; eassumption.
+  - eapply st_tid_EqVal_edge; eassumption.
+Qed.
+
+(* ---- the proof former.  Its [Val] cell is [ValTy] of the type together with
+   [ValId], whose witness data is entirely [a]'s own validity: the two endpoint
+   conversions are reflexivity, since [rfl a : tid A a a] is the diagonal. ---- *)
+
+Lemma st_rfl_Val_edge (A a : Tm n)
+  (TA : typing Γ A Core.tuniv) (Ta : typing Γ a A)
+  (STA : semantic_typing Γ A Core.tuniv) (STa : semantic_typing Γ a A)
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a0 (WT : wt u a0)
+  (evR : EvalRel (Core.rfl a) ρ u) (evId : EvalRel (Core.tid A a a) ρ a0) :
+  forall RB, max (rk u) (rk a0) < RB ->
+    Val RB Δ (Core.rfl a)[σ] (Core.tid A a a)[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have Tas : typing Δ a[σ] A[σ] by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have TRs : typing Δ (Core.rfl a[σ]) (Core.tid A[σ] a[σ] a[σ])
+    by (eapply t_rfl; [ exact TAs | exact Tas ]).
+  have evId0 := evId. cbn in evR, evId.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  (* [try done] also disposes of the [bot] type code and the [bot] element:
+     [Val] is [True] at both *)
+  destruct a0 as [ | | | | | | | t v w | ]; try done.
+  destruct u as [ | | | | | | | | ww ]; try done.
+  (* u = rfl ww, type code = tid t v w *)
+  move: evId => [Vid [evAt [evav evaw]]].
+  rewrite Val_rfl.
+  (* the type record: exactly [st_tid_Val_edge] at [b := a] *)
+  have VTy : Val (S RB) Δ (Core.tid A a a)[σ] Core.tuniv[σ] (wt_rfl_ty WT).
+  { eapply st_tid_Val_edge;
+      [ exact TA | exact Ta | exact Ta | exact STA | exact STa | exact STa
+      | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+      | exact EVS | exact CΔ | exact evId0 | cbn; apply le_refl; done
+      | cbn in Hrank |- *; lia ]. }
+  have [valWit _] :=
+    STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ ww t (wt_rfl_wit WT) evR evAt.
+  have VW : Val RB Δ a[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply valWit; cbn in Hrank |- *; lia).
+  split; [ eapply Val_ValTy; exact VTy | ].
+  exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+  exists a[σ]. split; [ apply ms_refl | ].
+  split; [ apply c_refl; exact TRs | ].
+  split; [ apply c_refl; exact Tas | ].
+  split; [ apply c_refl; exact Tas | ].
+  split; [ exact VW | ].
+  split; [ eapply Val_EqVal; exact VW | eapply Val_EqVal; exact VW ].
+Qed.
+
+Lemma st_rfl_EqVal_edge (A a : Tm n)
+  (TA : typing Γ A Core.tuniv) (Ta : typing Γ a A)
+  (STA : semantic_typing Γ A Core.tuniv) (STa : semantic_typing Γ a A)
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ) u a0 (WT : wt u a0)
+  (evR : EvalRel (Core.rfl a) ρ u) (evId : EvalRel (Core.tid A a a) ρ a0) :
+  forall RB, max (rk u) (rk a0) < RB ->
+    EqVal RB Δ (Core.rfl a)[σ] (Core.rfl a)[σ'] (Core.tid A a a)[σ] WT.
+Proof.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have TAs' : typing Δ A[σ'] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS' CΔ) => hh; cbn in hh; exact hh).
+  have Tas : typing Δ a[σ] A[σ] by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have Tas' : typing Δ a[σ'] A[σ'] by (eapply substitution_tm; [ exact Ta | exact TS' | exact CΔ ]).
+  have convAA' : conv Δ A[σ] A[σ'] Core.tuniv := subst_conv_cross TA CΔ TS TS' CS.
+  have convaa' : conv Δ a[σ] a[σ'] A[σ] := subst_conv_cross Ta CΔ TS TS' CS.
+  (* the primed proof, retyped at the unprimed identity type *)
+  have convIds : conv Δ (Core.tid A[σ] a[σ] a[σ]) (Core.tid A[σ'] a[σ'] a[σ']) Core.tuniv
+    by (eapply c_tid;
+          [ exact TAs | exact Tas | exact Tas | exact convAA' | exact convaa'
+          | exact convaa' ]).
+  have Tas'0 : typing Δ a[σ'] A[σ]
+    by (eapply t_conv; [ exact Tas' | apply c_sym; exact convAA' ]).
+  have TRs : typing Δ (Core.rfl a[σ]) (Core.tid A[σ] a[σ] a[σ])
+    by (eapply t_rfl; [ exact TAs | exact Tas ]).
+  have TRs' : typing Δ (Core.rfl a[σ']) (Core.tid A[σ] a[σ] a[σ])
+    by (eapply t_conv;
+          [ eapply t_rfl; [ exact TAs' | exact Tas' ] | apply c_sym; exact convIds ]).
+  have evId0 := evId. cbn in evR, evId.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  destruct a0 as [ | | | | | | | t v w | ]; try done.
+  destruct u as [ | | | | | | | | ww ]; try done.
+  move: evId => [Vid [evAt [evav evaw]]].
+  rewrite EqVal_rfl.
+  have VTy : Val (S RB) Δ (Core.tid A a a)[σ] Core.tuniv[σ] (wt_rfl_ty WT).
+  { eapply st_tid_Val_edge;
+      [ exact TA | exact Ta | exact Ta | exact STA | exact STa | exact STa
+      | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+      | exact EVS | exact CΔ | exact evId0 | cbn; apply le_refl; done
+      | cbn in Hrank |- *; lia ]. }
+  have [valWit eqWit] :=
+    STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ ww t (wt_rfl_wit WT) evR evAt.
+  have VW : Val RB Δ a[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply valWit; cbn in Hrank |- *; lia).
+  have EW : EqVal RB Δ a[σ] a[σ'] A[σ] (wt_rfl_wit WT)
+    by (eapply eqWit; cbn in Hrank |- *; lia).
+  have EWs : EqVal RB Δ a[σ'] a[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply EqVal_sym; [ cbn in Hrank |- *; lia | exact EW ]).
+  have VW' : Val RB Δ a[σ'] A[σ] (wt_rfl_wit WT) := EqVal_Val2 EW.
+  split; [ eapply Val_ValTy; exact VTy | ].
+  (* [ValId] of the unprimed side *)
+  have IdM : ValId RB Δ (Core.rfl a[σ]) (Core.tid A a a)[σ] WT.
+  { exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+    exists a[σ]. split; [ apply ms_refl | ].
+    split; [ apply c_refl; exact TRs | ].
+    split; [ apply c_refl; exact Tas | ].
+    split; [ apply c_refl; exact Tas | ].
+    split; [ exact VW | ].
+    split; [ eapply Val_EqVal; exact VW | eapply Val_EqVal; exact VW ]. }
+  (* ... and of the primed side, still at the *unprimed* type *)
+  have IdN : ValId RB Δ (Core.rfl a[σ']) (Core.tid A a a)[σ] WT.
+  { exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+    exists a[σ']. split; [ apply ms_refl | ].
+    split; [ apply c_refl; exact TRs' | ].
+    split; [ apply c_sym; exact convaa' | ].
+    split; [ apply c_sym; exact convaa' | ].
+    split; [ exact VW' | ].
+    split; [ exact EWs | exact EWs ]. }
+  split; [ exact IdM | ]. split; [ exact IdN | ].
+  split; [ exact IdM | ]. split; [ exact IdN | ].
+  exists a[σ]. exists a[σ']. split; [ apply ms_refl | ]. split; [ apply ms_refl | ].
+  exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+  split; [ exact convaa' | exact EW ].
+Qed.
 
 Lemma st_rfl (A a : Tm n) :
   typing Γ A Core.tuniv ->
@@ -3241,7 +3483,13 @@ Lemma st_rfl (A a : Tm n) :
   semantic_typing Γ a A ->
 (* ------------------------- *)
   semantic_typing Γ (Core.rfl a) (Core.tid A a a).
-Admitted.
+Proof.
+  move=> TA Ta STA STa.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a0 WT evR evId.
+  split.
+  - eapply st_rfl_Val_edge; eassumption.
+  - eapply st_rfl_EqVal_edge; eassumption.
+Qed.
 
 Lemma st_jcase (A a b C d p : Tm n) :
   typing Γ A Core.tuniv ->
@@ -3261,6 +3509,13 @@ Lemma st_jcase (A a b C d p : Tm n) :
     (Core.app (Core.app (Core.app C a) b) p).
 Admitted.
 
+(** [c_tid] congruence.  Unlike [sc_tpi] this needs no [semantic_typing] of the
+    primed components: the primed side's [ValTyId] record is read off the
+    component [semantic_conv2]s via [EqVal_Val2], with the two endpoints
+    transported from [A[σ]] to [A'[σ]] by [Val_EqVal_fwd].  The [EqValTy] that
+    transport needs is [SCA] taken at fuel [S RB] rather than [RB] -- at [S RB]
+    the [rk tuniv = 1] boundary that forces the [rk_bot_inv] dodge below is not
+    in the way. *)
 Lemma sc_tid (A A' a a' b b' : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
   conv Γ A A' Core.tuniv -> conv Γ a a' A -> conv Γ b b' A ->
@@ -3272,8 +3527,101 @@ Lemma sc_tid (A A' a a' b b' : Tm n) :
   semantic_conv2 Γ b b' A ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.tid A a b) (Core.tid A' a' b') Core.tuniv.
-Admitted.
+Proof.
+  move=> TA Ta Tb cA ca cb STA STa STb SCA SCa SCb.
+  (* the primed endpoints are typed at the *primed* domain *)
+  have TA' : typing Γ A' Core.tuniv := proj2 (conv_typing cA).
+  have Ta' : typing Γ a' A'
+    by (eapply t_conv; [ exact (proj2 (conv_typing ca)) | exact cA ]).
+  have Tb' : typing Γ b' A'
+    by (eapply t_conv; [ exact (proj2 (conv_typing cb)) | exact cA ]).
+  move=> ρ m Δ σ TS FR VS CΔ u a0 WT evId evU0.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have TA's : typing Δ A'[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA' TS CΔ) => hh; cbn in hh; exact hh).
+  have Ta's : typing Δ a'[σ] A'[σ]
+    by (eapply substitution_tm; [ exact Ta' | exact TS | exact CΔ ]).
+  have Tb's : typing Δ b'[σ] A'[σ]
+    by (eapply substitution_tm; [ exact Tb' | exact TS | exact CΔ ]).
+  have cAs : conv Δ A[σ] A'[σ] Core.tuniv
+    := substitution_conv Γ A A' Core.tuniv Δ σ cA TS CΔ.
+  have cas : conv Δ a[σ] a'[σ] A[σ]
+    := substitution_conv Γ a a' A Δ σ ca TS CΔ.
+  have cbs : conv Δ b[σ] b'[σ] A[σ]
+    := substitution_conv Γ b b' A Δ σ cb TS CΔ.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  have evId0 := evId. cbn in evId.
+  destruct u as [ | | | | | | | t v w | ]; try done.
+  { (* u = bot *) apply EqVal_Bot. }
+  move: evId => [Vid [evAt [evav evbw]]].
+  have Eatu : a0 = tuniv by (inversion WT; auto). subst a0.
+  have HrkT : rk t < RB by (cbn in Hrank; lia).
+  have HrkV : rk v < RB by (cbn in Hrank; lia).
+  have HrkW : rk w < RB by (cbn in Hrank; lia).
+  (* the unprimed side: [st_tid_Val_edge] on the diagonal [σ' := σ] *)
+  have VMv : Val (S RB) Δ (Core.tid A a b)[σ] Core.tuniv[σ] WT.
+  { eapply st_tid_Val_edge with (σ' := σ); try eassumption.
+    - exact (ConvSub_refl TS).
+    - exact (ValSub_EqValSub VS). }
+  rewrite Val_tuniv in VMv.
+  (* the component equalities *)
+  have eqA := SCA ρ m Δ σ TS FR VS CΔ t tuniv (wt_tid_dom WT) evAt evU.
+  have eqL := SCa ρ m Δ σ TS FR VS CΔ v t (wt_tid_lhs WT) evav evAt.
+  have eqR := SCb ρ m Δ σ TS FR VS CΔ w t (wt_tid_rhs WT) evbw evAt.
+  have eqLhs : EqVal RB Δ a[σ] a'[σ] A[σ] (wt_tid_lhs WT)
+    by (apply eqL; cbn in Hrank |- *; lia).
+  have eqRhs : EqVal RB Δ b[σ] b'[σ] A[σ] (wt_tid_rhs WT)
+    by (apply eqR; cbn in Hrank |- *; lia).
+  (* the domain sits at [tuniv]: at fuel [RB] the [rk tuniv = 1] boundary needs
+     the [rk_bot_inv] dodge, exactly as in [st_tid_EqVal_edge] *)
+  have eqDom : EqVal RB Δ A[σ] A'[σ] Core.tuniv (wt_tid_dom WT).
+  { destruct (le_lt_dec 2 RB) as [HRB|HRB].
+    - eapply EqVal_irr; eapply eqA; cbn in Hrank |- *; lia.
+    - have Et : t = bot by (apply rk_bot_inv; cbn in Hrank; lia).
+      move: (wt_tid_dom WT). rewrite Et. move=> ww. apply EqVal_Bot. }
+  (* ... but at fuel [S RB] there is no boundary, which is what gives the
+     [EqValTy] used to retype the primed endpoints *)
+  have eqTyA : EqValTy RB Δ A[σ] A'[σ] (wt_tid_dom WT).
+  { have hh : EqVal (S RB) Δ A[σ] A'[σ] Core.tuniv (wt_tid_dom WT)
+      by (apply eqA; cbn in Hrank |- *; lia).
+    rewrite EqVal_tuniv in hh. exact (proj2 (proj2 hh)). }
+  (* the primed side's record, read off the component equalities *)
+  have VNv : Val (S RB) Δ (Core.tid A' a' b')[σ] Core.tuniv[σ] WT.
+  { rewrite Val_tuniv. rewrite ValTy_tid.
+    exists A'[σ]. exists a'[σ]. exists b'[σ].
+    split; [ apply ms_refl | ].
+    split; [ exact TA's | ]. split; [ exact Ta's | ]. split; [ exact Tb's | ].
+    split; [ exact (wt_valid_tm WT) | ].
+    split; [ eapply EqVal_Val2; exact eqDom | ].
+    split.
+    - eapply Val_EqVal_fwd;
+        [ exact HrkV | exact HrkT | exact cAs
+        | eapply EqVal_Val2; exact eqLhs | exact eqTyA ].
+    - eapply Val_EqVal_fwd;
+        [ exact HrkW | exact HrkT | exact cAs
+        | eapply EqVal_Val2; exact eqRhs | exact eqTyA ]. }
+  rewrite Val_tuniv in VNv.
+  rewrite EqVal_tuniv.
+  split; [ exact VMv | ]. split; [ exact VNv | ].
+  rewrite EqValTy_tid.
+  split; [ exact VMv | ]. split; [ exact VNv | ].
+  exists A[σ]. exists a[σ]. exists b[σ]. split; [ apply ms_refl | ].
+  exists A'[σ]. exists a'[σ]. exists b'[σ]. split; [ apply ms_refl | ].
+  split; [ exact cAs | ]. split; [ exact cas | ]. split; [ exact cbs | ].
+  split; [ exact (wt_valid_tm WT) | ].
+  split; [ exact eqDom | ].
+  split; [ exact eqLhs | exact eqRhs ].
+Qed.
 
+(** [c_rfl] congruence.  A near-clone of [st_rfl_EqVal_edge] with the second
+    substitution replaced by the second *term*: there the right-hand side was
+    [rfl a[σ']] related to [rfl a[σ]] by [subst_conv_cross], here it is
+    [rfl a'[σ]] related by the substituted [conv Γ a a' A].  Both live at the
+    *unprimed* identity type [(tid A a a)[σ]], so [t_rfl] on the right has to be
+    retyped through the [c_tid] congruence. *)
 Lemma sc_rfl (A a a' : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> conv Γ a a' A ->
   semantic_typing Γ A Core.tuniv ->
@@ -3281,7 +3629,73 @@ Lemma sc_rfl (A a a' : Tm n) :
   semantic_conv2 Γ a a' A ->
 (* ------------------------- *)
   semantic_conv2 Γ (Core.rfl a) (Core.rfl a') (Core.tid A a a).
-Admitted.
+Proof.
+  move=> TA Ta ca STA STa SCa.
+  have Ta' : typing Γ a' A := proj2 (conv_typing ca).
+  move=> ρ m Δ σ TS FR VS CΔ u a0 WT evR evId.
+  have Vρ : valid_env ρ := fits_valid_env FR.
+  have TAs : typing Δ A[σ] Core.tuniv
+    by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+  have Tas : typing Δ a[σ] A[σ] by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have Ta's : typing Δ a'[σ] A[σ] by (eapply substitution_tm; [ exact Ta' | exact TS | exact CΔ ]).
+  have cas : conv Δ a[σ] a'[σ] A[σ] := substitution_conv Γ a a' A Δ σ ca TS CΔ.
+  (* the two identity types agree, which is how the right [rfl] gets retyped *)
+  have convIds : conv Δ (Core.tid A[σ] a[σ] a[σ]) (Core.tid A[σ] a'[σ] a'[σ]) Core.tuniv
+    by (eapply c_tid;
+          [ exact TAs | exact Tas | exact Tas | apply c_refl; exact TAs
+          | exact cas | exact cas ]).
+  have TRs : typing Δ (Core.rfl a[σ]) (Core.tid A[σ] a[σ] a[σ])
+    by (eapply t_rfl; [ exact TAs | exact Tas ]).
+  have TRs' : typing Δ (Core.rfl a'[σ]) (Core.tid A[σ] a[σ] a[σ])
+    by (eapply t_conv;
+          [ eapply t_rfl; [ exact TAs | exact Ta's ] | apply c_sym; exact convIds ]).
+  have evId0 := evId. cbn in evR, evId.
+  move=> RB Hrank. destruct RB; [ exact I | ].
+  destruct a0 as [ | | | | | | | t v w | ]; try done.
+  destruct u as [ | | | | | | | | ww ]; try done.
+  move: evId => [Vid [evAt [evav evaw]]].
+  rewrite EqVal_rfl.
+  have VTy : Val (S RB) Δ (Core.tid A a a)[σ] Core.tuniv[σ] (wt_rfl_ty WT).
+  { eapply st_tid_Val_edge with (σ' := σ);
+      [ exact TA | exact Ta | exact Ta | exact STA | exact STa | exact STa
+      | exact TS | exact TS | exact (ConvSub_refl TS) | exact FR | exact VS
+      | exact VS | exact (ValSub_EqValSub VS) | exact CΔ | exact evId0
+      | cbn; apply le_refl; done
+      | cbn in Hrank |- *; lia ]. }
+  have [valWit _] :=
+    STa ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS) CΔ
+        ww t (wt_rfl_wit WT) evR evAt.
+  have VW : Val RB Δ a[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply valWit; cbn in Hrank |- *; lia).
+  have eqWit := SCa ρ m Δ σ TS FR VS CΔ ww t (wt_rfl_wit WT) evR evAt.
+  have EW : EqVal RB Δ a[σ] a'[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply eqWit; cbn in Hrank |- *; lia).
+  have EWs : EqVal RB Δ a'[σ] a[σ] A[σ] (wt_rfl_wit WT)
+    by (eapply EqVal_sym; [ cbn in Hrank |- *; lia | exact EW ]).
+  have VW' : Val RB Δ a'[σ] A[σ] (wt_rfl_wit WT) := EqVal_Val2 EW.
+  split; [ eapply Val_ValTy; exact VTy | ].
+  have IdM : ValId RB Δ (Core.rfl a[σ]) (Core.tid A a a)[σ] WT.
+  { exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+    exists a[σ]. split; [ apply ms_refl | ].
+    split; [ apply c_refl; exact TRs | ].
+    split; [ apply c_refl; exact Tas | ].
+    split; [ apply c_refl; exact Tas | ].
+    split; [ exact VW | ].
+    split; [ eapply Val_EqVal; exact VW | eapply Val_EqVal; exact VW ]. }
+  have IdN : ValId RB Δ (Core.rfl a'[σ]) (Core.tid A a a)[σ] WT.
+  { exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+    exists a'[σ]. split; [ apply ms_refl | ].
+    split; [ apply c_refl; exact TRs' | ].
+    split; [ apply c_sym; exact cas | ].
+    split; [ apply c_sym; exact cas | ].
+    split; [ exact VW' | ].
+    split; [ exact EWs | exact EWs ]. }
+  split; [ exact IdM | ]. split; [ exact IdN | ].
+  split; [ exact IdM | ]. split; [ exact IdN | ].
+  exists a[σ]. exists a'[σ]. split; [ apply ms_refl | ]. split; [ apply ms_refl | ].
+  exists A[σ]. exists a[σ]. exists a[σ]. split; [ apply ms_refl | ].
+  split; [ exact cas | exact EW ].
+Qed.
 
 Lemma sc_jcase_beta (A a0 C d : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a0 A ->

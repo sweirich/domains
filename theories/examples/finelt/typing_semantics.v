@@ -1708,14 +1708,172 @@ Lemma InvTyp_Id {n} (Γ : Ctx n) (A a b : Tm n) ρ :
   InvTyped Γ a A ρ ->
   InvTyped Γ b A ρ ->
   InvTyped Γ (Core.tid A a b) Core.tuniv ρ.
-Admitted.
+Proof.
+  move=> Fρ IHA IHa IHb u Eu.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  destruct u as [ | | | | | | | t v w | ]; try solve [ cbn in Eu; done ].
+  { (* u = bot *) apply Typed_bot. }
+  cbn in Eu. move: Eu => [Vtvw [EAt [Eav Ebw]]].
+  (* enlarge each of the three components to a typed one *)
+  move: (IHA _ EAt) => [t1 [c1 [WTt1 [LEt [EAt1 LEc1]]]]].
+  move: (IHa _ Eav) => [v1 [d1 [WTv1 [LEv [Eav1 EAd1]]]]].
+  move: (IHb _ Ebw) => [w1 [d2 [WTw1 [LEw [Ebw1 EAd2]]]]].
+  cbn in LEc1.
+  have Vt : valid t by (eapply EvalRel_valid; exact EAt).
+  have Vt1 : valid t1 by (eapply EvalRel_valid; exact EAt1).
+  have Vd1 : valid d1 by (eapply EvalRel_valid; exact EAd1).
+  have Vd2 : valid d2 by (eapply EvalRel_valid; exact EAd2).
+  have WTt1U : wt t1 tuniv
+    by (eapply wt_le;
+          [ exact WTt1 | exact LEc1 | eapply wt_ty_tuniv; exact WTt1 | apply wt_tuniv ]).
+  have WTd1U : wt d1 tuniv by (eapply wt_ty_tuniv; exact WTv1).
+  have WTd2U : wt d2 tuniv by (eapply wt_ty_tuniv; exact WTw1).
+  (* a single [A]-approximation dominating all three type codes.  The three are
+     approximations of the *same* term [A], so they are pairwise compatible and
+     their joins are again approximations of [A]. *)
+  have C1 : compatible t1 d1
+    by (eapply EvalRel_compatible; [ exact Vρ | exact EAt1 | exact EAd1 ]).
+  have H1 := proj2 (EvalRel_compatible_lub Vρ EAt1 EAd1).
+  have EAs1 : EvalRel A ρ (lub t1 d1) := H1 _ erefl.
+  have Vs1 : valid (lub t1 d1) by (eapply EvalRel_valid; exact EAs1).
+  have C2 : compatible (lub t1 d1) d2
+    by (eapply EvalRel_compatible; [ exact Vρ | exact EAs1 | exact EAd2 ]).
+  have H2 := proj2 (EvalRel_compatible_lub Vρ EAs1 EAd2).
+  have EAt'' : EvalRel A ρ (lub (lub t1 d1) d2) := H2 _ erefl.
+  have Vt'' : valid (lub (lub t1 d1) d2) by (eapply EvalRel_valid; exact EAt'').
+  have WTs1U : wt (lub t1 d1) tuniv
+    by (eapply wt_lub; [ exact WTt1U | exact C1 | exact WTd1U ]).
+  have WTt''U : wt (lub (lub t1 d1) d2) tuniv
+    by (eapply wt_lub; [ exact WTs1U | exact C2 | exact WTd2U ]).
+  (* the three components sit below the join *)
+  have Ls1 : le (lub t1 d1) (lub (lub t1 d1) d2)
+    by (apply le_lub_left; [ exact C2 | exact Vs1 | exact Vd2 ]).
+  have Lt1 : le t1 (lub (lub t1 d1) d2).
+  { eapply le_trans; [ exact Vt1 | exact Vs1 | exact Vt'' | | exact Ls1 ].
+    apply le_lub_left; [ exact C1 | exact Vt1 | exact Vd1 ]. }
+  have Ld1 : le d1 (lub (lub t1 d1) d2).
+  { eapply le_trans; [ exact Vd1 | exact Vs1 | exact Vt'' | | exact Ls1 ].
+    apply le_lub_right; [ exact C1 | exact Vt1 | exact Vd1 ]. }
+  have Ld2 : le d2 (lub (lub t1 d1) d2)
+    by (apply le_lub_right; [ exact C2 | exact Vs1 | exact Vd2 ]).
+  have WTv1' : wt v1 (lub (lub t1 d1) d2)
+    by (eapply wt_le; [ exact WTv1 | exact Ld1 | exact WTd1U | exact WTt''U ]).
+  have WTw1' : wt w1 (lub (lub t1 d1) d2)
+    by (eapply wt_le; [ exact WTw1 | exact Ld2 | exact WTd2U | exact WTt''U ]).
+  have WTid : wt (tid (lub (lub t1 d1) d2) v1 w1) tuniv
+    by (eapply wt_tid; [ exact WTt''U | exact WTv1' | exact WTw1' ]).
+  exists (tid (lub (lub t1 d1) d2) v1 w1), tuniv, WTid.
+  split.
+  - (* the order is componentwise *)
+    autorewrite with le. apply /andP; split; [ apply /andP; split | ].
+    + eapply le_trans; [ exact Vt | exact Vt1 | exact Vt'' | exact LEt | exact Lt1 ].
+    + exact LEv.
+    + exact LEw.
+  - split.
+    + cbn. split; [ exact (wt_valid_tm WTid) | ].
+      split; [ exact EAt'' | split; [ exact Eav1 | exact Ebw1 ] ].
+    + cbn. apply le_refl. done.
+Qed.
+
+(* Transporting an invertible typing along a type with the same
+   approximations -- the [InvTyped] level only ever uses the type's
+   semantics. *)
+Lemma InvTyped_ty_transport {n} (Γ : Ctx n) (M A A' : Tm n) ρ :
+  (forall u, EvalRel A ρ u -> EvalRel A' ρ u) ->
+  InvTyped Γ M A ρ -> InvTyped Γ M A' ρ.
+Proof.
+  move=> tr IH u Eu.
+  move: (IH u Eu) => [v [c [h [L [EM EA]]]]].
+  exists v, c, h. split; [ exact L | split; [ exact EM | exact (tr _ EA) ] ].
+Qed.
+
+(* [Ref]'s endpoints are recorded from a possibly *different* term than the
+   witness -- in [InvConv_Ref] the primed proof [rfl a'] must be typed at the
+   unprimed [tid A a a].  The two have the same approximations, which is all
+   the record needs. *)
+Lemma InvTyp_Ref_gen {n} (Γ : Ctx n) (A a a' : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvTyped Γ a' A ρ ->
+  (forall u, EvalRel a' ρ u -> EvalRel a ρ u) ->
+  InvTyped Γ (Core.rfl a') (Core.tid A a a) ρ.
+Proof.
+  move=> Fρ IHA IHa' tr u Eu.
+  destruct u as [ | | | | | | | | w ]; try solve [ cbn in Eu; done ].
+  { apply Typed_bot. }
+  cbn in Eu.
+  move: (IHa' _ Eu) => [w1 [d1 [WTw1 [LEw [Ea'w1 EAd1]]]]].
+  have Vw1 : valid w1 by (eapply EvalRel_valid; exact Ea'w1).
+  have WTd1U : wt d1 tuniv by (eapply wt_ty_tuniv; exact WTw1).
+  have LEr : le w1 w1 by (apply le_refl; exact Vw1).
+  have WTidU : wt (tid d1 w1 w1) tuniv
+    by (eapply wt_tid; [ exact WTd1U | exact WTw1 | exact WTw1 ]).
+  have WTrfl : wt (rfl w1) (tid d1 w1 w1)
+    by (eapply wt_rfl; [ exact WTw1 | exact LEr | exact LEr | exact WTidU ]).
+  have Eaw1 : EvalRel a ρ w1 := tr _ Ea'w1.
+  exists (rfl w1), (tid d1 w1 w1), WTrfl.
+  split; [ autorewrite with le; exact LEw | ].
+  split.
+  - cbn. exact Ea'w1.
+  - cbn. split; [ exact (wt_valid_tm WTidU) | ].
+    split; [ exact EAd1 | split; [ exact Eaw1 | exact Eaw1 ] ].
+Qed.
 
 Lemma InvTyp_Ref {n} (Γ : Ctx n) (A a : Tm n) ρ :
   fits Γ ρ ->
   InvTyped Γ A Core.tuniv ρ ->
   InvTyped Γ a A ρ ->
   InvTyped Γ (Core.rfl a) (Core.tid A a a) ρ.
-Admitted.
+Proof.
+  move=> Fρ IHA IHa.
+  eapply InvTyp_Ref_gen; [ exact Fρ | exact IHA | exact IHa | by [] ].
+Qed.
+
+Lemma InvConv_Id {n} (Γ : Ctx n) (A A' a a' b b' : Tm n) ρ :
+  fits Γ ρ ->
+  InvConv Γ A A' Core.tuniv ρ ->
+  InvConv Γ a a' A ρ ->
+  InvConv Γ b b' A ρ ->
+  InvConv Γ (Core.tid A a b) (Core.tid A' a' b') Core.tuniv ρ.
+Proof.
+  move=> Fρ [iA [iA' [fwdA bwdA]]] [ia [ia' [fwda bwda]]] [ib [ib' [fwdb bwdb]]].
+  (* the primed components must be typed at the primed domain *)
+  have ia'' : InvTyped Γ a' A' ρ
+    by (eapply InvTyped_ty_transport; [ exact fwdA | exact ia' ]).
+  have ib'' : InvTyped Γ b' A' ρ
+    by (eapply InvTyped_ty_transport; [ exact fwdA | exact ib' ]).
+  unfold InvConv. split.
+  { eapply InvTyp_Id; [ exact Fρ | exact iA | exact ia | exact ib ]. }
+  split.
+  { eapply InvTyp_Id; [ exact Fρ | exact iA' | exact ia'' | exact ib'' ]. }
+  split.
+  - move=> u. destruct u as [ | | | | | | | t v w | ]; try solve [ cbn; done ].
+    cbn. move=> [V [Et [Ev Ew]]].
+    split; [ exact V | ].
+    split; [ exact (fwdA _ Et) | split; [ exact (fwda _ Ev) | exact (fwdb _ Ew) ] ].
+  - move=> u. destruct u as [ | | | | | | | t v w | ]; try solve [ cbn; done ].
+    cbn. move=> [V [Et [Ev Ew]]].
+    split; [ exact V | ].
+    split; [ exact (bwdA _ Et) | split; [ exact (bwda _ Ev) | exact (bwdb _ Ew) ] ].
+Qed.
+
+Lemma InvConv_Ref {n} (Γ : Ctx n) (A a a' : Tm n) ρ :
+  fits Γ ρ ->
+  InvTyped Γ A Core.tuniv ρ ->
+  InvConv Γ a a' A ρ ->
+  InvConv Γ (Core.rfl a) (Core.rfl a') (Core.tid A a a) ρ.
+Proof.
+  move=> Fρ iA [ia [ia' [fwda bwda]]].
+  unfold InvConv. split.
+  { eapply InvTyp_Ref; [ exact Fρ | exact iA | exact ia ]. }
+  split.
+  { eapply InvTyp_Ref_gen; [ exact Fρ | exact iA | exact ia' | exact bwda ]. }
+  split.
+  - move=> u. destruct u as [ | | | | | | | | w ]; try solve [ cbn; done ].
+    cbn. exact (fwda w).
+  - move=> u. destruct u as [ | | | | | | | | w ]; try solve [ cbn; done ].
+    cbn. exact (bwda w).
+Qed.
 
 Lemma InvTyp_J {n} (Γ : Ctx n) (A a b C d p : Tm n) ρ :
   fits Γ ρ ->
@@ -1729,20 +1887,7 @@ Admitted.
    the formers; [InvConv_J_beta] is the [rfl]-diagonal contraction, whose two
    sides have the *same* type, so it needs no type transport; [InvConv_J] is
    the eliminator's congruence. *)
-Lemma InvConv_Id {n} (Γ : Ctx n) (A A' a a' b b' : Tm n) ρ :
-  fits Γ ρ ->
-  InvConv Γ A A' Core.tuniv ρ ->
-  InvConv Γ a a' A ρ ->
-  InvConv Γ b b' A ρ ->
-  InvConv Γ (Core.tid A a b) (Core.tid A' a' b') Core.tuniv ρ.
-Admitted.
 
-Lemma InvConv_Ref {n} (Γ : Ctx n) (A a a' : Tm n) ρ :
-  fits Γ ρ ->
-  InvTyped Γ A Core.tuniv ρ ->
-  InvConv Γ a a' A ρ ->
-  InvConv Γ (Core.rfl a) (Core.rfl a') (Core.tid A a a) ρ.
-Admitted.
 
 Lemma InvConv_J_beta {n} (Γ : Ctx n) (A a0 C d : Tm n) ρ :
   fits Γ ρ ->
