@@ -3491,6 +3491,26 @@ Proof.
   - eapply st_rfl_EqVal_edge; eassumption.
 Qed.
 
+(** Adequacy of the [J] eliminator (Agda ID's
+    [JApp / JAppE / JCase / JDriver / JEndpoint / JMotive / JRef / JTypeEq]).
+
+    Shape of the argument.  [EvalRel (jcase C d p)] records the result [u] as
+    the edge [w' ↦ u] of the base branch [d], where [rfl w'] is a value of the
+    proof [p].  So:
+
+    - [STp] at the proof's own code hands back a [ValId] record: the witness
+      *term* [P0] with [HeadRed p[σ] (rfl P0)] and -- Coquand's membership rule
+      -- conversions *and* reducible equalities from [P0] to **both**
+      endpoints.  This is where [idInjectivity] really gets used.
+    - [reduction.HeadRed_jcase] and [typing.jcase_drive_conv] then drive
+      [(jcase C d p)[σ]] to [app d[σ] P0] at the goal's type, so
+      [Val_beta_expand] reduces the goal to a [Val] of [app d[σ] P0].
+    - [STd]'s value edge ([PiAppVal], which accepts an arbitrary Δ-term)
+      applied to [P0] supplies that [Val], but at [d]'s codomain type
+      [app (app (app C[σ] P0) P0) (rfl P0)].
+    - Moving it to the goal's type is Agda's [JTypeEq]: the [EqValTy] between
+      the motive applied to the witness and the motive applied to [a], [b], [p].
+*)
 Lemma st_jcase (A a b C d p : Tm n) :
   typing Γ A Core.tuniv ->
   typing Γ a A ->
@@ -3507,6 +3527,161 @@ Lemma st_jcase (A a b C d p : Tm n) :
 (* ------------------------- *)
   semantic_typing Γ (Core.jcase C d p)
     (Core.app (Core.app (Core.app C a) b) p).
+Proof.
+  move=> TA Ta Tb TC Td Tp STA STa STb STC STd STp.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a0 WT evJ evT.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  split; move=> RB Hrank.
+  - (* ---------- the [Val] conjunct ---------- *)
+    destruct (is_bot u) eqn:Hu.
+    { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply Val_Bot. }
+    (* the proof's value drives the eliminator *)
+    cbn in evJ. move: evJ => [wp [evP Ebr]].
+    destruct wp as [ | | | | | | | | w' ]; try done.
+    { (* the proof takes [bot], so the result does too *)
+      move: Ebr => [_ /le_bot_inv Eu]. subst u. by rewrite /= in Hu. }
+    (* enlarge the proof's value to a well-typed one: its type code is an [Id]
+       code, and [wt] on it *is* Coquand's rule *)
+    have ITp : InvTyped Γ p (Core.tid A a b) ρ := typing_EvalRel Tp Fρ.
+    have [pv [ap [WTp [LEp [evPbig evIdCode]]]]] := ITp _ evP.
+    move: (le_rfl_inv LEp) => [w'' [Epv Lw'w'']]. subst pv.
+    destruct ap as [ | | | | | | | t up vp | ];
+      try solve [ cbn in evIdCode; done | (move: (wt_bot_inv WTp); discriminate) ].
+    have evIdC := evIdCode. cbn in evIdC.
+    move: evIdC => [Vid [evA_t [eva_up evb_vp]]].
+    (* [STp]'s record, available at every fuel above the proof's rank *)
+    have [valP _] :=
+      STp ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+          (rfl w'') (tid t up vp) WTp evPbig evIdCode.
+    have valPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+        ValTy k Δ (Core.tid A a b)[σ] (wt_rfl_ty WTp)
+        /\ ValId k Δ p[σ] (Core.tid A a b)[σ] WTp.
+    { move=> k Hk. have hh := valP (S k) ltac:(lia). rewrite Val_rfl in hh. exact hh. }
+    (* name the witness term once, at one fuel *)
+    pose kP := S (max (rk (rfl w'')) (rk (tid t up vp))).
+    have HkP : max (rk (rfl w'')) (rk (tid t up vp)) < kP by (unfold kP; lia).
+    have [_ IdP0] := valPk kP HkP.
+    move: IdP0 =>
+      [A0 [a0' [b0' [HRid [P0 [HRp [cvP [cvPa [cvPb [VP0 [EP0a EP0b]]]]]]]]]]].
+    cbn in HRid. have [EA0 [Ea0 Eb0]] := HeadRed_tid_eq HRid. subst A0 a0' b0'.
+    (* ... and re-derive the record at an arbitrary fuel, at the *same* witness
+       ([HeadRed_rfl_det] pins it down) *)
+    have IdPk : forall k, max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+        Val k Δ P0 A[σ] (wt_rfl_wit WTp)
+        /\ EqVal k Δ P0 a[σ] A[σ] (wt_rfl_wit WTp)
+        /\ EqVal k Δ P0 b[σ] A[σ] (wt_rfl_wit WTp).
+    { move=> k Hk. have [_ Idk] := valPk k Hk.
+      move: Idk =>
+        [A1 [a1 [b1 [HRid1 [P1 [HRp1 [cv1 [cva1 [cvb1 [V1 [E1a E1b]]]]]]]]]]].
+      cbn in HRid1. have [E1 [E2 E3]] := HeadRed_tid_eq HRid1. subst A1 a1 b1.
+      have EP : P1 = P0 by (eapply HeadRed_rfl_det; [ exact HRp1 | exact HRp ]).
+      subst P1. split; [ exact V1 | split; [ exact E1a | exact E1b ] ]. }
+    (* the syntactic side of the driver *)
+    have TAs : typing Δ A[σ] Core.tuniv
+      by (move: (substitution_tm _ _ _ _ _ TA TS CΔ) => hh; cbn in hh; exact hh).
+    have Tas : typing Δ a[σ] A[σ]
+      by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+    have Tbs : typing Δ b[σ] A[σ]
+      by (eapply substitution_tm; [ exact Tb | exact TS | exact CΔ ]).
+    have TCs : typing Δ C[σ] (motive_ty A[σ]).
+    { move: (substitution_tm _ _ _ _ _ TC TS CΔ) => hh.
+      rewrite subst_motive_ty in hh. exact hh. }
+    have Tds : typing Δ d[σ] (base_ty A[σ] C[σ]).
+    { move: (substitution_tm _ _ _ _ _ Td TS CΔ) => hh.
+      rewrite subst_base_ty in hh. exact hh. }
+    have Tps : typing Δ p[σ] (Core.tid A[σ] a[σ] b[σ]).
+    { move: (substitution_tm _ _ _ _ _ Tp TS CΔ) => hh. cbn in hh. exact hh. }
+    have TP0 : typing Δ P0 A[σ] := proj1 (conv_typing cvPa).
+    have cvPp : conv Δ p[σ] (Core.rfl P0) (Core.tid A[σ] a[σ] b[σ])
+      by (move: cvP; cbn; done).
+    have DRIVE : conv Δ (Core.jcase C[σ] d[σ] p[σ]) (Core.app d[σ] P0)
+                   (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+      by (eapply jcase_drive_conv;
+          [ exact TAs | exact TP0 | exact Tas | exact Tbs | exact TCs | exact Tds
+          | exact Tps | exact cvPa | exact cvPb | exact cvPp ]).
+    have HRJ : HeadRed (Core.jcase C[σ] d[σ] p[σ]) (Core.app d[σ] P0)
+      by (eapply HeadRed_jcase; exact HRp).
+    (* ---- [d]'s value edge, applied to the witness term [P0] ---- *)
+    have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+    have Vw'  : valid w'  by (move: (EvalRel_valid evP); cbn; done).
+    have Vw'' : valid w'' by (move: (EvalRel_valid evPbig); cbn; done).
+    have ITd : InvTyped Γ d (base_ty A C) ρ := typing_EvalRel Td Fρ.
+    have [vd [ad [WTd [LEd [evDbig evBase]]]]] := ITd _ Ebr.
+    unfold singleton in LEd. rewrite Hu in LEd.
+    have [g [Evd LEfun]] := le_abs_inv LEd. subst vd.
+    destruct ad as [ | | | | | bd fd | | | ];
+      try solve [ exfalso; clear -WTd; inversion WTd ].
+    have evBaseC := evBase. rewrite /base_ty in evBaseC. cbn in evBaseC.
+    move: evBaseC => [Vbd [Vfd [evA_bd [ad2 [evA_bd2 EBfun]]]]].
+    have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTd)).
+    have [u_sel [v_sel [Sel [Le_usel Eq_vsel]]]] := selectionBelow Vg Vw'.
+    have [WTu_sel WTv_sel] : wt u_sel bd /\ wt v_sel (app fd u_sel).
+    { eapply wt_Selection_cod;
+        [ exact (wt_abs_ty WTd) | exact (wt_abs_inv1 WTd)
+        | move=> ui vi Hin; exact (wt_abs_inv2 WTd Hin erefl)
+        | exact Vg | exact Sel ]. }
+    have Vusel : valid u_sel := wt_valid_tm WTu_sel.
+    have LEu_vsel : le u v_sel.
+    { rewrite le_fun_cons in LEfun.
+      have LEua := proj1 (andb_prop _ _ LEfun).
+      rewrite Eq_vsel in LEua. exact LEua. }
+    (* the argument's [Val], moved from the *proof's* code [(w'', t)] to the
+       *function's* selection code [(u_sel, bd)] through the join [lub bd t] --
+       [Val_app_transport] is exactly this dance.  [Val] of [A[σ]] at the join
+       comes from [STA], which is quantified over every code [A] evaluates. *)
+    have Wt_t  : wt t tuniv := wt_ty_tuniv (wt_rfl_wit WTp).
+    have Wt_bd : wt bd tuniv := wt_tpi_dom (wt_abs_ty WTd).
+    have Cbdt : compatible bd t
+      by (eapply EvalRel_compatible; [ exact Vρ | exact evA_bd | exact evA_t ]).
+    have hUlub : wt (lub bd t) tuniv := wt_lub Wt_bd Cbdt Wt_t.
+    have evA_lub : EvalRel A ρ (lub bd t)
+      := proj2 (EvalRel_compatible_lub Vρ evA_bd evA_t) _ erefl.
+    have [valA_lub _] :=
+      STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ (lub bd t) tuniv hUlub evA_lub evU.
+    have LEuselw'' : le u_sel w''
+      by (eapply (@le_trans u_sel w' w'');
+          [ exact Vusel | exact Vw' | exact Vw'' | exact Le_usel | exact Lw'w'' ]).
+    have VargK : forall k,
+        max (rk (lub bd t)) (rk tuniv) < k ->
+        max (rk (rfl w'')) (rk (tid t up vp)) < k ->
+        Val k Δ P0 A[σ] WTu_sel.
+    { move=> k Hk1 Hk2.
+      eapply (@Val_app_transport _ Δ P0 A[σ] u_sel w'' bd t
+                (wt_rfl_wit WTp) WTu_sel hUlub);
+        [ exact Cbdt | exact LEuselw'' | exact (valA_lub k Hk1)
+        | exact (proj1 (IdPk k Hk2)) ]. }
+    (* ---- the value edge itself ---- *)
+    pose RBf := S (max (max (rk (abs g)) (rk (tpi bd fd)))
+                       (max (max (rk u) (rk a0))
+                            (max (rk (rfl w'')) (rk (tid t up vp))))).
+    have RKlub : rk (lub bd t) <= max (rk bd) (rk t) := rk_lub bd t.
+    have RKbd : rk bd < rk (tpi bd fd) by (cbn; lia).
+    have RKt  : rk t < rk (tid t up vp) by (cbn; lia).
+    have RKpi : 1 <= rk (tpi bd fd) by (cbn; lia).
+    have RKtu : rk tuniv = 1 by reflexivity.
+    have HfD : max (rk (abs g)) (rk (tpi bd fd)) < S RBf by (unfold RBf; lia).
+    have HfA : max (rk (lub bd t)) (rk tuniv) < RBf by (unfold RBf; lia).
+    have HfP : max (rk (rfl w'')) (rk (tid t up vp)) < RBf by (unfold RBf; lia).
+    have [valDbig _] :=
+      STd ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ
+          (abs g) (tpi bd fd) WTd evDbig evBase.
+    have VD := valDbig (S RBf) HfD. rewrite Val_abs in VD.
+    move: VD => [_ VPi]. move: VPi => [A0d [B0d [HRpi [CTpi [pav _]]]]].
+    rewrite subst_base_ty /base_ty in HRpi.
+    have [EA0d EB0d] := HeadRed_tpi_eq HRpi. subst A0d B0d.
+    have Vapp := pav u_sel v_sel Sel WTu_sel P0 TP0 (VargK RBf HfA HfP).
+    (* [d]'s codomain, instantiated at the witness.  Normalise the substitution
+       as a standalone term equality: [asimpl] on the whole [Val] statement is
+       ruinously slow here. *)
+    have EqB : (Core.app (Core.app (Core.app (C[σ])⟨↑⟩ (Core.var var_zero))
+                            (Core.var var_zero))
+                  (Core.rfl (Core.var var_zero)))[P0..]
+             = Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0)
+      by (asimpl; reflexivity).
+    rewrite EqB in Vapp.
+    admit.
+  - (* ---------- the [EqVal] conjunct ---------- *)
+    admit.
 Admitted.
 
 (** [c_tid] congruence.  Unlike [sc_tpi] this needs no [semantic_typing] of the
