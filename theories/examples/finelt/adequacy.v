@@ -4264,10 +4264,11 @@ Proof.
   move=> TA Ta Tb TC Td Tp STA STa STb STC STd STp.
   move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a0 WT evJ evT.
   have Vρ : valid_env ρ := fits_valid_env Fρ.
-  split; move=> RB Hrank.
-  - (* ---------- the [Val] conjunct ---------- *)
-    destruct (is_bot u) eqn:Hu.
-    { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply Val_Bot. }
+  (* everything up to the final transports is shared by the two conjuncts, so
+     the [split] comes last *)
+  destruct (is_bot u) eqn:Hu.
+  { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u.
+    split; move=> RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
     (* the proof's value drives the eliminator *)
     cbn in evJ. move: evJ => [wp [evP Ebr]].
     destruct wp as [ | | | | | | | | w' ]; try done.
@@ -4448,9 +4449,79 @@ Proof.
     have evT_lub :
       EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ (lub a0 (app fd u_sel))
       := proj2 (EvalRel_compatible_lub Vρ evT evT_af) _ erefl.
-    admit.
-  - (* ---------- the [EqVal] conjunct ---------- *)
-    admit.
+    have RKvsel : rk v_sel <= rk_fun g := rk_Selection_val Sel.
+    have RKg : rk_fun g < rk (abs g) by (cbn; lia).
+    have RKfd : rk_fun fd < rk (tpi bd fd) by (cbn; lia).
+    have RKcod : rk (app fd u_sel) <= rk_fun fd := rk_app fd u_sel.
+    have RKlubT : rk (lub a0 (app fd u_sel)) <= max (rk a0) (rk (app fd u_sel))
+      := rk_lub a0 (app fd u_sel).
+    (* the edge's codomain code is informative: otherwise [wt_bot_inv] would
+       force the selection value, hence the result [u], to be [bot] *)
+    have Bfa : is_bot (app fd u_sel) = false.
+    { destruct (is_bot (app fd u_sel)) eqn:Hb; [ | reflexivity ].
+      exfalso.
+      have E : app fd u_sel = bot by (apply is_bot_eq; rewrite Hb).
+      move: WTv_sel. rewrite E => WTr.
+      move: (wt_bot_inv WTr) => Ev. rewrite Ev in LEu_vsel.
+      move: LEu_vsel => /le_bot_inv Eu. subst u. by rewrite /= in Hu. }
+    (* ---- JTypeEq at the edge's codomain code ----
+       the spine codes there are below the witness by construction, which is
+       exactly what [jcase_motive_EqVal] needs *)
+    have [ws1 [ws2 [ws3 [evC3s [Ls3 [Ls2 [Ls1 [evas3 [evbs2 evps1]]]]]]]]] :=
+      EvalRel_base_cod_spine_codes Vρ Vxs LExsw'' Eaw'' Ebw'' evPbig Bfa EBxs.
+    have EQTY : forall kk, max (rk (app fd u_sel)) (rk tuniv) < kk ->
+        EqVal kk Δ (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+                   (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                   Core.tuniv Waf.
+    { eapply jcase_motive_EqVal;
+        [ exact TA | exact Ta | exact Tb | exact TC | exact Tp
+        | exact STA | exact STa | exact STb | exact STC | exact STp
+        | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+        | exact EVS | exact CΔ | exact evPbig | exact evA_t
+        | exact HRp | exact cvPa | exact cvPb | exact cvPp | exact IdPk
+        | exact Bfa | exact evC3s | exact Ls3 | exact Ls2 | exact Ls1
+        | exact evas3 | exact evbs2 | exact evps1 ]. }
+    have ETY : EqValTy RBf Δ
+        (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+        (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Waf.
+    { have hh := EQTY (S RBf) ltac:(unfold RBf; lia).
+      rewrite EqVal_tuniv in hh. exact (proj2 (proj2 hh)). }
+    have CVTY : conv Δ
+        (Core.app (Core.app (Core.app C[σ] P0) P0) (Core.rfl P0))
+        (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv
+      by (eapply motive_app_conv_witness;
+          [ exact TAs | exact TP0 | exact Tas | exact Tbs | exact TCs | exact Tps
+          | exact cvPa | exact cvPb | exact cvPp ]).
+    (* move the edge result onto the goal's type ... *)
+    have VappT : Val RBf Δ (Core.app d[σ] P0)
+                   (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                   (wt_Selection_abs WTd Sel).
+    { eapply (Val_EqVal_fwd
+                (B := Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]));
+        [ (unfold RBf; lia) | (unfold RBf; lia) | exact CVTY | exact Vapp
+        | exact ETY ]. }
+    (* ... and the goal type's own [ValTy] at the join, for the code transport *)
+    have VTgoal : Val RBf Δ
+        (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv hUcT.
+    { eapply jcase_type_spine;
+        [ exact TA | exact Ta | exact Tb | exact TC | exact Tp
+        | exact STa | exact STb | exact STC | exact STp
+        | exact TS | exact TS' | exact CS | exact Fρ | exact VS | exact VS'
+        | exact EVS | exact CΔ | exact evT_lub | (unfold RBf; lia) ]. }
+    (* ---- finish: fuel, head-expansion, code transport ---- *)
+    split; move=> RB Hrank.
+    + (* ---------- the [Val] conjunct ---------- *)
+      apply (Val_fuel_any (k := RBf) (k' := RB));
+        [ (unfold RBf; lia) | (unfold RBf; lia)
+        | (cbn in Hrank |- *; lia) | (cbn in Hrank |- *; lia) | ].
+      eapply Val_beta_expand; [ exact HRJ | exact DRIVE | ].
+      eapply (@Val_app_transport _ Δ (Core.app d[σ] P0)
+                (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+                u v_sel a0 (app fd u_sel)
+                (wt_Selection_abs WTd Sel) WT hUcT);
+        [ exact Caf | exact LEu_vsel | exact VTgoal | exact VappT ].
+    + (* ---------- the [EqVal] conjunct ---------- *)
+      admit.
 Admitted.
 
 (** [c_tid] congruence.  Unlike [sc_tpi] this needs no [semantic_typing] of the
