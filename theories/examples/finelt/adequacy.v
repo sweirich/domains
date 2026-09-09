@@ -3491,6 +3491,224 @@ Proof.
   - eapply st_rfl_EqVal_edge; eassumption.
 Qed.
 
+(** The [J] goal's type is a valid *type* at every code it evaluates to.
+
+    One [Val]-only walk of [C]'s three application edges.  [motive_ty]'s final
+    codomain is [tuniv], so the walk ends in a [ValTy].  All three arguments
+    ([a], [b], [p]) are Γ-terms, so their [Val]s at the selection codes are
+    just [STa]/[STb]/[STp] re-asked at those codes -- no transport needed, in
+    contrast to the witness term of the [EqValTy] walk.
+
+    This is the [ValTy] that [Val_app_transport] needs in order to carry the
+    base branch's edge result from the edge's code onto the goal's code. *)
+Lemma jcase_type_spine (A a b C p : Tm n)
+  (TA : typing Γ A Core.tuniv) (Ta : typing Γ a A) (Tb : typing Γ b A)
+  (TC : typing Γ C (motive_ty A)) (Tp : typing Γ p (Core.tid A a b))
+  (STa : semantic_typing Γ a A) (STb : semantic_typing Γ b A)
+  (STC : semantic_typing Γ C (motive_ty A))
+  (STp : semantic_typing Γ p (Core.tid A a b))
+  ρ m (Δ : Ctx m) (σ σ' : Sub n m)
+  (TS : typing_subst Δ σ Γ) (TS' : typing_subst Δ σ' Γ) (CS : ConvSub Δ Γ σ σ')
+  (Fρ : fits Γ ρ) (VS : ValSub Δ Γ σ ρ) (VS' : ValSub Δ Γ σ' ρ)
+  (EVS : EqValSub Δ Γ σ σ' ρ) (CΔ : ctx Δ)
+  (aT : elt) (hT : wt aT tuniv)
+  (evT : EvalRel (Core.app (Core.app (Core.app C a) b) p) ρ aT) :
+  forall k, max (rk aT) (rk tuniv) < k ->
+    Val k Δ (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv hT.
+Proof.
+  move=> k Hk.
+  have Vρ : valid_env ρ := fits_valid_env Fρ.
+  have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+  have Tas : typing Δ a[σ] A[σ]
+    by (eapply substitution_tm; [ exact Ta | exact TS | exact CΔ ]).
+  have Tbs : typing Δ b[σ] A[σ]
+    by (eapply substitution_tm; [ exact Tb | exact TS | exact CΔ ]).
+  have Tps : typing Δ p[σ] (Core.tid A[σ] a[σ] b[σ]).
+  { move: (substitution_tm _ _ _ _ _ Tp TS CΔ) => hh. cbn in hh. exact hh. }
+  destruct (is_bot aT) eqn:HaT.
+  { (* the goal type takes [bot]: [ValTy] is trivial there.  Note the *type*
+       code here is [tuniv], so this is [Val_Bot] on the element code, not
+       [Val_isbot]. *)
+    have E : aT = bot by (apply is_bot_eq; rewrite HaT).
+    move: hT. rewrite E => hT'. apply Val_Bot. }
+  (* ---- unfold the goal type's own spine, to choose the codes ---- *)
+  have evT0 := evT. cbn [EvalRel] in evT0. rewrite HaT in evT0.
+  move: evT0 => [w1 [ev21 evp1]].
+  have NB1 : is_bot (w1 ↦ aT) = false by (rewrite /singleton HaT).
+  rewrite NB1 in ev21. move: ev21 => [w2 [ev32 evb2]].
+  have NB2 : is_bot (w2 ↦ (w1 ↦ aT)) = false by (rewrite /singleton NB1).
+  rewrite NB2 in ev32. move: ev32 => [w3 [evC3 eva3]].
+  (* ---- level 1: the motive itself ---- *)
+  have ITc : InvTyped Γ C (motive_ty A) ρ := typing_EvalRel TC Fρ.
+  have [vc [ac [WTc [LEc [evCbig evMot]]]]] := ITc _ evC3.
+  have [g3 [b3 [f3 [Evc [Eac LE2]]]]] := spine_descend NB2 LEc WTc.
+  subst vc. subst ac.
+  have evMotC := evMot. rewrite /motive_ty in evMotC. cbn [EvalRel] in evMotC.
+  move: evMotC => [Vb3 [Vf3 [evA_b3 [a3' [evA_b3' EB3fun]]]]].
+  have Vg3 : valid_fun g3 := proj1 (andb_prop _ _ (wt_valid_tm WTc)).
+  have Vw3 : valid w3 := EvalRel_valid eva3.
+  have [u3 [v3 [Sel3 [Le_u3 Eq_v3]]]] := selectionBelow Vg3 Vw3.
+  have [WTu3 WTv3] : wt u3 b3 /\ wt v3 (app f3 u3).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty WTc) | exact (wt_abs_inv1 WTc)
+      | move=> ui vi Hin; exact (wt_abs_inv2 WTc Hin erefl)
+      | exact Vg3 | exact Sel3 ]. }
+  have Vu3 : valid u3 := wt_valid_tm WTu3.
+  (* fuel: above the motive's own code and the goal's code.  Every later code
+     is a sub-value of [abs g3] / [tpi b3 f3], so one additive bound serves. *)
+  pose RBc := S (rk (abs g3) + rk (tpi b3 f3) + rk aT).
+  have Rg3 : rk_fun g3 < rk (abs g3) by (cbn; lia).
+  have Rb3 : rk b3 < rk (tpi b3 f3) by (cbn; lia).
+  have Rf3 : rk_fun f3 < rk (tpi b3 f3) by (cbn; lia).
+  have Ru3 : rk u3 <= rk_fun g3 := rk_Selection_key Sel3.
+  have Rv3 : rk v3 <= rk_fun g3 := rk_Selection_val Sel3.
+  have Rcod3 : rk (app f3 u3) <= rk_fun f3 := rk_app f3 u3.
+  have [valC _] :=
+    STC ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ (abs g3) (tpi b3 f3) WTc evCbig evMot.
+  have eva_u3 : EvalRel a ρ u3
+    by (eapply EvalRel_down; [ exact Vρ | exact Vu3 | exact eva3 | exact Le_u3 ]).
+  have [valA1 _] :=
+    STa ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u3 b3 WTu3 eva_u3 evA_b3.
+  have HRmot : HeadRed ((motive_ty A)[σ])
+      (Core.tpi A[σ] (Core.tpi ((A[σ])⟨↑⟩)
+         (Core.tpi (Core.tid (((A[σ])⟨↑⟩)⟨↑⟩) (Core.var (shift var_zero))
+                      (Core.var var_zero)) Core.tuniv)))
+    by (rewrite subst_motive_ty; apply ms_refl).
+  have V1 : Val (S (S RBc)) Δ (Core.app C[σ] a[σ])
+              (Core.tpi A[σ] (Core.tpi (Core.tid ((A[σ])⟨↑⟩) ((a[σ])⟨↑⟩)
+                                 (Core.var var_zero)) Core.tuniv))
+              (wt_Selection_abs WTc Sel3).
+  { rewrite -motive_cod1_subst.
+    eapply spine_Val;
+      [ exact HRmot
+      | exact (valC (S (S (S RBc))) ltac:(unfold RBc; lia))
+      | exact Tas
+      | exact (valA1 (S (S RBc)) ltac:(unfold RBc; lia)) ]. }
+  (* ---- level 2 ---- *)
+  rewrite Eq_v3 in LE2.
+  have [g2 [b2 [f2 [Ev3 [Ecod2 LE1']]]]] := spine_descend NB1 LE2 WTv3.
+  (* [Eq_v3] also mentions [v3], and [subst] would orient through it; it has
+     already done its job in [LE2] *)
+  clear Eq_v3. subst v3.
+  have NBcod2 : ~ is_bot (app f3 u3) by (rewrite Ecod2; done).
+  have Rcod2 : rk (tpi b2 f2) <= rk_fun f3 by (rewrite -Ecod2; exact Rcod3).
+  (* the level-2 type also takes the edge's codomain code, which is where the
+     level-2 domain code [b2] comes from *)
+  have evCod2 : EvalRel
+      (Core.tpi A (Core.tpi (Core.tid (A⟨↑⟩) (a⟨↑⟩) (Core.var var_zero))
+                     Core.tuniv)) ρ (app f3 u3).
+  { rewrite -motive_cod1_subst.
+    eapply EvalRel_Pi_app_type;
+      [ exact evMot | exact Vρ | exact Vu3 | reflexivity | exact NBcod2
+      | exact eva_u3 ]. }
+  rewrite Ecod2 in evCod2. have evCod2C := evCod2.
+  cbn [EvalRel] in evCod2.
+  move: evCod2 => [Vb2 [Vf2 [evA_b2 [a2' [evA_b2' EB2fun]]]]].
+  (* [Val] matches on the type code, so rewrite it *before* using [V1]: the code
+     occurs only in the type of the [wt] index, hence the generalise-then-rewrite
+     dance (see [spine_descend]'s comment). *)
+  move: V1. move: (wt_Selection_abs WTc Sel3). rewrite Ecod2.
+  move=> hC2 V1'.
+  have Vg2 : valid_fun g2 := proj1 (andb_prop _ _ (wt_valid_tm hC2)).
+  have Vw2 : valid w2 := EvalRel_valid evb2.
+  have [u2 [v2 [Sel2 [Le_u2 Eq_v2]]]] := selectionBelow Vg2 Vw2.
+  have [WTu2 WTv2] : wt u2 b2 /\ wt v2 (app f2 u2).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty hC2) | exact (wt_abs_inv1 hC2)
+      | move=> ui vi Hin; exact (wt_abs_inv2 hC2 Hin erefl)
+      | exact Vg2 | exact Sel2 ]. }
+  have Vu2 : valid u2 := wt_valid_tm WTu2.
+  have Rg2 : rk_fun g2 < rk (abs g2) by (cbn; lia).
+  have Rb2 : rk b2 < rk (tpi b2 f2) by (cbn; lia).
+  have Rf2 : rk_fun f2 < rk (tpi b2 f2) by (cbn; lia).
+  have Ru2 : rk u2 <= rk_fun g2 := rk_Selection_key Sel2.
+  have Rv2 : rk v2 <= rk_fun g2 := rk_Selection_val Sel2.
+  have Rcod2b : rk (app f2 u2) <= rk_fun f2 := rk_app f2 u2.
+  have evb_u2 : EvalRel b ρ u2
+    by (eapply EvalRel_down; [ exact Vρ | exact Vu2 | exact evb2 | exact Le_u2 ]).
+  have [valB1 _] :=
+    STb ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u2 b2 WTu2 evb_u2 evA_b2.
+  have V2 : Val (S RBc) Δ (Core.app (Core.app C[σ] a[σ]) b[σ])
+              (Core.tpi (Core.tid A[σ] a[σ] b[σ]) Core.tuniv)
+              (wt_Selection_abs hC2 Sel2).
+  { rewrite -motive_cod2_subst.
+    eapply spine_Val;
+      [ apply ms_refl | exact V1' | exact Tbs
+      | exact (valB1 (S RBc) ltac:(unfold RBc; lia)) ]. }
+  (* ---- level 3: the proof argument ---- *)
+  rewrite Eq_v2 in LE1'.
+  have [g1 [b1 [f1 [Ev2 [Ecod1 LE0]]]]] := spine_descend HaT LE1' WTv2.
+  clear Eq_v2. subst v2.
+  have NBcod1 : ~ is_bot (app f2 u2) by (rewrite Ecod1; done).
+  have Rcod1 : rk (tpi b1 f1) <= rk_fun f2 by (rewrite -Ecod1; exact Rcod2b).
+  have evCod1 : EvalRel (Core.tpi (Core.tid A a b) Core.tuniv) ρ (app f2 u2).
+  { rewrite -motive_cod2_subst.
+    eapply EvalRel_Pi_app_type;
+      [ exact evCod2C | exact Vρ | exact Vu2 | reflexivity | exact NBcod1
+      | exact evb_u2 ]. }
+  rewrite Ecod1 in evCod1. have evCod1C := evCod1.
+  cbn [EvalRel] in evCod1.
+  move: evCod1 => [Vb1 [Vf1 [evId_b1 [a1' [evId_b1' EB1fun]]]]].
+  move: V2. move: (wt_Selection_abs hC2 Sel2). rewrite Ecod1.
+  move=> hC1 V2'.
+  have Vg1 : valid_fun g1 := proj1 (andb_prop _ _ (wt_valid_tm hC1)).
+  have Vw1 : valid w1 := EvalRel_valid evp1.
+  have [u1 [v1 [Sel1 [Le_u1 Eq_v1]]]] := selectionBelow Vg1 Vw1.
+  have [WTu1 WTv1] : wt u1 b1 /\ wt v1 (app f1 u1).
+  { eapply wt_Selection_cod;
+      [ exact (wt_abs_ty hC1) | exact (wt_abs_inv1 hC1)
+      | move=> ui vi Hin; exact (wt_abs_inv2 hC1 Hin erefl)
+      | exact Vg1 | exact Sel1 ]. }
+  have Vu1 : valid u1 := wt_valid_tm WTu1.
+  have Rg1 : rk_fun g1 < rk (abs g1) by (cbn; lia).
+  have Rb1 : rk b1 < rk (tpi b1 f1) by (cbn; lia).
+  have Rf1 : rk_fun f1 < rk (tpi b1 f1) by (cbn; lia).
+  have Ru1 : rk u1 <= rk_fun g1 := rk_Selection_key Sel1.
+  have Rv1 : rk v1 <= rk_fun g1 := rk_Selection_val Sel1.
+  have Rcod1b : rk (app f1 u1) <= rk_fun f1 := rk_app f1 u1.
+  have evp_u1 : EvalRel p ρ u1
+    by (eapply EvalRel_down; [ exact Vρ | exact Vu1 | exact evp1 | exact Le_u1 ]).
+  have [valP1 _] :=
+    STp ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u1 b1 WTu1 evp_u1 evId_b1.
+  (* state the codomain in substituted form: [?B0[?N..] =?= Core.tuniv] is a
+     higher-order problem [eapply] will not solve, but matching against
+     [Core.tuniv[p[σ]..]] is first-order *)
+  have V3 : Val RBc Δ (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ])
+              ((Core.tuniv : Tm (S m))[(p[σ])..]) (wt_Selection_abs hC1 Sel1).
+  { eapply spine_Val;
+      [ apply ms_refl | exact V2' | exact Tps
+      | exact (valP1 RBc ltac:(unfold RBc; lia)) ]. }
+  (* ---- land on the requested code ----
+     [motive_ty]'s final codomain is [tuniv], so the last codomain code sits
+     *below* [tuniv]; the [ValTy] obligation of the transport is therefore the
+     [tuniv] branch of [ValTy], i.e. [True]. *)
+  have evUf : EvalRel Core.tuniv ρ (app f1 u1).
+  { destruct (is_bot (app f1 u1)) eqn:Hbf.
+    - have E : app f1 u1 = bot by (apply is_bot_eq; rewrite Hbf).
+      rewrite E. apply EvalRel_bot.
+    - (* again: state the codomain in substituted form, so the match is
+         first-order *)
+      have hh : EvalRel ((Core.tuniv : Tm (S n))[p..]) ρ (app f1 u1).
+      { eapply EvalRel_Pi_app_type;
+          [ exact evCod1C | exact Vρ | exact Vu1 | reflexivity
+          | (rewrite Hbf; done) | exact evp_u1 ]. }
+      exact hh. }
+  have Lf1 : le (app f1 u1) tuniv by (move: evUf; cbn; done).
+  have LEaTv1 : le aT v1 by (rewrite Eq_v1 in LE0; exact LE0).
+  have hUtu : wt tuniv tuniv := wt_tuniv.
+  have Waf1 : wt (app f1 u1) tuniv := wt_ty_tuniv WTv1.
+  have VTU : Val RBc Δ Core.tuniv Core.tuniv hUtu by (unfold RBc; exact I).
+  apply (Val_fuel_any (k := RBc) (k' := k));
+    [ unfold RBc; lia | (cbn; unfold RBc; lia) | lia | (cbn in Hk |- *; lia) | ].
+  (* [Val_transport_up]'s [h']/[hUa] are not addressable by name (the latter
+     does not occur in its statement), so go through [@] *)
+  eapply (@Val_transport_up _ Δ
+            (Core.app (Core.app (Core.app C[σ] a[σ]) b[σ]) p[σ]) Core.tuniv
+            v1 aT (app f1 u1) tuniv
+            (wt_Selection_abs hC1 Sel1) hT Waf1 hUtu);
+    [ exact LEaTv1 | exact Lf1 | exact VTU | exact V3 ].
+Qed.
+
 (** Adequacy of the [J] eliminator (Agda ID's
     [JApp / JAppE / JCase / JDriver / JEndpoint / JMotive / JRef / JTypeEq]).
 

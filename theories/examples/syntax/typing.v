@@ -1391,6 +1391,22 @@ Proof.
     [ exact TIdab | apply t_univ; exact cIdab | exact C4 | exact Tp | reflexivity ].
 Qed.
 
+(* The [motive_ty] spine's types, level by level.  [spine_Val] and friends hand
+   back [B0[N..]] for the [B0] read off the head-reduced Π-type, so the adequacy
+   driver needs these normal forms by name. *)
+Lemma motive_cod1_subst {n} (A a : Tm n) :
+  (tpi A⟨↑⟩ (tpi (tid A⟨↑⟩⟨↑⟩ (var (shift var_zero)) (var var_zero)) tuniv))[a..]
+  = tpi A (tpi (tid A⟨↑⟩ a⟨↑⟩ (var var_zero)) tuniv).
+Proof. asimpl. substify. asimpl. reflexivity. Qed.
+
+Lemma motive_cod2_subst {n} (A a b : Tm n) :
+  (tpi (tid A⟨↑⟩ a⟨↑⟩ (var var_zero)) tuniv)[b..] = tpi (tid A a b) tuniv.
+Proof. asimpl. reflexivity. Qed.
+
+Lemma motive_cod3_subst {n} (p : Tm n) :
+  (tuniv : Tm (S n))[p..] = tuniv.
+Proof. reflexivity. Qed.
+
 (* ------------------------------------------------------------------
    Driving [jcase] to its base branch.
 

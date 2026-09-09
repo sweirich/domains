@@ -1024,6 +1024,64 @@ Qed.
    heart of the [J] case, shared by [InvTyp_J] (soundness) and [st_jcase]
    (adequacy).
    ============================================================ *)
+(* The strengthened form, which also hands back the three spine codes together
+   with the bounds that place them below the witness.  The adequacy driver needs
+   those bounds: the witness's *reducible* equalities to the endpoints live at
+   the witness's own code, so they can only be restricted to codes below it. *)
+Lemma EvalRel_base_cod_spine_codes {n} (C a b p : Tm n) (ρ : Env n) x wmax c :
+  valid_env ρ ->
+  valid x ->
+  le x wmax ->
+  EvalRel a ρ wmax ->
+  EvalRel b ρ wmax ->
+  EvalRel p ρ (rfl wmax) ->
+  is_bot c = false ->
+  EvalRel (Core.app (Core.app (Core.app C⟨↑⟩ (Core.var var_zero))
+                       (Core.var var_zero))
+             (Core.rfl (Core.var var_zero))) (x .: ρ) c ->
+  exists w1 w2 w3,
+       EvalRel C ρ (w3 ↦ (w2 ↦ (w1 ↦ c)))
+    /\ le w3 wmax /\ le w2 wmax /\ le w1 (rfl wmax)
+    /\ EvalRel a ρ w3 /\ EvalRel b ρ w2 /\ EvalRel p ρ w1.
+Proof.
+  move=> Vρ Vx Lxw Eaw Ebw Epw Bc EB.
+  have Vwmax : valid wmax by (move: (EvalRel_valid Epw); cbn; done).
+  (* peel the three application edges off the codomain *)
+  cbn [EvalRel] in EB. rewrite Bc in EB.
+  move: EB => [w1 [EB1 Erf]].
+  have NB1 : is_bot (w1 ↦ c) = false by (rewrite /singleton Bc).
+  rewrite NB1 in EB1. move: EB1 => [w2 [EB2 Ev2]].
+  have NB2 : is_bot (w2 ↦ (w1 ↦ c)) = false by (rewrite /singleton NB1).
+  rewrite NB2 in EB2. move: EB2 => [w3 [EB3 Ev3]].
+  cbn in Ev2, Ev3, Erf.
+  exists w1, w2, w3.
+  have G3 : EvalRel C ρ (w3 ↦ (w2 ↦ (w1 ↦ c)))
+    by (eapply EvalRel_unwk; exact EB3).
+  (* the three argument codes all sit below [x <= wmax] *)
+  have [Vw3 Lw3] := Ev3. have [Vw2 Lw2] := Ev2.
+  have L3 : le w3 wmax
+    by (eapply (@le_trans w3 x wmax);
+        [ exact Vw3 | exact Vx | exact Vwmax | exact Lw3 | exact Lxw ]).
+  have L2 : le w2 wmax
+    by (eapply (@le_trans w2 x wmax);
+        [ exact Vw2 | exact Vx | exact Vwmax | exact Lw2 | exact Lxw ]).
+  have [L1 Vw1] : le w1 (rfl wmax) /\ valid w1.
+  { destruct w1 as [ | | | | | | | | w0 ]; try solve [ destruct Erf ].
+    - (* the proof argument takes [bot] *) split; [ apply le_bot' | done ].
+    - move: Erf => [Vw0 Lw0]. split.
+      + apply le_rfl_intro. eapply (@le_trans w0 x wmax);
+          [ exact Vw0 | exact Vx | exact Vwmax | exact Lw0 | exact Lxw ].
+      + cbn; exact Vw0. }
+  split; [ exact G3 | ].
+  split; [ exact L3 | ]. split; [ exact L2 | ]. split; [ exact L1 | ].
+  (* ... and are therefore approximations of [a], [b] and [p] *)
+  split.
+  { eapply EvalRel_down; [ exact Vρ | exact Vw3 | exact Eaw | exact L3 ]. }
+  split.
+  { eapply EvalRel_down; [ exact Vρ | exact Vw2 | exact Ebw | exact L2 ]. }
+  eapply EvalRel_down; [ exact Vρ | exact Vw1 | exact Epw | exact L1 ].
+Qed.
+
 Lemma EvalRel_base_cod_spine {n} (C a b p : Tm n) (ρ : Env n) x wmax c :
   valid_env ρ ->
   valid x ->
@@ -1040,35 +1098,10 @@ Proof.
   destruct (is_bot c) eqn:Bc.
   { have Ec : c = bot by (destruct c; cbn in Bc; try discriminate; reflexivity).
     rewrite Ec. apply EvalRel_bot. }
-  have Vwmax : valid wmax by (move: (EvalRel_valid Epw); cbn; done).
-  (* peel the three application edges off the codomain *)
-  cbn [EvalRel] in EB. rewrite Bc in EB.
-  move: EB => [w1 [EB1 Erf]].
+  have [w1 [w2 [w3 [G3 [_ [_ [_ [Ga [Gb Gp]]]]]]]]] :=
+    EvalRel_base_cod_spine_codes Vρ Vx Lxw Eaw Ebw Epw Bc EB.
   have NB1 : is_bot (w1 ↦ c) = false by (rewrite /singleton Bc).
-  rewrite NB1 in EB1. move: EB1 => [w2 [EB2 Ev2]].
   have NB2 : is_bot (w2 ↦ (w1 ↦ c)) = false by (rewrite /singleton NB1).
-  rewrite NB2 in EB2. move: EB2 => [w3 [EB3 Ev3]].
-  cbn in Ev2, Ev3, Erf.
-  (* ... and rebuild them against [a], [b] and [p] *)
-  have G3 : EvalRel C ρ (w3 ↦ (w2 ↦ (w1 ↦ c)))
-    by (eapply EvalRel_unwk; exact EB3).
-  have Ga : EvalRel a ρ w3.
-  { move: Ev3 => [Vw3 Lw3]. eapply EvalRel_down;
-      [ exact Vρ | exact Vw3 | exact Eaw
-      | eapply (@le_trans w3 x wmax);
-          [ exact Vw3 | exact Vx | exact Vwmax | exact Lw3 | exact Lxw ] ]. }
-  have Gb : EvalRel b ρ w2.
-  { move: Ev2 => [Vw2 Lw2]. eapply EvalRel_down;
-      [ exact Vρ | exact Vw2 | exact Ebw
-      | eapply (@le_trans w2 x wmax);
-          [ exact Vw2 | exact Vx | exact Vwmax | exact Lw2 | exact Lxw ] ]. }
-  have Gp : EvalRel p ρ w1.
-  { destruct w1 as [ | | | | | | | | w0 ]; try done.
-    - apply EvalRel_bot.
-    - move: Erf => [Vw0 Lw0].
-      eapply EvalRel_down; [ exact Vρ | (cbn; exact Vw0) | exact Epw | ].
-      apply le_rfl_intro. eapply (@le_trans w0 x wmax);
-        [ exact Vw0 | exact Vx | exact Vwmax | exact Lw0 | exact Lxw ]. }
   have G2 : EvalRel (Core.app C a) ρ (w2 ↦ (w1 ↦ c)).
   { cbn [EvalRel]. rewrite NB2. exists w3. split; [ exact G3 | exact Ga ]. }
   have G1 : EvalRel (Core.app (Core.app C a) b) ρ (w1 ↦ c).
