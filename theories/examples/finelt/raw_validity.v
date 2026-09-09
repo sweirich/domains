@@ -3951,3 +3951,72 @@ Lemma EqValTy_trans {n} (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv) k :
 Proof. exact (proj2 (proj2 (proj2 (proj2 (proj2 (fwd_per_all k))))) n Γ A B C u h). Qed.
 
 
+
+
+(* ============================================================
+   One step of a Δ-level application spine.
+
+   [st_app] walks a *single* application, and does it at the [semantic_typing]
+   level so that the argument's [Val] can be re-asked from the argument's own
+   semantic typing.  The [J] driver instead has to walk the *three*
+   applications of [app (app (app C a) b) p] inside a single [Δ], sometimes
+   with a Δ-only argument (the proof's witness term, which has no Γ-level
+   counterpart).  These three lemmas package exactly the [PiApp*] projection
+   each step needs, leaving the caller to choose the [Selection].
+
+   The type argument [TF] is *not* required to be a syntactic [tpi]: it need
+   only head-reduce to one, which is what lets the spine's intermediate types
+   (the [motive_ty] codomains, instantiated) be used as they come.
+   ============================================================ *)
+
+(* [F] valid at a function code, [N] valid at the domain: [app F N] is valid at
+   the edge's value code.  (Agda [JApp].) *)
+Lemma spine_Val {q} (Δ : Ctx q) (F TF N A0 : Tm q) (B0 : Tm (S q))
+  gF bF fF (hF : wt (abs gF) (tpi bF fF))
+  u_sel v_sel (Sel : Selection gF u_sel v_sel) (WTu : wt u_sel bF) k :
+  HeadRed TF (Core.tpi A0 B0) ->
+  Val (S k) Δ F TF hF ->
+  typing Δ N A0 ->
+  Val k Δ N A0 WTu ->
+  Val k Δ (Core.app F N) B0[N..] (wt_Selection_abs hF Sel).
+Proof.
+  move=> HR VF TN VN.
+  rewrite Val_abs in VF. move: VF => [_ [A1 [B1 [HR1 [_ [pav _]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR1 HR. subst A1 B1.
+  exact (pav u_sel v_sel Sel WTu N TN VN).
+Qed.
+
+(* Congruence in the *argument*: one function, two related arguments.
+   (Agda [JAppE], argument half.) *)
+Lemma spine_EqVal_arg {q} (Δ : Ctx q) (F TF N1 N2 A0 : Tm q) (B0 : Tm (S q))
+  gF bF fF (hF : wt (abs gF) (tpi bF fF))
+  u_sel v_sel (Sel : Selection gF u_sel v_sel) (WTu : wt u_sel bF) k :
+  HeadRed TF (Core.tpi A0 B0) ->
+  Val (S k) Δ F TF hF ->
+  conv Δ N1 N2 A0 ->
+  EqVal k Δ N1 N2 A0 WTu ->
+  EqVal k Δ (Core.app F N1) (Core.app F N2) B0[N1..] (wt_Selection_abs hF Sel).
+Proof.
+  move=> HR VF CN EN.
+  rewrite Val_abs in VF. move: VF => [_ [A1 [B1 [HR1 [_ [_ pae]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR1 HR. subst A1 B1.
+  exact (pae u_sel v_sel Sel WTu N1 N2 CN EN).
+Qed.
+
+(* Congruence in the *function*: two related functions, one argument.
+   (Agda [JAppE], function half.)  Composing the two with [EqVal_trans] is how
+   a spine step varies both at once. *)
+Lemma spine_EqVal_fun {q} (Δ : Ctx q) (F1 F2 TF N A0 : Tm q) (B0 : Tm (S q))
+  gF bF fF (hF : wt (abs gF) (tpi bF fF))
+  u_sel v_sel (Sel : Selection gF u_sel v_sel) (WTu : wt u_sel bF) k :
+  HeadRed TF (Core.tpi A0 B0) ->
+  EqVal (S k) Δ F1 F2 TF hF ->
+  typing Δ N A0 ->
+  Val k Δ N A0 WTu ->
+  EqVal k Δ (Core.app F1 N) (Core.app F2 N) B0[N..] (wt_Selection_abs hF Sel).
+Proof.
+  move=> HR EF TN VN.
+  rewrite EqVal_abs in EF. move: EF => [_ [_ [_ [A1 [B1 [HR1 [_ paev]]]]]]].
+  have [E1 E2] := HeadRed_tpi_det HR1 HR. subst A1 B1.
+  exact (paev u_sel v_sel Sel WTu N TN VN).
+Qed.
