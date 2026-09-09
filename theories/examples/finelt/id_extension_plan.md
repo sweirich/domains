@@ -414,32 +414,100 @@ where `P0` is the witness *term* delivered by `STp`'s `ValId` record
 the two reducible equalities `EqVal Δ P0 a[σ] A[σ]` and `EqVal Δ P0 b[σ] A[σ]`
 — this is where `idInjectivity` is really used).
 
-### Recipe for `st_jcase`
+### Recipe for `st_jcase` (verified: every ingredient below exists and compiles)
 
-1. `STp` at the code `rfl w'` gives the `ValId` record for `p[σ]`: the witness
-   term `P0`, `HeadRed p[σ] (Core.rfl P0)`, the two endpoint convs, `Val P0
-   A[σ]`, and `EqVal P0 a[σ] A[σ]` / `EqVal P0 b[σ] A[σ]`.
-2. `HeadRed (jcase C d p)[σ] (app d[σ] P0)` — lift (1)'s `HeadRed` through
-   `hr_jcase_scrut` (a `HeadRed_jcase_scrut` congruence lemma is still needed
-   in `reduction.v`, on the model of `HeadRed_app`) and then one `hr_jcase`.
-3. `STd`'s Π-edge at the argument `P0` gives
-   `Val RB Δ (app d[σ] P0) (app (app (app C[σ] P0) P0) (rfl P0))` — this is
-   `st_app`'s machinery, so factor whatever `st_app` uses rather than redoing it.
-4. **`JTypeEq`** (the work): three `PiAppEq` steps on `STC`'s `EqValPi` for
-   `C[σ] : motive_ty A[σ]`, with argument equalities `EqVal P0 a[σ] A[σ]`,
-   `EqVal P0 b[σ] A[σ]` and `EqVal (rfl P0) p[σ] (tid A[σ] a[σ] b[σ])`.  The
-   third comes from `EqValId_headred_expand` off the diagonal `EqVal (rfl P0)
-   (rfl P0)`, since `p[σ] →* rfl P0`.  Note that `motive_ty`'s third domain is
-   `tid A⟨↑⟩⟨↑⟩ 1 0`, which instantiates to `tid A[σ] P0 P0` on the left and
-   `tid A[σ] a[σ] b[σ]` on the right, so this step itself needs a type
-   transport (`EqVal_EqVal_fwd` along `c_tid` of the two endpoint convs).
-5. Transport (3) along (4) with `Val_EqVal_fwd`, then head-expand along (2)
-   with `Val_headred_expand`.  The syntactic conversion the expansion needs is
-   `c_jcase` (congruence, to rewrite `p[σ]` to `rfl P0`) followed by
-   `c_jcase_beta`.
+Stages 1–3a are **written and compiling** in `adequacy.v` under two `admit`s;
+what follows describes what the `admit`s still owe.
 
-`sc_jcase` is the same five steps with `EqValPi`/`EqVal_headred_expand` in
-place of `ValPi`/`Val_headred_expand`, plus `SCd`'s edge at `EqVal P0 P0'`; it
-reuses (4) unchanged.  So **`JTypeEq` is the single remaining piece of
-mathematics** — worth stating as its own top-level lemma in `adequacy.v` and
-proving before touching either driver.
+**Stage 1 — the witness (done).** `EvalRel (jcase C d p)` records the result
+`u` as the edge `w' ↦ u` of the base branch `d`, where `rfl w'` is a value of
+`p`.  `typing_EvalRel Tp Fρ` enlarges that to an `rfl w''` whose `wt` at the Id
+code *is* Coquand's rule, and `STp` at that code hands back a `ValId`: the
+witness term `P0` with `HeadRed p[σ] (rfl P0)`, the two endpoint conversions and
+the two endpoint **reducible equalities**.  Re-derived at arbitrary fuel with
+`HeadRed_rfl_det` pinning `P0` down (`valPk` / `IdPk`).  `jcase_drive_conv` +
+`HeadRed_jcase` give the driver's syntactic side.
+
+**Stage 2 — `d`'s value edge at `P0` (done).**  `st_app`'s shape, except the
+argument is a Δ-term with no `semantic_typing` to re-ask.  Its `Val` comes from
+the proof's own `ValId`, moved from the proof's code `(w'', t)` to the
+function's selection code `(u_sel, bd)` through the join `lub bd t` —
+`Val_app_transport` is exactly that dance, and `Val` of `A[σ]` at the join comes
+from `STA`, which is quantified over every code `A` evaluates.  Result:
+
+    Vapp : Val RBf Δ (app d[σ] P0)
+               (app (app (app C[σ] P0) P0) (rfl P0))
+               (wt_Selection_abs WTd Sel)
+
+**Stage 3a — the goal type at the edge's code (done).** `EvalRel_base_cod_spine`
+turns `d`'s *type* codomain edge into an `EvalRel` of the **goal's** spine:
+`EvalRel (app (app (app C a) b) p) ρ (app fd u_sel)`.  Hence `a0` and
+`app fd u_sel` are compatible (`EvalRel_compatible` on one term), which is the
+hypothesis `Val_app_transport` needs, and `evT_lub` gives the join.
+
+**Stage 3b — the motive spine (`JMotive`/`JTypeEq`, the remaining work).**  One
+walk of `C[σ]`'s three applications delivers *both* missing pieces, because
+
+    EqVal (S k) Δ T1 T2[σ] Core.tuniv h
+      --EqVal_Val2-->  Val k Δ T2[σ] Core.tuniv h      (the ValTy for 3c)
+      --EqVal_tuniv-->  EqValTy k Δ T1 T2[σ] h          (JTypeEq itself)
+
+where `T1 = app (app (app C[σ] P0) P0) (rfl P0)` and
+`T2 = app (app (app C a) b) p`.  Run the walk at `aT := lub a0 (app fd u_sel)`
+(stage 3a supplies `EvalRel T2 ρ aT`), so the result sits *above* both codes the
+transports need.
+
+Everything the walk consumes comes from **one** place, `STC`'s `Val` at the
+motive's code, via `Val_abs`:
+
+    Val (S k) Δ C[σ] (motive_ty A)[σ] WTc
+      = ValTy k Δ (motive_ty A)[σ] (wt_abs_ty WTc)   /\   ValPi k Δ C[σ] … WTc
+
+- the `ValPi` half gives `PiAppVal` / `PiAppEq` — the *term*-level steps,
+  packaged as `spine_Val` / `spine_EqVal_arg` / `spine_EqVal_fun`
+  (`raw_validity.v`);
+- the `ValTy` half gives `PiEdgeVal` / `PiEdgeEq` — and **`PiEdgeEq` is the
+  non-obvious key**: at each level the two sides' *types* differ
+  (`B1'[P0..] = tpi A[σ] (tpi (tid A[σ]⟨↑⟩ P0⟨↑⟩ 0) tuniv)` on the left versus
+  `B1'[a[σ]..]` on the right), and `PiEdgeEq` says related arguments give
+  **equal** codomain types, which is exactly the `EqVal_EqVal_fwd` transport
+  that lets `EqVal_trans` compose the function-step with the argument-step.
+
+Per level, then: `spine_EqVal_fun` (vary the function) + `spine_EqVal_arg`
+(vary the argument) + `EqVal_EqVal_fwd` along `PiEdgeEq` + `EqVal_trans`.
+Level 1's function is the same on both sides, so it is just `spine_EqVal_arg`.
+
+Choosing each level's codes: `spine_*` need the function code to be literally
+`(abs g, tpi b f)`, so descend the codes from the *goal type's* own `EvalRel`.
+Unfold `EvalRel T2 ρ aT` to `w1, w2, w3` with
+`EvalRel C ρ (w3 ↦ (w2 ↦ (w1 ↦ aT)))`, enlarge with `typing_EvalRel TC Fρ`,
+then at each level use **`spine_descend`** (`raw_validity.v`) to turn
+`le (w ↦ rest) V` + `wt V aV` into `V = abs gV`, `aV = tpi bV fV`,
+`le rest (app gV w)`.  It returns *equations* on purpose: `Val` matches on both
+codes, so a `Val` built at unanalysed codes is a stuck match that cannot be
+rewritten afterwards (the codes occur only in the type of the `wt` index, which
+`rewrite` cannot abstract).  `subst` the value code and `rewrite` the type code
+**before** building any `Val` at them.  The intermediate functions'
+`InvTyped`s, where needed, are two cheap `InvTyp_App`s.
+
+The arguments' `Val`s/`EqVal`s at each selection code:
+`a[σ]`, `b[σ]`, `p[σ]` are Γ-terms, so just re-ask `STa`/`STb`/`STp` at that
+code (they evaluate every code below the witness — stage 3a's reasoning);
+`P0` and `rfl P0` are Δ-only, so use `Val_app_transport` /
+`EqVal_app_transport` from the proof's own code as in stage 2, with `rfl P0`'s
+record at the off-diagonal `tid A[σ] a[σ] b[σ]` built by Coquand's rule
+(`rfl_offdiag_typing` for the typing, `ValId`'s two stored equalities for the
+reducible part — the `sc_rfl` shape).
+
+**Stage 3c — finish.** `Val_EqVal_fwd` moves `Vapp`'s type from `T1` to `T2[σ]`
+at the edge's code (using `EqValTy` from 3b and `motive_app_conv_witness` for
+the syntactic conv); `Val_app_transport` then moves the code from
+`(v_sel, app fd u_sel)` to `(u, a0)` (using the `ValTy` from 3b and stage 3a's
+compatibility); `Val_fuel_any` drops `RBf` to `RB`; `Val_beta_expand` with
+`HeadRed_jcase` and `jcase_drive_conv` head-expands `app d[σ] P0` back to
+`(jcase C d p)[σ]`.
+
+`sc_jcase` is the same walk with `EqVal_headred_expand` and `SCd`'s edge at
+`EqVal P0 P0'`, reusing 3b unchanged.  So **stage 3b is the one remaining piece
+of mathematics**; it is worth landing as its own top-level lemma taking the
+`semantic_typing`s plus the stage-1 witness package.

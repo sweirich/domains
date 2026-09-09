@@ -4020,3 +4020,29 @@ Proof.
   have [E1 E2] := HeadRed_tpi_det HR1 HR. subst A1 B1.
   exact (paev u_sel v_sel Sel WTu N TN VN).
 Qed.
+
+(* One level of the *descent* through an application spine.  A value [V] lying
+   above the singleton [singleton w rest] (with [rest] informative) must be a function
+   table, and its type code must be a Π-code.
+
+   Returned as equations rather than as a repackaged [wt], deliberately: [Val]
+   matches on *both* the value code and the type code, so a [Val] built at the
+   unanalysed codes is a stuck match and cannot be rewritten afterwards (the
+   codes occur only in the type of the [wt] index, which [rewrite] cannot
+   abstract).  The caller must [subst] the value code and [rewrite] the type
+   code *before* building any [Val] at them. *)
+Lemma spine_descend (w rest V aV : elt) :
+  is_bot rest = false ->
+  le (singleton w rest) V -> wt V aV ->
+  exists gV bV fV, V = abs gV /\ aV = tpi bV fV /\ le rest (app gV w).
+Proof.
+  move=> Hb LE WT.
+  unfold singleton in LE. rewrite Hb in LE.
+  have [gV [EV LEf]] := le_abs_inv LE. subst V.
+  destruct aV as [ | | | | | bV fV | | | ];
+    try solve [ exfalso; clear -WT; inversion WT ].
+  exists gV, bV, fV.
+  split; [ reflexivity | split; [ reflexivity | ] ].
+  move: LEf. rewrite le_fun_cons => LEf'.
+  exact (proj1 (andb_prop _ _ LEf')).
+Qed.
