@@ -3697,6 +3697,9 @@ Proof.
   split; [ exact cas | exact EW ].
 Qed.
 
+(** J-beta.  Exactly the [sc_ncase_Z] shape: the two sides sit at the *same*
+    type, [hr_jcase] is a single head step, so the whole thing is [st_jcase] on
+    the diagonal followed by [EqVal_headred_contract]. *)
 Lemma sc_jcase_beta (A a0 C d : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a0 A ->
   typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
@@ -3707,7 +3710,42 @@ Lemma sc_jcase_beta (A a0 C d : Tm n) :
 (* ------------------------- *)
   semantic_conv2 Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
     (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0)).
-Admitted.
+Proof.
+  move=> TA Ta0 TC Td STA STa0 STC STd.
+  have TR : typing Γ (Core.rfl a0) (Core.tid A a0 a0)
+    by (eapply t_rfl; [ exact TA | exact Ta0 ]).
+  have STR : semantic_typing Γ (Core.rfl a0) (Core.tid A a0 a0)
+    by (eapply st_rfl; [ exact TA | exact Ta0 | exact STA | exact STa0 ]).
+  have TJ : typing Γ (Core.jcase C d (Core.rfl a0))
+              (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0))
+    by (eapply t_jcase;
+        [ exact TA | exact Ta0 | exact Ta0 | exact TC | exact Td | exact TR ]).
+  have STJ : semantic_typing Γ (Core.jcase C d (Core.rfl a0))
+               (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0))
+    by (eapply st_jcase;
+        [ exact TA | exact Ta0 | exact Ta0 | exact TC | exact Td | exact TR
+        | exact STA | exact STa0 | exact STa0 | exact STC | exact STd | exact STR ]).
+  have CJ : conv Γ (Core.jcase C d (Core.rfl a0)) (Core.app d a0)
+              (Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0))
+    by (eapply c_jcase_beta; [ exact TA | exact Ta0 | exact TC | exact Td ]).
+  move=> ρ m Δ σ TS FR VS CD u a WT evJ evT RB Hrank.
+  have eqJ :=
+    proj2 (STJ ρ m Δ σ σ TS TS (ConvSub_refl TS) FR VS VS (ValSub_EqValSub VS)
+             CD u a WT evJ evT).
+  have CJS : conv Δ (Core.jcase C d (Core.rfl a0))[σ] ((Core.app d a0)[σ])
+                    ((Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0))[σ])
+    by (eapply substitution_conv; [ exact CJ | exact TS | exact CD ]).
+  have CreflS : conv Δ (Core.jcase C d (Core.rfl a0))[σ]
+                       (Core.jcase C d (Core.rfl a0))[σ]
+                       ((Core.app (Core.app (Core.app C a0) a0) (Core.rfl a0))[σ])
+    by (apply c_refl; eapply substitution_tm; [ exact TJ | exact TS | exact CD ]).
+  eapply EqVal_headred_contract.
+  - apply ms_refl.
+  - eapply ms_trans; [ apply hr_jcase | apply ms_refl ].
+  - exact CreflS.
+  - apply c_sym; exact CJS.
+  - exact (eqJ RB Hrank).
+Qed.
 
 Lemma sc_jcase (A a b C C' d d' p p' : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->

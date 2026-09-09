@@ -1970,6 +1970,10 @@ Lemma le_rfl_inv {v w} :
   le (rfl w) v -> { w' & (v = rfl w') * (le w w') }.
 Proof. destruct v ; simp le ; try done. move=> h. by exists v. Qed.
 
+(* introduction form, for clients that do not import Equations' [simp] *)
+Lemma le_rfl_intro {w w'} : le w w' -> le (rfl w) (rfl w').
+Proof. simp le. Qed.
+
 Lemma valid_tpi_intro a f :
   valid a -> valid_fun f -> valid (tpi a f).
 Proof. move=> Va Vf. by apply /andP. Qed.
