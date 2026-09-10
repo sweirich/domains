@@ -115,15 +115,31 @@ Ltac prop_le_absurd :=
       exfalso; case: (le_tprop_inv_r _ H) => ?; discriminate
   end.
 
-(* [tprop] is a brand-new constructor, so a goal mentions it iff it is one of
-   the new cases -- which makes `try prop_only` safe to sprinkle after every
-   case analysis without any risk of pre-empting a real goal. *)
+(* [tunit] is the unit TYPE's code and is [le]-incomparable with every other
+   head-normal code, exactly as [tprop] is. *)
+Ltac unit_le_absurd :=
+  match goal with
+  | [ H : is_true (le tunit _) |- _ ] =>
+      exfalso; move: (le_tunit_inv _ H) => ?; discriminate
+  | [ H : is_true (le _ tunit) |- _ ] =>
+      exfalso; case: (le_tunit_inv_r _ H) => ?; discriminate
+  end.
+
+(* [tprop] and [tunit] are brand-new constructors, so a goal mentions one iff
+   it is one of the new cases -- which makes `try prop_only` safe to sprinkle
+   after every case analysis without any risk of pre-empting a real goal.
+   [Val]/[EqVal] are inert at both: at [tprop] as an ELEMENT code, and at
+   [tunit] as a type code whose only member is [bot]. *)
 Ltac prop_only :=
   match goal with
   | [ |- context [ tprop ] ] => solve [ prop_inert | prop_le_absurd ]
   | [ H : wt _ tprop |- _ ] => solve [ prop_inert | prop_le_absurd ]
   | [ H : is_true (le tprop _) |- _ ] => prop_le_absurd
   | [ H : is_true (le _ tprop) |- _ ] => prop_le_absurd
+  | [ |- context [ tunit ] ] => solve [ prop_inert | unit_le_absurd ]
+  | [ H : wt _ tunit |- _ ] => solve [ prop_inert | unit_le_absurd ]
+  | [ H : is_true (le tunit _) |- _ ] => unit_le_absurd
+  | [ H : is_true (le _ tunit) |- _ ] => unit_le_absurd
   end.
 
 Ltac sigma_inert :=
@@ -2877,6 +2893,10 @@ Proof.
         Unshelve.
         all: first [ exact (wt_Selection_codU HTsmall Sel0) | exact (wt_Selection_codU HTbig Sel1) ].
         
+  - (* wt_tunit: [u = tunit] at type [tuniv] -- the [wt_tprop] script,
+       i.e. the [wt_tuniv] one: [ValTy] at a leaf element code is inert *)
+    rewrite Val_tuniv. dependent destruction h0; try prop_only; cbn [Rec.ValTy];
+      first [ exact I | (repeat split; exact I) | by autorewrite with le in LE ].
 Qed.
 
 (* Binary companions of the two transports above. *)
@@ -3186,6 +3206,10 @@ Proof.
       eapply (RESe _ Γ B[P..] B'[P..] Core.tuniv (app g0 u0) v0 tuniv
                    (wt_Selection_codU HTsmall Sel0) (wt_Selection_codU HTbig Sel1));
         [ exact leV | eapply EqVal_irr; exact Res ].
+  - (* wt_tunit: [u = tunit] at type [tuniv] -- the [wt_tprop] script,
+       i.e. the [wt_tuniv] one: [ValTy] at a leaf element code is inert *)
+    rewrite EqVal_tuniv. dependent destruction h0; try prop_only; cbn [Rec.ValTy];
+      first [ exact I | (repeat split; exact I) | by autorewrite with le in LE ].
 Qed.
 
 (* ---------------------------------------------------------------------
@@ -3624,6 +3648,10 @@ Proof.
         dependent destruction h0; try prop_only; eapply Val_irr; eassumption.
       * dependent destruction h0; try prop_only; eapply Val_irr; eassumption.
 
+      * (* wt_tunit: a leaf type code, so structurally the [wt_tuniv] case
+           -- its [ValTy] is inert *)
+        dependent destruction h0; try prop_only;
+          first [ eapply EqVal_irr; eassumption | eapply Val_irr; eassumption ].
     + intros n Γ M N T u a0 a1 h0 h1 LE V.
       dependent destruction h1; try prop_only.
       * apply EqVal_Bot.
@@ -3669,6 +3697,10 @@ Proof.
            record carries across by irrelevance -- or leaves an absurd [le]. *)
         dependent destruction h0; try prop_only; eapply EqVal_irr; eassumption.
       * dependent destruction h0; try prop_only; eapply EqVal_irr; eassumption.
+      * (* wt_tunit: a leaf type code, so structurally the [wt_tuniv] case
+           -- its [ValTy] is inert *)
+        dependent destruction h0; try prop_only;
+          first [ eapply EqVal_irr; eassumption | eapply Val_irr; eassumption ].
     + exact (restrictVal_step IH).
     + exact (restrictEqVal_step IH).
   (* A few proof-irrelevant [wt _ tuniv] witnesses are left shelved by the
@@ -5926,7 +5958,7 @@ Proof.
   move=> Hb LE WT.
   unfold singleton in LE. rewrite Hb in LE.
   have [gV [EV LEf]] := le_abs_inv LE. subst V.
-  destruct aV as [ | | | | | bV fV | | | | | | ];
+  destruct aV as [ | | | | | bV fV | | | | | | | ];
     try solve [ exfalso; clear -WT; inversion WT ].
   exists gV, bV, fV.
   split; [ reflexivity | split; [ reflexivity | ] ].

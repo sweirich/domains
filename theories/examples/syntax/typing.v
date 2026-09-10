@@ -199,6 +199,16 @@ Inductive typing : forall {n} (Γ : Ctx n), Tm n -> Tm n -> Prop :=
     typing Γ A tuniv ->
     typing (ctx_extend Γ A) B tprop ->
     typing Γ (tpi A B) tprop
+
+  (* Unit ([unit_extension_plan.md]).  No eliminator: [c_unit_eta] below makes
+     any eliminator definable as a constant. *)
+  | t_unit n (Γ : Ctx n) :
+    ctx Γ ->
+    typing Γ tunit tuniv
+
+  | t_star n (Γ : Ctx n) :
+    ctx Γ ->
+    typing Γ tstar tunit
 with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop := 
   | c_conv n (Γ : Ctx n) M N A B : 
     conv Γ M N A -> 
@@ -429,6 +439,14 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     conv Γ A0 A1 tuniv ->
     conv (ctx_extend Γ A0) B0 B1 tprop ->
     conv Γ (tpi A0 B0) (tpi A1 B1) tprop
+
+  (* Eta for unit: any two members of [Unit] are convertible.  This is
+     [c_prop] specialised to [A := tunit] -- semantically both sides' only
+     approximation is [bot] ([wt_unit_bot]), where [EqVal] is total. *)
+  | c_unit_eta n (Γ : Ctx n) M N :
+    typing Γ M tunit ->
+    typing Γ N tunit ->
+    conv Γ M N tunit
 with ctx : forall {n}, Ctx n -> Prop :=
   | c_empty : ctx ctx_empty
   | c_cons n (Γ : Ctx n) A : ctx Γ -> 
@@ -990,6 +1008,10 @@ Proof.
       1: eapply (renaming_typing _ _ B1 tprop _ _ (up_ren δ)); eauto with renaming.
       1: eapply (renaming_conv _ _ A0 A1 tuniv _ _ δ); eauto.
       1: eapply (renaming_conv _ _ B0 B1 tprop _ _ (up_ren δ)); eauto with renaming.
+    + (* c_unit_eta: as [c_prop], with the type fixed to [tunit] *)
+      eapply c_unit_eta.
+      all: eapply renaming_typing with (A := tunit);
+             [ eassumption | eassumption | eassumption ].
 Qed.
 
 (* Weakening a type into an extended context. *)
@@ -1468,6 +1490,10 @@ Proof.
       1: eapply substitution_tm with (A:= tprop); eauto with renaming.
       1: eapply substitution_conv with (A:= tuniv); eauto.
       1: eapply substitution_conv with (A:= tprop); eauto with renaming.
+    + (* c_unit_eta: as [c_prop], with the type fixed to [tunit] *)
+      eapply c_unit_eta.
+      all: eapply substitution_tm with (A := tunit);
+             [ eassumption | eassumption | eassumption ].
 Qed.
 
 (* ----------- context conversion -------------- *)
@@ -2266,6 +2292,33 @@ Proof.
   - apply c_refl; apply t_univ; assumption.
   - (* t_prop_u: the given type is literally [tuniv] *)
     apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+Qed.
+
+(** The unit fragment's two type inversions.  [tunit]'s principal type is
+    [tuniv], so it needs no alternative (as [typing_prop_inv]); [tstar]'s is
+    [tunit], so it does -- see the comment on [typing_app_inv]. *)
+Lemma typing_unit_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e tunit ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - (* t_prop_u: the given type is literally [tuniv].  [t_prop_u] is declared
+       before [t_unit], so it comes first here. *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_unit *)
+    apply c_refl; apply t_univ; assumption.
+Qed.
+
+Lemma typing_star_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e tstar ∈ T -> Γ ⊢e tunit ≡ T ∈ tuniv \/ Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - first [ edestruct (IHh ltac:(reflexivity)) as [CC|CC] | edestruct IHh as [CC|CC] ];
+      [ left | right ]; (eapply c_trans; [ exact CC | eassumption ]).
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    right; apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_star *)
+    left; apply c_refl; apply t_unit; assumption.
 Qed.
 
 Lemma typing_nat_inv {n} {Γ : Ctx n} {T} :

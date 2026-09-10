@@ -205,6 +205,14 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
      [EvalRel Prop rho c = LeCode c PropCode]). *)
   | Core.tprop => fun ρ b =>
              le b tprop
+  (* Unit: the TYPE is a code leaf like [tuniv]; its element [tstar] has NO
+     informative code -- [le b bot] is [b = bot].  That single clause is the
+     whole content of the design decision recorded in
+     [unit_extension_plan.md]: it is what makes eta for unit hold. *)
+  | Core.tunit => fun ρ b =>
+             le b tunit
+  | Core.tstar => fun ρ b =>
+             le b bot
   | Core.tnat => fun ρ b =>
              le b tnat
   | Core.zero => fun ρ b =>
@@ -429,6 +437,8 @@ Proof.
     destruct u; try done.
     move=> [x H]. exact (valid_mkpair2 _ _ (IHM _ _ H)).
   - (* tprop: the second sort's code is a leaf, like [tuniv] *) destruct u; try done.
+  - (* tunit: the unit type code, a leaf like [tuniv] *) destruct u; try done.
+  - (* tstar: the unit element: [le b bot] forces [b = bot] *) destruct u; try done.
 Qed.
 
 (** * monotonicity *)
@@ -480,7 +490,7 @@ Proof.
   - (* M = ncase *)
     destruct h1 as [w [EM Hb]]. exists w. split.
     + eapply IHM1; eauto.
-    + destruct w as [ | | | | v | | | | | | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
       * have Vv : valid v := EvalRel_valid EM.
@@ -518,7 +528,7 @@ Proof.
   - (* M = jcase *)
     destruct h1 as [w [EM Hb]]. exists w. split.
     + eapply IHM3; eauto.
-    + destruct w as [ | | | | v | | | | | | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
   - (* M = tsig M1 M2: the [tpi] argument verbatim *)
@@ -546,6 +556,10 @@ Proof.
     destruct (is_bot u); try done.
     destruct h1 as [x H]. exists x. eapply IHM; eauto.
   - (* tprop: a code leaf, like [tuniv] *)
+    destruct u; try done.
+  - (* tunit: the unit type code, a leaf like [tuniv] *)
+    destruct u; try done.
+  - (* tstar: the unit element: [le b bot] forces [b = bot] *)
     destruct u; try done.
 Qed.
 
@@ -589,7 +603,7 @@ Proof.
       apply le_bot_inv in LE. subst u'. done.
     + (* u = abs l *)
       move: ER1 => [Vl [Nl [a [WTa [Ea h]]]]].
-      destruct u' as [ | | | | | | l0 | | | | | ]; try done.
+      destruct u' as [ | | | | | | l0 | | | | | | ]; try done.
       (* only u' = abs l0 case remains *)
       cbn in Vu'.
       have Vl0 : valid_fun l0 by move/andP : Vu' => [? _].
@@ -659,7 +673,7 @@ Proof.
 
   - (* ncase *)
     destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
-    destruct w as [ | | | | v | | | | | | | ]; try contradiction.
+    destruct w as [ | | | | v | | | | | | | | ]; try contradiction.
     + (* bot: branch [valid u /\ le u bot] descends to [valid u' /\ le u' bot] *)
       move: Hb => [_ Lub]. split; [ exact Vu' | ].
       have Vb : valid bot by done.
@@ -676,11 +690,11 @@ Proof.
 
   - (* tpi A B *)
 
-    destruct u as [ | | | | | a f | | | | | | ]; try done.
+    destruct u as [ | | | | | a f | | | | | | | ]; try done.
     + (* u = bot, u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
     + (* u = tpi a f *)
-      destruct u' as [ | | | | | a' f' | | | | | | ]; try done.
+      destruct u' as [ | | | | | a' f' | | | | | | | ]; try done.
       (* only u' = tpi a' f' case *)
       move: ER1 => [Va [Vf [evA [a0 [evA0 body1]]]]].
       cbn in Vu'.
@@ -723,10 +737,10 @@ Proof.
         [ exact Vρ | apply valid_singleton; [ exact Vq | exact Vw' ]
         | exact Hst | apply le_singleton_val; [ exact Vq | exact Vw' | exact Lw ] ].
   - (* tid: componentwise, as for [tpi] but with no function table *)
-    destruct u as [ | | | | | | | t v w | | | | ]; try done.
+    destruct u as [ | | | | | | | t v w | | | | | ]; try done.
     + (* u = bot, so u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | t' v' w' | | | | ]; try done.
+    + destruct u' as [ | | | | | | | t' v' w' | | | | | ]; try done.
       move: ER1 => [_ [EA [E0 E1]]].
       autorewrite with le in LE.
       move: LE => /andP. move=> [LE12 LEw]. move: LE12 => /andP. move=> [LEt LEv].
@@ -736,14 +750,14 @@ Proof.
       split; [ eapply IHM1; eauto | ].
       split; [ eapply IHM2; eauto | eapply IHM3; eauto ].
   - (* rfl: the witness descends *)
-    destruct u as [ | | | | | | | | w | | | ]; try done.
+    destruct u as [ | | | | | | | | w | | | | ]; try done.
     + apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | | w' | | | ]; try done.
+    + destruct u' as [ | | | | | | | | w' | | | | ]; try done.
       autorewrite with le in LE. eapply IHM; eauto.
   - (* jcase: as for [ncase]; the proof branch is an [app] edge, which is
        monotone in the value it records *)
     destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
-    destruct w as [ | | | | | | | | v | | | ]; try contradiction.
+    destruct w as [ | | | | | | | | v | | | | ]; try contradiction.
     + move: Hb => [_ Lub]. split; [ exact Vu' | ].
       have Vb : valid bot by done.
       eapply le_trans; [ exact Vu' | exact Vu1 | exact Vb | exact LE | exact Lub ].
@@ -758,10 +772,10 @@ Proof.
           [ exact Vρ | apply valid_singleton; [ exact Vv | exact Vu' ]
           | exact Hb | apply le_singleton_val; [ exact Vv | exact Vu' | exact LE ] ].
   - (* tsig A B: the [tpi] argument verbatim, with [le_sig] for [le_tpi] *)
-    destruct u as [ | | | | | | | | | a f | | ]; try done.
+    destruct u as [ | | | | | | | | | a f | | | ]; try done.
     + (* u = bot, u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | | | a' f' | | ]; try done.
+    + destruct u' as [ | | | | | | | | | a' f' | | | ]; try done.
       move: ER1 => [Va [Vf [evA [a0 [evA0 body1]]]]].
       cbn in Vu'.
       move: Vu' => /andP. move=> [Va' Vf'].
@@ -783,9 +797,9 @@ Proof.
       eapply valid_cons. eapply wt_valid_tm. eauto. eauto.
       rewrite -APP. eapply (@valid_app f' u); eauto.
   - (* mkpair M1 M2: componentwise, as [tid] *)
-    destruct u as [ | | | | | | | | | | x y | ]; try done.
+    destruct u as [ | | | | | | | | | | x y | | ]; try done.
     + apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | | | | x' y' | ]; try done.
+    + destruct u' as [ | | | | | | | | | | x' y' | | ]; try done.
       move: ER1 => [_ [E1 E2]].
       autorewrite with le in LE.
       move: LE => /andP. move=> [Lx Ly].
@@ -830,6 +844,12 @@ Proof.
            | exact H
            | apply le_mkpair_intro; [ exact (le_refl Vx) | exact LE ] ].
   - (* tprop: a code leaf, like [tuniv] *)
+    have Vt: valid tuniv by done.
+    eapply (le_trans (v := u)); eauto.
+  - (* tunit: the unit type code, a leaf like [tuniv] *)
+    have Vt: valid tuniv by done.
+    eapply (le_trans (v := u)); eauto.
+  - (* tstar: the unit element: [le b bot] forces [b = bot] *)
     have Vt: valid tuniv by done.
     eapply (le_trans (v := u)); eauto.
 Qed.
@@ -1194,7 +1214,7 @@ Proof.
     move: H1 => [wa [EMa Hba]].
     move: H2 => [wb [EMb Hbb]].
     move: (IHM1 _ _ _ Vρ EMa EMb) => [Cw hlubw].
-    destruct wa as [ | | | | va | | | | | | | ], wb as [ | | | | vb | | | | | | | ];
+    destruct wa as [ | | | | va | | | | | | | | ], wb as [ | | | | vb | | | | | | | | ];
       cbn in Hba, Hbb, Cw; try contradiction; try done.
     + (* bot, bot *)
       move: Hba => [_ La]; move: Hbb => [_ Lb].
@@ -1341,8 +1361,8 @@ Proof.
     move=> c LUB. subst c. exists k. exact Hk.
   - (* tid: componentwise, like [tpi] but with no function table *)
     move=> H1 H2.
-    destruct a as [ | | | | | | | ta ua wa | | | | ]; try done;
-      destruct b as [ | | | | | | | tb ub wb | | | | ]; try done.
+    destruct a as [ | | | | | | | ta ua wa | | | | | ]; try done;
+      destruct b as [ | | | | | | | tb ub wb | | | | | ]; try done.
     + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
     + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
     + split; [ apply compatible_bot
@@ -1369,8 +1389,8 @@ Proof.
         split; [ exact (hlu _ erefl) | exact (hlw _ erefl) ].
   - (* rfl: the witnesses join *)
     move=> H1 H2.
-    destruct a as [ | | | | | | | | wa | | | ]; try done;
-      destruct b as [ | | | | | | | | wb | | | ]; try done.
+    destruct a as [ | | | | | | | | wa | | | | ]; try done;
+      destruct b as [ | | | | | | | | wb | | | | ]; try done.
     + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
     + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
     + split; [ apply compatible_bot
@@ -1386,7 +1406,7 @@ Proof.
     move: H1 => [wa [EMa Hba]].
     move: H2 => [wb [EMb Hbb]].
     move: (IHM3 _ _ _ Vρ EMa EMb) => [Cw hlubw].
-    destruct wa as [ | | | | | | | | va | | | ], wb as [ | | | | | | | | vb | | | ];
+    destruct wa as [ | | | | | | | | va | | | | ], wb as [ | | | | | | | | vb | | | | ];
       cbn in Hba, Hbb, Cw; try contradiction; try done.
     + (* bot, bot *)
       move: Hba => [_ La]; move: Hbb => [_ Lb].
@@ -1479,8 +1499,8 @@ Proof.
   - (* mkpair: componentwise, like [tid].  The join's "not both bot" conjunct
        is exactly [lub_pair_nonbot]. *)
     move=> H1 H2.
-    destruct a as [ | | | | | | | | | | xa ya | ]; try done;
-      destruct b as [ | | | | | | | | | | xb yb | ]; try done.
+    destruct a as [ | | | | | | | | | | xa ya | | ]; try done;
+      destruct b as [ | | | | | | | | | | xb yb | | ]; try done.
     + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
     + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
     + split; [ apply compatible_bot
@@ -1550,6 +1570,18 @@ Proof.
              = mkpair (lub xa xb) (lub a b) by (cbn; reflexivity).
     exists (lub xa xb). exact (hlp _ E).
   - (* tprop: a code leaf, like [tuniv] *)
+    move=> L1 L2.
+    destruct a; try done; destruct b; try done.
+    all: cbn.
+    all: split; auto.
+    all: move=> c h; inversion h; subst c; done.
+  - (* tunit: the unit type code, a leaf like [tuniv] *)
+    move=> L1 L2.
+    destruct a; try done; destruct b; try done.
+    all: cbn.
+    all: split; auto.
+    all: move=> c h; inversion h; subst c; done.
+  - (* tstar: the unit element: [le b bot] forces [b = bot] *)
     move=> L1 L2.
     destruct a; try done; destruct b; try done.
     all: cbn.

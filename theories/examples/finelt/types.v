@@ -174,7 +174,15 @@ Inductive wt : elt -> elt -> Prop :=
     (forall ui vi, In (ui, vi) g -> wt ui a) ->
     (forall ui vi, In (ui, vi) g -> wt vi tprop) ->
     valid (tpi a g) ->
-    wt (tpi a g) tprop.
+    wt (tpi a g) tprop
+
+  (* Unit ([unit_extension_plan.md]): the unit type's code inhabits [tuniv].
+     Deliberately NO companion rule putting anything INTO [tunit] -- [wt_bot]
+     is the only rule with a variable type index, so [bot] is the sole member
+     of [tunit] ([wt_unit_bot] below).  That is what makes eta for unit hold:
+     [Val]/[EqVal] at a [bot] element code are already total. *)
+  | wt_tunit :
+    wt tunit tuniv.
 
 (** * Validity *)
 
@@ -203,7 +211,7 @@ Proof. move=> h. inversion h. done. Qed.
     single universe.) *)
 Lemma wt_ty_tuniv u a : wt u a -> wt a tuniv.
 Proof.
-  induction 1; eauto using wt_tuniv, wt_tnat, wt_tpi, wt_tprop.
+  induction 1; eauto using wt_tuniv, wt_tnat, wt_tpi, wt_tprop, wt_tunit.
 Qed.
 
 (** ** Inversion lemmas *)
@@ -597,6 +605,9 @@ Proof.
          moves -- [tprop] is [le]-maximal among its own approximants *)
       apply le_tprop_inv in LE. subst.
       eapply wt_tpi_prop; eauto.
+    + (* wt_tunit: a type code, so [b] is [tuniv] and nothing moves *)
+      apply le_tuniv_inv in LE. subst.
+      eapply wt_tunit.
   - (* If u : a and v : a, then lub u v : a. *)
     move=> u a h v RK Cav WTv.
     have WTa: wt a tuniv. eapply wt_ty_tuniv; eauto.
@@ -949,6 +960,13 @@ Proof.
   move=> h. eapply (@wt_prop_univ_rec (S (rk v)) v); [ lia | exact h ].
 Qed.
 
+(** The unit fragment's payload, and the reason eta for unit is free: nothing
+    but [bot] inhabits [tunit].  Unlike [wt_prop_bot] this needs no recursion
+    at all -- [wt_bot] is the only [wt] rule whose conclusion has a *variable*
+    type index, so it is the only rule that can conclude [wt _ tunit]. *)
+Lemma wt_unit_bot u : wt u tunit -> u = bot.
+Proof. move=> h. dependent destruction h. reflexivity. Qed.
+
 Lemma wt_prop_bot u a : wt u a -> wt a tprop -> u = bot.
 Proof.
   move=> h1 h2.
@@ -976,7 +994,7 @@ Proof.
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
     (* Extract per-entry typing info from WT *)
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | ]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | | ]; subst.
     (* app f u is itself a type *)
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
@@ -1026,7 +1044,7 @@ Proof.
     have Vt : valid (app f u) by eapply (app_tpi_valid Vtpi Vu).
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | ]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | | ]; subst.
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
     have WTr' : wt (app w' u) (app f u).

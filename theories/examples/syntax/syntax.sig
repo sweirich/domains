@@ -30,3 +30,10 @@ psnd    : Tm -> Tm
 -- Pi-into-Prop, and proof irrelevance) and in wt, where a type whose code is a
 -- member of tprop has only bot as a member (wt_prop_bot).
 tprop   : Tm
+
+-- Unit fragment (unit_extension_plan.md).  Both binder-free leaves: tunit is
+-- the type, tstar its element.  star has no informative realizer -- bot is the
+-- only member of the code tunit (wt_unit_bot) -- which is exactly what makes
+-- eta for unit (c_unit_eta) hold.
+tunit   : Tm
+tstar   : Tm

@@ -751,7 +751,7 @@ Lemma InvTyp_Pi_gen {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
 Proof.
   move=> TA TB IHA IHB ρ Fρ u Eu.
   have Vρ : valid_env ρ by eauto with valid.
-  destruct u as [ | | | | u0 | b l | f0 | | | | | ]; try solve [cbn in Eu; done].
+  destruct u as [ | | | | u0 | b l | f0 | | | | | | ]; try solve [cbn in Eu; done].
   { (* u = bot *) apply Typed_bot. }
   (* u = tpi b l *)
   cbn in Eu.
@@ -913,7 +913,7 @@ Proof.
   apply le_abs_inv in LEvM. destruct LEvM as [g [E LFg]]. subst vM.
   move: LFg. rewrite le_fun_cons le_fun_nil andbT => LEug.   (* LEug : le u (app g w) *)
   (* the semantic type [avM] must be a [tpi] *)
-  destruct avM as [ | | | | | a f | | | | | | ];
+  destruct avM as [ | | | | | a f | | | | | | | ];
     try solve [ cbn in EAvM; done
               | (move: (wt_bot_inv WTvM); discriminate) ].
   destruct EAvM as [Va [Vfun_f [EAa [a' [EAa' EBfun]]]]].
@@ -1263,12 +1263,12 @@ Proof.
     { destruct u; try done; apply EvalRel_bot. }
     have Vu : valid u := EvalRel_valid E.
     move: (iP ρ Fρ u E) => [v [c [hwc [Luv [EPv ETc]]]]].
-    destruct c as [ | | | | | b f | | | | | | ]; try solve [ cbn in ETc; done ].
+    destruct c as [ | | | | | b f | | | | | | | ]; try solve [ cbn in ETc; done ].
     - (* c = bot ⇒ v = bot ⇒ u = bot, contradiction *)
       have Ev := wt_bot_inv hwc. subst v.
       move: Luv => /le_bot_inv Eu. subst u. by rewrite /= in Hu.
     - (* c = tpi b f *)
-      destruct v as [ | | | | | | g | | | | | ]; try solve [ exfalso; clear -hwc; inversion hwc ].
+      destruct v as [ | | | | | | g | | | | | | ]; try solve [ exfalso; clear -hwc; inversion hwc ].
       + (* v = bot ⇒ u = bot *) move: Luv => /le_bot_inv Eu. subst u. by rewrite /= in Hu.
       + (* v = abs g *)
         have Vabsg : valid (abs g) := wt_valid_tm hwc.
@@ -1438,7 +1438,7 @@ Proof.
     - move=> ρ' Fρ'. exact (proj1 (ihB ρ' Fρ')). }
   (* forward EvalRel: [tpi A0 B0] → [tpi A1 B1] *)
   have fwd : forall u, EvalRel (Core.tpi A0 B0) ρ u -> EvalRel (Core.tpi A1 B1) ρ u.
-  { move=> u E. destruct u as [ | | | | | a g | | | | | | ];
+  { move=> u E. destruct u as [ | | | | | a g | | | | | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     move: (EvalRel_tpi_inv E) => [Va [Vg [EA0a [a' [EA0a' Hbody]]]]].
     apply EvalRel_tpi_intro.
@@ -1452,7 +1452,7 @@ Proof.
     exact (proj1 (proj2 (proj2 (ihB (x .: ρ) FE))) v' EB0). }
   (* backward EvalRel: [tpi A1 B1] → [tpi A0 B0] *)
   have bwd : forall u, EvalRel (Core.tpi A1 B1) ρ u -> EvalRel (Core.tpi A0 B0) ρ u.
-  { move=> u E. destruct u as [ | | | | | a g | | | | | | ];
+  { move=> u E. destruct u as [ | | | | | a g | | | | | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     move: (EvalRel_tpi_inv E) => [Va [Vg [EA1a [a' [EA1a' Hbody]]]]].
     have EA0a : EvalRel A0 ρ a := bwdA a EA1a.
@@ -1513,7 +1513,7 @@ Proof.
       | (move=> ρ' Fρ'; exact (proj1 (ihM ρ' Fρ')))
       | exact Fρ ]. }
   have fwd : forall u, EvalRel (Core.abs A M) ρ u -> EvalRel (Core.abs A' M') ρ u.
-  { move=> u E. destruct u as [ | | | | | | g | | | | | ];
+  { move=> u E. destruct u as [ | | | | | | g | | | | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     move: (EvalRel_abs_inv E) => [Vg [Nnil [a [Wa [EAa Hbody]]]]].
     apply EvalRel_abs_intro.
@@ -1526,7 +1526,7 @@ Proof.
     exists x, WTx. split; [ exact LExu' | ].
     exact (proj1 (proj2 (proj2 (ihM (x .: ρ) FE))) v' EM0). }
   have bwd : forall u, EvalRel (Core.abs A' M') ρ u -> EvalRel (Core.abs A M) ρ u.
-  { move=> u E. destruct u as [ | | | | | | g | | | | | ];
+  { move=> u E. destruct u as [ | | | | | | g | | | | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     move: (EvalRel_abs_inv E) => [Vg [Nnil [a [Wa [EA'a Hbody]]]]].
     have EAa : EvalRel A ρ a := bwdA a EA'a.
@@ -1570,7 +1570,7 @@ Proof.
     - (* wt_bot *) destruct u'; cbn in L; try done; apply wt_bot, wt_tnat.
     - (* wt_zero *) destruct u'; cbn in L; try done;
         [ apply wt_bot, wt_tnat | apply wt_zero ].
-    - (* wt_succ *) destruct u' as [ | | | | w | | | | | | | ]; cbn in L; try done.
+    - (* wt_succ *) destruct u' as [ | | | | w | | | | | | | | ]; cbn in L; try done.
       + apply wt_bot, wt_tnat.
       + rewrite le_succ in L. apply wt_succ. exact (IHh Ea w L). }
   move=> v h u L. exact (gen v tnat h eq_refl u L).
@@ -1633,7 +1633,7 @@ Proof.
   have Vρ : valid_env ρ := fits_valid_env Fρ.
   move=> u Eu.
   move: Eu => [w [EM Hb]].
-  destruct w as [ | | | | vp | | | | | | | ]; cbn in Hb; try contradiction.
+  destruct w as [ | | | | vp | | | | | | | | ]; cbn in Hb; try contradiction.
   - (* the scrutinee is [bot], hence so is the result *)
     move: Hb => [_ Lu]. apply le_bot_inv in Lu; subst u. apply Typed_bot.
   - (* the scrutinee is [zero]: bridge [T[zero..]] to [T[M..]] *)
@@ -1782,7 +1782,7 @@ Lemma InvTyp_Id {n} (Γ : Ctx n) (A a b : Tm n) ρ :
 Proof.
   move=> Fρ IHA IHa IHb u Eu.
   have Vρ : valid_env ρ := fits_valid_env Fρ.
-  destruct u as [ | | | | | | | t v w | | | | ]; try solve [ cbn in Eu; done ].
+  destruct u as [ | | | | | | | t v w | | | | | ]; try solve [ cbn in Eu; done ].
   { (* u = bot *) apply Typed_bot. }
   cbn in Eu. move: Eu => [Vtvw [EAt [Eav Ebw]]].
   (* enlarge each of the three components to a typed one *)
@@ -1870,7 +1870,7 @@ Lemma InvTyp_Ref_gen {n} (Γ : Ctx n) (A a a' : Tm n) ρ :
   InvTyped Γ (Core.rfl a') (Core.tid A a a) ρ.
 Proof.
   move=> Fρ IHA IHa' tr u Eu.
-  destruct u as [ | | | | | | | | w | | | ]; try solve [ cbn in Eu; done ].
+  destruct u as [ | | | | | | | | w | | | | ]; try solve [ cbn in Eu; done ].
   { apply Typed_bot. }
   cbn in Eu.
   move: (IHa' _ Eu) => [w1 [d1 [WTw1 [LEw [Ea'w1 EAd1]]]]].
@@ -1918,11 +1918,11 @@ Proof.
   split.
   { eapply InvTyp_Id; [ exact Fρ | exact iA' | exact ia'' | exact ib'' ]. }
   split.
-  - move=> u. destruct u as [ | | | | | | | t v w | | | | ]; try solve [ cbn; done ].
+  - move=> u. destruct u as [ | | | | | | | t v w | | | | | ]; try solve [ cbn; done ].
     cbn. move=> [V [Et [Ev Ew]]].
     split; [ exact V | ].
     split; [ exact (fwdA _ Et) | split; [ exact (fwda _ Ev) | exact (fwdb _ Ew) ] ].
-  - move=> u. destruct u as [ | | | | | | | t v w | | | | ]; try solve [ cbn; done ].
+  - move=> u. destruct u as [ | | | | | | | t v w | | | | | ]; try solve [ cbn; done ].
     cbn. move=> [V [Et [Ev Ew]]].
     split; [ exact V | ].
     split; [ exact (bwdA _ Et) | split; [ exact (bwda _ Ev) | exact (bwdb _ Ew) ] ].
@@ -1940,9 +1940,9 @@ Proof.
   split.
   { eapply InvTyp_Ref_gen; [ exact Fρ | exact iA | exact ia' | exact bwda ]. }
   split.
-  - move=> u. destruct u as [ | | | | | | | | w | | | ]; try solve [ cbn; done ].
+  - move=> u. destruct u as [ | | | | | | | | w | | | | ]; try solve [ cbn; done ].
     cbn. exact (fwda w).
-  - move=> u. destruct u as [ | | | | | | | | w | | | ]; try solve [ cbn; done ].
+  - move=> u. destruct u as [ | | | | | | | | w | | | | ]; try solve [ cbn; done ].
     cbn. exact (bwda w).
 Qed.
 
@@ -1986,7 +1986,7 @@ Proof.
   { destruct u; cbn in Bu; try discriminate. apply Typed_bot. }
   (* the scrutinee's value: a genuine proof [rfl w'], else [u] is [bot] *)
   cbn [EvalRel] in Eu. move: Eu => [wp [Ep Ebr]].
-  destruct wp as [ | | | | | | | | w' | | | ]; try done.
+  destruct wp as [ | | | | | | | | w' | | | | ]; try done.
   { (* the proof is [bot], so [u] is too *)
     move: Ebr => [_ /le_bot_inv Eu]. subst u. by rewrite /= in Bu. }
   have Vrfl : valid (rfl w') := EvalRel_valid Ep.
@@ -1998,7 +1998,7 @@ Proof.
   apply le_abs_inv in LEd. destruct LEd as [g [E LFg]]. subst vd.
   move: LFg. rewrite le_fun_cons le_fun_nil andbT => LEug.
   rewrite /base_ty in EAd. cbn [EvalRel] in EAd.
-  destruct ad as [ | | | | | ta fa | | | | | | ];
+  destruct ad as [ | | | | | ta fa | | | | | | | ];
     try solve [ cbn in EAd; done | (move: (wt_bot_inv WTd); discriminate) ].
   destruct EAd as [Vta [Vfa [EAta [ta' [EAta' EBfun]]]]].
   have WTres : wt (app g w') (app fa w')
@@ -2044,7 +2044,7 @@ Proof.
        endpoint codes, so [a] and [b] both evaluate it *)
     destruct (Invp _ Ep) as [pv [ap [WTp [LEp [Epp EAp]]]]].
     move: (le_rfl_inv LEp) => [w'' [Epv Lw'w'']]. subst pv.
-    destruct ap as [ | | | | | | | tp up vp | | | | ];
+    destruct ap as [ | | | | | | | tp up vp | | | | | ];
       try solve [ cbn in EAp; done | (move: (wt_bot_inv WTp); discriminate) ].
     move: EAp => [_ [_ [EAa EAb]]].
     have Vw'' : valid w'' by (move: (EvalRel_valid Epp); cbn; done).
@@ -2119,7 +2119,7 @@ Proof.
      exactly the [app] clause, with the [rfl]-wrapper stripped *)
   split.
   - move=> u Eu. cbn [EvalRel] in Eu. move: Eu => [w [Ew Ebr]].
-    destruct w as [ | | | | | | | | w' | | | ]; try solve [ destruct Ebr ].
+    destruct w as [ | | | | | | | | w' | | | | ]; try solve [ destruct Ebr ].
     { (* the proof takes [bot], so [u] does too *)
       move: Ebr => [_ /le_bot_inv Eu]. subst u. apply EvalRel_bot. }
     cbn [EvalRel]. destruct (is_bot u) eqn:Bu; [ done | ].
@@ -2159,11 +2159,11 @@ Proof.
   split.
   - move=> u. cbn [EvalRel]. move=> [w [Ew Ebr]]. exists w.
     split; [ exact (fwdp _ Ew) | ].
-    destruct w as [ | | | | | | | | w' | | | ]; try solve [ exact Ebr | destruct Ebr ].
+    destruct w as [ | | | | | | | | w' | | | | ]; try solve [ exact Ebr | destruct Ebr ].
     exact (fwdd _ Ebr).
   - move=> u. cbn [EvalRel]. move=> [w [Ew Ebr]]. exists w.
     split; [ exact (bwdp _ Ew) | ].
-    destruct w as [ | | | | | | | | w' | | | ]; try solve [ exact Ebr | destruct Ebr ].
+    destruct w as [ | | | | | | | | w' | | | | ]; try solve [ exact Ebr | destruct Ebr ].
     exact (bwdd _ Ebr).
 Qed.
 
@@ -2191,7 +2191,7 @@ Lemma InvTyp_Sigma {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
   Γ ⊨ (Core.tsig A B) ∈ Core.tuniv.
 Proof.
   move=> TA TB IHA IHB ρ Fρ u Eu.
-  destruct u as [ | | | | | | | | | b l | | ]; try solve [cbn in Eu; done].
+  destruct u as [ | | | | | | | | | b l | | | ]; try solve [cbn in Eu; done].
   { (* u = bot *) apply Typed_bot. }
   have Eu' : EvalRel (Core.tpi A B) ρ (tpi b l) by (cbn in Eu |- *; exact Eu).
   destruct (@InvTyp_Pi n Γ A B TA TB IHA IHB ρ Fρ _ Eu')
@@ -2265,7 +2265,7 @@ Proof.
   destruct (le_mkpair_inv LE) as [v1 [v2 [Ev [LE1 LE2]]]]. subst v.
   (* the semantic type must be a Sigma code: every other shape makes
      [EvalRel (tsig A B) ρ a] false, and [bot] contradicts [wt_bot_inv] *)
-  destruct a as [ | | | | | | | | | a0 g | | ];
+  destruct a as [ | | | | | | | | | a0 g | | | ];
     try solve [ cbn in EAa; done
               | (move: (wt_bot_inv WTva); discriminate) ].
   destruct EAa as [Va0 [Vg [EAa0 [a' [EAa' EBfun]]]]].
@@ -2330,7 +2330,7 @@ Proof.
   have NBmono : forall p q, le p q -> is_bot p = false -> is_bot q = false.
   { move=> p q L Hp. destruct q; try reflexivity.
     move: L => /le_bot_inv Ep. subst p. done. }
-  destruct u as [ | | | | | | | | | | x y | ]; try solve [cbn in Eu; done].
+  destruct u as [ | | | | | | | | | | x y | | ]; try solve [cbn in Eu; done].
   { (* u = bot *) apply Typed_bot. }
   cbn in Eu. destruct Eu as [Vxy [EMx ENy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
@@ -2500,7 +2500,7 @@ Lemma EvalRel_mkpair_mono {n} (M M' N N' : Tm n) ρ :
   forall u, EvalRel (Core.mkpair M N) ρ u -> EvalRel (Core.mkpair M' N') ρ u.
 Proof.
   move=> hM hN u E.
-  destruct u as [ | | | | | | | | | | x y | ];
+  destruct u as [ | | | | | | | | | | x y | | ];
     try solve [ cbn in E; done | apply EvalRel_bot ].
   cbn [EvalRel] in E |- *. move: E => [V [EM EN]].
   split; [ exact V | split; [ exact (hM _ EM) | exact (hN _ EN) ] ].
@@ -2545,12 +2545,12 @@ Proof.
     => [_ [_ [fwdP bwdP]]].
   have fwd : forall u, EvalRel (Core.tsig A0 B0) ρ u
                     -> EvalRel (Core.tsig A1 B1) ρ u.
-  { move=> u E. destruct u as [ | | | | | | | | | a g | | ];
+  { move=> u E. destruct u as [ | | | | | | | | | a g | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     apply EvalRel_tpi_tsig. apply fwdP. exact (EvalRel_tsig_tpi E). }
   have bwd : forall u, EvalRel (Core.tsig A1 B1) ρ u
                     -> EvalRel (Core.tsig A0 B0) ρ u.
-  { move=> u E. destruct u as [ | | | | | | | | | a g | | ];
+  { move=> u E. destruct u as [ | | | | | | | | | a g | | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     apply EvalRel_tpi_tsig. apply bwdP. exact (EvalRel_tsig_tpi E). }
   have iTsig0 : InvTyped Γ (Core.tsig A0 B0) Core.tuniv ρ.
@@ -2722,7 +2722,7 @@ Proof.
   - exact iM.
   - (* forward *)
     move=> u E.
-    destruct u as [ | | | | | | | | | | x y | ];
+    destruct u as [ | | | | | | | | | | x y | | ];
       try solve [ cbn in E; done | apply EvalRel_bot ].
     cbn [EvalRel] in E. move: E => [V [EF ES]].
     have Vx : valid x by (eapply valid_mkpair1; exact V).
@@ -2768,7 +2768,7 @@ Proof.
     move=> u E.
     have Shape : is_bot u = true \/ exists x y, u = mkpair x y.
     { move: (iM u E) => [v [a [h [Luv [Ev Ea]]]]].
-      destruct a as [ | | | | | | | | | a0 g | | ];
+      destruct a as [ | | | | | | | | | a0 g | | | ];
         try solve [ cbn in Ea; done
                   | (left; move: (wt_bot_inv h) => Ev'; subst v;
                      move: Luv => /le_bot_inv Eu; subst u; reflexivity) ].
@@ -2864,6 +2864,41 @@ Proof.
   split; [ exact iM | split; [ exact iN | split ] ].
   - move=> u E. rewrite (InvTyped_prop_bot iA iM E). apply EvalRel_bot.
   - move=> u E. rewrite (InvTyped_prop_bot iA iN E). apply EvalRel_bot.
+Qed.
+
+(* =====================================================================
+   The unit fragment ([unit_extension_plan.md]).
+
+   [bot] is the only member of the code [tunit] ([wt_unit_bot]), so every
+   approximation of a term at [Unit] is [bot] -- which is proof irrelevance's
+   argument with the recursion deleted, and makes eta ([c_unit_eta]) hold.
+   ===================================================================== *)
+
+Lemma InvTyped_unit_bot {n} (Γ : Ctx n) (M : Tm n) ρ :
+  InvTyped Γ M Core.tunit ρ -> forall u, EvalRel M ρ u -> u = bot.
+Proof.
+  move=> iM u E.
+  move: (iM u E) => [v [a [WTva [Luv [_ EAa]]]]].
+  cbn in EAa.
+  have Ev : v = bot.
+  { case: (le_tunit_inv_r _ EAa) => E2; subst a.
+    - exact (wt_bot_inv WTva).
+    - exact (wt_unit_bot WTva). }
+  rewrite Ev in Luv. exact (le_bot_inv _ Luv).
+Qed.
+
+(** Eta for unit ([c_unit_eta]): both sides' only approximation is [bot], where
+    [EvalRel] is total ([EvalRel_bot]).  [InvConv_prop_irrel] with the
+    recursion deleted. *)
+Lemma InvConv_unit_eta {n} (Γ : Ctx n) (M N : Tm n) ρ :
+  InvTyped Γ M Core.tunit ρ ->
+  InvTyped Γ N Core.tunit ρ ->
+  InvConv Γ M N Core.tunit ρ.
+Proof.
+  move=> iM iN.
+  split; [ exact iM | split; [ exact iN | split ] ].
+  - move=> u E. rewrite (InvTyped_unit_bot iM E). apply EvalRel_bot.
+  - move=> u E. rewrite (InvTyped_unit_bot iN E). apply EvalRel_bot.
 Qed.
 
 (** The Pi congruence at the second sort ([c_tpi_prop] / Agda [conv-Pi-Prop]).
@@ -3038,6 +3073,13 @@ Proof.
     + (* t_tpi_prop: Pi-formation at the second sort *)
       move: ρ Fρ.
       eapply InvTyp_Pi_prop; eauto.
+    + (* t_unit: Unit : U -- the [t_univ] case *)
+      move=> u Eu. cbn in Eu.
+      exists tunit, tuniv, wt_tunit.
+      repeat split; cbn; auto.
+    + (* t_star: star : Unit.  [EvalRel star ρ u] forces [u = bot]. *)
+      move=> u Eu. cbn in Eu.
+      move: (le_bot_inv _ Eu) => ->. apply Typed_bot.
   - destruct h as
       [ ?n ?Γ ?M ?N ?A ?B hMNA hAB
       | ?n ?Γ ?M ?A hM
@@ -3070,7 +3112,8 @@ Proof.
       | ?n ?Γ ?A ?B ?M ?M' TAcs TBcs cMcs
       | ?n ?Γ ?M ?N ?A hApr hMpr hNpr
       | ?n ?Γ ?M ?N hMNpr
-      | ?n ?Γ ?A0 ?A1 ?B0 ?B1 TA0p TA1p TB0p TB1p cAp cBp ].
+      | ?n ?Γ ?A0 ?A1 ?B0 ?B1 TA0p TA1p TB0p TB1p cAp cBp
+      | ?n ?Γ ?M ?N hMun hNun ].
     all: move=> ρ Fρ.
     + (* c_conv: M = N : A, A = B : U_i ⟹ M = N : B *)
       move: ρ Fρ.
@@ -3117,7 +3160,7 @@ Proof.
           | exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ)
           | move=> ρ' Fρ'; exact (typing_EvalRel _ _ _ _ hM1 ρ' Fρ') ].
       * exact (typing_EvalRel _ _ _ _ hM0 ρ Fρ).
-      * move=> u [w [Ez Hb]]; destruct w as [ | | | | v | | | | | | | ];
+      * move=> u [w [Ez Hb]]; destruct w as [ | | | | v | | | | | | | | ];
           cbn in Ez, Hb; try done; try exact Hb.
         move: Hb => [_ Lu]. apply le_bot_inv in Lu. subst u. apply EvalRel_bot.
       * move=> u Hu. cbn. exists zero. split; [ cbn; apply le_refl; done | exact Hu ].
@@ -3138,7 +3181,7 @@ Proof.
         { destruct w; try done. move: Hb => [_ Lu].
           apply le_bot_inv in Lu; subst u. apply EvalRel_bot. }
         cbn in Ew. rewrite Bw in Ew. move: Ew => [Vw [a [Lwa ENa]]].
-        destruct w as [ | | | | vp | | | | | | | ]; try done.
+        destruct w as [ | | | | vp | | | | | | | | ]; try done.
         cbn in Hb. rewrite le_succ in Lwa.
         have Va : valid a := EvalRel_valid ENa.
         have Vvp : valid vp := Vw.
@@ -3187,7 +3230,7 @@ Proof.
       * (* forward: EvalRel (ncase M M0 M1) ρ u -> EvalRel (ncase M' M0' M1') ρ u *)
         move=> u [w [EM Hb]].
         have EMw' : EvalRel M' ρ w := fwdM w EM.
-        destruct w as [ | | | | vp | | | | | | | ]; cbn in Hb; try contradiction.
+        destruct w as [ | | | | vp | | | | | | | | ]; cbn in Hb; try contradiction.
         -- cbn; exists bot; split; [ exact EMw' | cbn; exact Hb ].
         -- cbn; exists zero; split; [ exact EMw' | cbn; exact (fwdM0 u Hb) ].
         -- move: (soundM _ EM) => [vv [aa [hwt [Lsv [_ Etn]]]]].
@@ -3202,7 +3245,7 @@ Proof.
       * (* backward: EvalRel (ncase M' M0' M1') ρ u -> EvalRel (ncase M M0 M1) ρ u *)
         move=> u [w [EM' Hb]].
         have EMw : EvalRel M ρ w := bwdM w EM'.
-        destruct w as [ | | | | vp | | | | | | | ]; cbn in Hb; try contradiction.
+        destruct w as [ | | | | vp | | | | | | | | ]; cbn in Hb; try contradiction.
         -- cbn; exists bot; split; [ exact EMw | cbn; exact Hb ].
         -- cbn; exists zero; split; [ exact EMw | cbn; exact (bwdM0 u Hb) ].
         -- move: (soundM' _ EM') => [vv [aa [hwt [Lsv [_ Etn]]]]].
@@ -3316,5 +3359,9 @@ Proof.
     + (* c_tpi_prop *)
       move: ρ Fρ.
       eapply InvConv_tpi_prop; eauto.
+    + (* c_unit_eta: eta for unit *)
+      eapply InvConv_unit_eta;
+        [ exact (typing_EvalRel _ _ _ _ hMun ρ Fρ)
+        | exact (typing_EvalRel _ _ _ _ hNun ρ Fρ) ].
 Qed.
 

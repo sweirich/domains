@@ -62,7 +62,12 @@ Inductive elt :=
      the second sort.  A leaf, like [tuniv] -- all its content is in [wt],
      where a type whose code is a member of [tprop] has only [bot] as a
      member ([wt_prop_bot]), which is what makes proof irrelevance hold. *)
-  | tprop  : elt.
+  | tprop  : elt
+  (* Unit fragment ([unit_extension_plan.md]): [tunit] is the code of the unit
+     TYPE.  There is deliberately NO element code -- [wt] adds nothing that
+     inhabits [tunit], so [bot] is its only member ([wt_unit_bot]), and that is
+     exactly what makes eta for unit hold. *)
+  | tunit  : elt.
 
 Definition is_bot (a : elt) :bool := 
   match a with 
@@ -114,6 +119,7 @@ Fixpoint rk (u : elt) : nat :=
   | tsig a f => 1 + (max (rk a) (_rk_fun rk f))
   | mkpair x y => 1 + (max (rk x) (rk y))
   | tprop => 1
+  | tunit => 1
   end.
 
 Notation rk_fun := (_rk_fun rk).
@@ -180,6 +186,7 @@ Fixpoint compatible u v {struct u} : bool :=
       (compatible a b) && (_compatible_fun compatible f g)
   | mkpair x y , mkpair x' y' => (compatible x x') && (compatible y y')
   | tprop , tprop => true
+  | tunit , tunit => true
   | _ , _ => false
   end.
 
@@ -226,6 +233,7 @@ Fixpoint lub (u v : elt) : elt :=
       else bot
   | mkpair x y, mkpair x' y' => mkpair (lub x x') (lub y y')
   | tprop, tprop => tprop
+  | tunit, tunit => tunit
   | _, _ => bot
   end.
 
@@ -239,8 +247,8 @@ Lemma rk_lub (u v : elt) : rk (lub u v) <= max (rk u) (rk v).
 Proof.
   induction u as [ | | | | u1 IHu1 | u1 IHu1 uf | uf
                  | u1 IHu1 u2 IHu2 u3 IHu3 | u1 IHu1
-                 | u1 IHu1 uf | u1 IHu1 u2 IHu2 | ] in v |- *;
-    destruct v as [ | | | | v1 | v1 vf | vf | v1 v2 v3 | v1 | v1 vf | v1 v2 | ];
+                 | u1 IHu1 uf | u1 IHu1 u2 IHu2 | | ] in v |- *;
+    destruct v as [ | | | | v1 | v1 vf | vf | v1 v2 v3 | v1 | v1 vf | v1 v2 | | ];
     cbn in * ; auto.
   all: try solve [lia].
   - specialize (IHu1 v1).
@@ -416,6 +424,7 @@ le (rfl w) (rfl w') := le w w' ;
 le (tsig a f) (tsig a' f') := (le a a') && (@_le_fun f f' (fun x x' _ => le x x')) ;
 le (mkpair x y) (mkpair x' y') := (le x x') && (le y y') ;
 le tprop tprop => true ;
+le tunit tunit => true ;
 le _ _ := false.
 Proof.
   all: cbn ; lia.
@@ -1347,6 +1356,7 @@ Definition le_inv_view (u u' : elt) : Type :=
   | mkpair x y => {x' & { y' &
       (u' = mkpair x' y') * ((le x x') * (le y y')) }}
   | tprop => u' = tprop
+  | tunit => u' = tunit
   end.
 
 Lemma le_inv u v : le u v -> le_inv_view u v.
@@ -2125,6 +2135,17 @@ Proof. by destruct u ; simp le. Qed.
 (* Dual: only [bot] and [tprop] itself sit below [tprop].  This is what makes
    "the type's code is below [tprop]" a two-case analysis in [wt_prop_bot]. *)
 Lemma le_tprop_inv_r u : le u tprop -> u = bot \/ u = tprop.
+Proof.
+  destruct u; simp le; try done; move=> _.
+  - left. reflexivity.
+  - right. reflexivity.
+Qed.
+
+(* [tunit], the unit type's code, is a leaf just like [tprop]. *)
+Lemma le_tunit_inv u : le tunit u -> u = tunit.
+Proof. by destruct u ; simp le. Qed.
+
+Lemma le_tunit_inv_r u : le u tunit -> u = bot \/ u = tunit.
 Proof.
   destruct u; simp le; try done; move=> _.
   - left. reflexivity.
