@@ -182,6 +182,23 @@ Inductive typing : forall {n} (Γ : Ctx n), Tm n -> Tm n -> Prop :=
     typing (ctx_extend Γ A) B tuniv ->
     typing Γ M (tsig A B) ->
     typing Γ (psnd M) B[(pfst M)..]
+
+  (* Prop fragment (Agda SigmaProp [ty-Prop]/[ty-Prop-U]/[ty-Pi-Prop]). *)
+  | t_prop n (Γ : Ctx n) :
+    ctx Γ ->
+    typing Γ tprop tuniv
+
+  (* Prop-to-U subtyping.  This is a second non-syntax-directed rule alongside
+     [t_conv], which is why the [typing_*_inv] family below has to offer the
+     second sort as an alternative. *)
+  | t_prop_u n (Γ : Ctx n) A :
+    typing Γ A tprop ->
+    typing Γ A tuniv
+
+  | t_tpi_prop n (Γ : Ctx n) A B :
+    typing Γ A tuniv ->
+    typing (ctx_extend Γ A) B tprop ->
+    typing Γ (tpi A B) tprop
 with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop := 
   | c_conv n (Γ : Ctx n) M N A B : 
     conv Γ M N A -> 
@@ -385,6 +402,33 @@ with conv :forall {n} (Γ : Ctx n), Tm n -> Tm n -> Tm n -> Prop :=
     typing (ctx_extend Γ A) B tuniv ->
     conv Γ M M' (tsig A B) ->
     conv Γ (psnd M) (psnd M') B[(pfst M)..]
+
+  (* Prop fragment (Agda SigmaProp [conv-Prop]/[conv-Prop-U]/[conv-Pi-Prop]).
+
+     [c_prop] is PROOF IRRELEVANCE: any two inhabitants of a [Prop] are
+     convertible.  Semantically it is free -- a type in [Prop] has only [bot]
+     as a member ([wt_prop_bot]), and the logical relation is already total at
+     a [bot] element code. *)
+  | c_prop n (Γ : Ctx n) M N A :
+    typing Γ A tprop ->
+    typing Γ M A ->
+    typing Γ N A ->
+    conv Γ M N A
+
+  (* Prop-to-U subtyping, on conversions *)
+  | c_prop_u n (Γ : Ctx n) M N :
+    conv Γ M N tprop ->
+    conv Γ M N tuniv
+
+  (* Π congruence at [Prop] (codomain in [Prop]) *)
+  | c_tpi_prop n (Γ : Ctx n) A0 A1 B0 B1 :
+    typing Γ A0 tuniv ->
+    typing Γ A1 tuniv ->
+    typing (ctx_extend Γ A0) B0 tprop ->
+    typing (ctx_extend Γ A1) B1 tprop ->
+    conv Γ A0 A1 tuniv ->
+    conv (ctx_extend Γ A0) B0 B1 tprop ->
+    conv Γ (tpi A0 B0) (tpi A1 B1) tprop
 with ctx : forall {n}, Ctx n -> Prop :=
   | c_empty : ctx ctx_empty
   | c_cons n (Γ : Ctx n) A : ctx Γ -> 
@@ -680,6 +724,17 @@ Proof.
       1: eapply (renaming_typing _ _ A tuniv _ _ δ); eauto.
       1: eapply (renaming_typing _ _ B tuniv _ _ (up_ren δ)); eauto.
       1: eapply (renaming_typing _ _ M (tsig A B) _ _ δ); eauto.
+    + (* t_prop_u: Prop-to-U subtyping commutes with renaming *)
+      eapply t_prop_u.
+      eapply renaming_typing with (A := tprop);
+        [ eassumption | eassumption | eassumption ].
+    + (* t_tpi_prop: the [t_tpi] case with the codomain at [tprop] *)
+      have EC0: ctx (Δ ++ A⟨δ⟩) by
+       eapply c_cons; eauto;
+       eapply renaming_typing with (A:= tuniv); eauto.
+      eapply t_tpi_prop.
+      1: eapply renaming_typing with (A:= tuniv); eauto.
+      1: eapply renaming_typing with (A:= tprop); eauto with renaming.
   - intros tR wtΔ.
     dependent destruction h; subst.
     all: try have EC: ctx (Δ ++ A ⟨δ⟩) by
@@ -910,6 +965,31 @@ Proof.
       1: eapply (renaming_typing _ _ A tuniv _ _ δ); eauto.
       1: eapply (renaming_typing _ _ B tuniv _ _ (up_ren δ)); eauto.
       1: eapply (renaming_conv _ _ M M' (tsig A B) _ _ δ); eauto.
+    + (* c_prop: proof irrelevance commutes with renaming.  Every recursive
+         call is on a hypothesis (a subterm of [h]); leaving the choice to
+         [eauto] lets it pick a non-subterm and the guard check then fails. *)
+      eapply c_prop.
+      1: eapply renaming_typing with (A := tprop);
+           [ eassumption | eassumption | eassumption ].
+      all: eapply renaming_typing; [ eassumption | eassumption | eassumption ].
+    + (* c_prop_u *)
+      eapply c_prop_u.
+      eapply renaming_conv with (A := tprop);
+        [ eassumption | eassumption | eassumption ].
+    + (* c_tpi_prop: the [c_tpi] case with the codomains at [tprop] *)
+      have EC0: ctx (Δ ++ A0⟨δ⟩) by
+       eapply c_cons; eauto;
+       eapply renaming_typing with (A:= tuniv); eauto.
+      have EC1: ctx (Δ ++ A1⟨δ⟩) by
+       eapply c_cons; eauto;
+       eapply renaming_typing with (A:= tuniv); eauto.
+      eapply (@c_tpi_prop _ Δ (A0⟨δ⟩) (A1⟨δ⟩) (B0⟨up_ren δ⟩) (B1⟨up_ren δ⟩)).
+      1: eapply (renaming_typing _ _ A0 tuniv _ _ δ); eauto.
+      1: eapply (renaming_typing _ _ A1 tuniv _ _ δ); eauto.
+      1: eapply (renaming_typing _ _ B0 tprop _ _ (up_ren δ)); eauto with renaming.
+      1: eapply (renaming_typing _ _ B1 tprop _ _ (up_ren δ)); eauto with renaming.
+      1: eapply (renaming_conv _ _ A0 A1 tuniv _ _ δ); eauto.
+      1: eapply (renaming_conv _ _ B0 B1 tprop _ _ (up_ren δ)); eauto with renaming.
 Qed.
 
 (* Weakening a type into an extended context. *)
@@ -990,6 +1070,21 @@ Proof.
   all: intros h tS tΔ.
   - dependent destruction h; subst.
     all: cbn; asimpl.
+    (* Dispatch the two Prop SORT rules here, before the [econstructor]
+       catch-all below can pick [t_prop_u] -- whose conclusion matches every
+       [_ ∈ tuniv] goal -- and then discharge its premise with an unguarded
+       recursive call, which breaks the fixpoint's guard check.  Both patterns
+       only fire when they are correct: [t_prop_u]'s needs a hypothesis typing
+       the goal's own subject at [tprop]. *)
+    all: try (match goal with
+              | [ |- _ ⊢e tprop ∈ tuniv ] => eapply t_prop; eassumption
+              end).
+    all: try (match goal with
+              | [ hh : _ ⊢e ?X ∈ tprop |- _ ⊢e _ ∈ tuniv ] =>
+                  eapply t_prop_u;
+                  eapply substitution_tm with (A := tprop);
+                    [ exact hh | eassumption | eassumption ]
+              end).
     all: try (have EC: ctx (Δ ++ A[σ]) by
           eapply c_cons; eauto;
           eapply substitution_tm with (A:= tuniv); eauto).
@@ -1070,6 +1165,12 @@ Proof.
       1: eapply (substitution_tm _ _ B tuniv _ _ (⇑ σ)); eauto.
       1: eapply (substitution_tm _ _ M (tsig A B) _ _ σ); eauto.
       1: asimpl; reflexivity.
+    + (* t_tpi_prop: the [t_tpi] case with the codomain at [tprop] *)
+      have TSl : typing_subst (Δ ++ A[σ]) (⇑ σ) (Γ ++ A)
+        := @typing_subst_lift m Δ n σ Γ A EC tS.
+      eapply (@t_tpi_prop _ Δ (A[σ]) (B[⇑ σ])).
+      1: eapply (substitution_tm _ _ A tuniv _ _ σ); eauto.
+      1: eapply (substitution_tm _ _ B tprop _ _ (⇑ σ)); eauto.
   - dependent destruction h; subst.
     all: try (have EC: ctx (Δ ++ A[σ]) by
        eapply c_cons; eauto;
@@ -1341,6 +1442,32 @@ Proof.
       1: eapply (substitution_tm _ _ B tuniv _ _ (⇑ σ)); eauto.
       1: eapply (substitution_conv _ _ M M' (tsig A B) _ _ σ); eauto.
       1: first [ asimpl; reflexivity | symmetry; apply subst1_subst_comm ].
+    + (* c_prop: proof irrelevance commutes with substitution *)
+      (* every recursive call is on a hypothesis (hence a subterm of [h]);
+         leaving it to [eauto] lets it pick a non-subterm and the fixpoint's
+         guard check then fails *)
+      eapply c_prop.
+      1: eapply substitution_tm with (A := tprop);
+           [ eassumption | eassumption | eassumption ].
+      all: eapply substitution_tm; [ eassumption | eassumption | eassumption ].
+    + (* c_prop_u *)
+      eapply c_prop_u.
+      eapply substitution_conv with (A := tprop); eauto.
+    + (* c_tpi_prop: the [c_tpi] case with the codomains at [tprop] *)
+      cbn.
+      have EC0: ctx (Δ ++ A0[σ]).
+      { eapply c_cons; eauto;
+        eapply substitution_tm with (A:= tuniv); eauto. }
+      have EC1: ctx (Δ ++ A1[σ]).
+      { eapply c_cons; eauto;
+        eapply substitution_tm with (A:= tuniv); eauto. }
+      eapply c_tpi_prop.
+      1: eapply substitution_tm with (A:= tuniv); eauto.
+      1: eapply substitution_tm with (A:= tuniv); eauto.
+      1: eapply substitution_tm with (A:= tprop); eauto with renaming.
+      1: eapply substitution_tm with (A:= tprop); eauto with renaming.
+      1: eapply substitution_conv with (A:= tuniv); eauto.
+      1: eapply substitution_conv with (A:= tprop); eauto with renaming.
 Qed.
 
 (* ----------- context conversion -------------- *)
@@ -1990,6 +2117,16 @@ Proof.
         | eapply (@t_pfst _ Γ A B M'); eauto
         | eapply (@t_pfst _ Γ A B M); eauto
         | apply c_sym; eapply (@c_pfst _ Γ A B M M'); eauto ].
+  (* [c_prop] (proof irrelevance) needs no bullet: its two typing premises
+     are literally the two goals, so the leading [eauto] closes both. *)
+  - (* c_prop_u, first side: lift along Prop-to-U subtyping *)
+    eapply t_prop_u; eassumption.
+  - (* c_prop_u, second side *)
+    eapply t_prop_u; eassumption.
+  - (* c_tpi_prop, first side *)
+    eapply t_tpi_prop; eassumption.
+  - (* c_tpi_prop, second side *)
+    eapply t_tpi_prop; eassumption.
 Qed.
 
 Lemma ctx_conv_typing {n} (Γ:Ctx n) A A' M B :
@@ -2018,40 +2155,62 @@ Qed.
 
 (** * inversion lemmas for typing *)
 
+(** With the second sort in play, the type an inversion lemma recovers is only
+    the term's principal type _up to the Prop-to-U subtyping rule_ [t_prop_u]:
+    a term typed at [tprop] can be retyped at [tuniv], and that step does not
+    go through a conversion.  So every inversion lemma whose principal type is
+    not [tuniv] concludes with a two-way alternative: either the principal type
+    is convertible to the given one, or the given one is [tuniv] (reached by
+    [t_prop_u]).  The second alternative is refuted downstream by the same
+    non-confusion facts as the first (see [adequacy.v]). *)
 Lemma typing_app_inv n (Γ : Ctx n) M N A : 
   Γ ⊢e app M N ∈ A -> 
-      exists A1 , exists A2, Γ ⊢e M ∈ tpi A1 A2 /\ Γ ⊢e N ∈ A1 /\ Γ ⊢e A2[N..] ≡ A ∈ tuniv.
+      exists A1 , exists A2, Γ ⊢e M ∈ tpi A1 A2 /\ Γ ⊢e N ∈ A1 /\
+        (Γ ⊢e A2[N..] ≡ A ∈ tuniv \/ Γ ⊢e tuniv ≡ A ∈ tuniv).
 Proof. 
   move=> h.
   dependent induction h.
   - specialize (IHh M N ltac:(eauto)).
     destruct IHh as [A1 [A2 [TM [TN CC]]]].
     exists A1. exists A2. repeat split; auto.
-    eapply c_trans; eauto.
+    destruct CC as [CC|CC]; [ left | right ]; eapply c_trans; eauto.
   - clear IHh1 IHh2 IHh3 IHh4.
     exists A. exists B. repeat split; auto.
+    left.
     eapply c_refl; eauto.
     eapply substitution_tm with (σ := N..) in h2. cbn in h2.
     eapply h2.
     eapply typing_subst_cons. asimpl. auto.
     eapply typing_subst_id. eapply typing_ctx; eauto.
     eapply typing_ctx; eauto.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    specialize (IHh M N ltac:(eauto)).
+    destruct IHh as [A1 [A2 [TM [TN _]]]].
+    exists A1. exists A2. repeat split; auto.
+    right. eapply c_refl. eapply t_univ. eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_abs_inv n (Γ : Ctx n) M A B: 
   Γ ⊢e abs A M ∈ B -> 
-      exists B2, Γ ++ A ⊢e M ∈ B2 /\ Γ ⊢e tpi A B2 ≡ B ∈ tuniv.
+      exists B2, Γ ++ A ⊢e M ∈ B2 /\
+        (Γ ⊢e tpi A B2 ≡ B ∈ tuniv \/ Γ ⊢e tuniv ≡ B ∈ tuniv).
 Proof. 
   move=>h.
   dependent induction h.
   - specialize (IHh M A ltac:(eauto)).
     destruct IHh as [B2 [TM CC]].
     exists B2. repeat split; auto.
-    eapply c_trans; eauto.
+    destruct CC as [CC|CC]; [ left | right ]; eapply c_trans; eauto.
   - clear IHh1 IHh2 IHh3.
     exists B. repeat split; auto.
+    left.
     eapply c_refl; eauto.
     eapply t_tpi; eauto.
+  - (* t_prop_u *)
+    specialize (IHh M A ltac:(eauto)).
+    destruct IHh as [B2 [TM _]].
+    exists B2. repeat split; auto.
+    right. eapply c_refl. eapply t_univ. eapply typing_ctx; eassumption.
 Qed.
 
 (** Type inversion through conversions for the base type/numeral formers: each
@@ -2066,15 +2225,24 @@ Proof.
   move=> h; dependent induction h.
   - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
   - apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_rfl_inv {n} {Γ : Ctx n} {a T} :
-  Γ ⊢e rfl a ∈ T -> exists A, Γ ⊢e a ∈ A /\ Γ ⊢e tid A a a ≡ T ∈ tuniv.
+  Γ ⊢e rfl a ∈ T ->
+  exists A, Γ ⊢e a ∈ A /\ (Γ ⊢e tid A a a ≡ T ∈ tuniv \/ Γ ⊢e tuniv ≡ T ∈ tuniv).
 Proof.
   move=> h; dependent induction h.
   - move: (IHh a ltac:(reflexivity)) => [A0 [ta cc]].
-    exists A0. split; [ exact ta | ]. eapply c_trans; [ exact cc | eassumption ].
-  - exists A. split; [ eassumption | ]. apply c_refl. eapply t_tid; eauto.
+    exists A0. split; [ exact ta | ].
+    destruct cc as [cc|cc]; [ left | right ];
+      (eapply c_trans; [ exact cc | eassumption ]).
+  - exists A. split; [ eassumption | ]. left. apply c_refl. eapply t_tid; eauto.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    move: (IHh a ltac:(reflexivity)) => [A0 [ta _]].
+    exists A0. split; [ exact ta | ].
+    right. apply c_refl. apply t_univ. eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_univ_inv {n} {Γ : Ctx n} {T} :
@@ -2083,6 +2251,21 @@ Proof.
   move=> h; dependent induction h.
   - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
   - apply c_refl; apply t_univ; assumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+Qed.
+
+(** [tprop]'s own type inversion.  Like [typing_univ_inv] this needs no
+    alternative: [tprop : tuniv] is the only rule for it, and the [t_prop_u]
+    case's given type is literally [tuniv]. *)
+Lemma typing_prop_inv {n} {Γ : Ctx n} {T} :
+  Γ ⊢e tprop ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+Proof.
+  move=> h; dependent induction h.
+  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
+  - apply c_refl; apply t_univ; assumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_nat_inv {n} {Γ : Ctx n} {T} :
@@ -2091,14 +2274,25 @@ Proof.
   move=> h; dependent induction h.
   - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
   - apply c_refl; apply t_univ; assumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
+(** [tpi] is the one former that inhabits _both_ sorts ([t_tpi] puts it in
+    [tuniv], [t_tpi_prop] puts it in [tprop]), so its type inversion offers
+    both. *)
 Lemma typing_tpi_inv {n} {Γ : Ctx n} {A0 B0 T} :
-  Γ ⊢e tpi A0 B0 ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv.
+  Γ ⊢e tpi A0 B0 ∈ T -> Γ ⊢e tuniv ≡ T ∈ tuniv \/ Γ ⊢e tprop ≡ T ∈ tuniv.
 Proof.
   move=> h; dependent induction h.
-  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
-  - apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - first [ edestruct (IHh A0 B0 ltac:(reflexivity)) as [CC|CC]
+          | edestruct IHh as [CC|CC] ];
+      [ left | right ]; (eapply c_trans; [ exact CC | eassumption ]).
+  - left; apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    left; apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_tpi_prop: the given type is literally [tprop] *)
+    right; apply c_refl; apply t_prop; eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_tsig_inv {n} {Γ : Ctx n} {A0 B0 T} :
@@ -2107,22 +2301,30 @@ Proof.
   move=> h; dependent induction h.
   - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
   - apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_zero_inv {n} {Γ : Ctx n} {T} :
-  Γ ⊢e zero ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv.
+  Γ ⊢e zero ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv \/ Γ ⊢e tuniv ≡ T ∈ tuniv.
 Proof.
   move=> h; dependent induction h.
-  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
-  - apply c_refl; apply t_nat; assumption.
+  - first [ edestruct (IHh ltac:(reflexivity)) as [CC|CC] | edestruct IHh as [CC|CC] ];
+      [ left | right ]; (eapply c_trans; [ exact CC | eassumption ]).
+  - left; apply c_refl; apply t_nat; assumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    right; apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
 Lemma typing_succ_inv {n} {Γ : Ctx n} {M0 T} :
-  Γ ⊢e succ M0 ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv.
+  Γ ⊢e succ M0 ∈ T -> Γ ⊢e tnat ≡ T ∈ tuniv \/ Γ ⊢e tuniv ≡ T ∈ tuniv.
 Proof.
   move=> h; dependent induction h.
-  - eapply c_trans; [ first [ eapply IHh; reflexivity | exact IHh ] | eassumption ].
-  - apply c_refl; apply t_nat; eapply typing_ctx; eassumption.
+  - first [ edestruct (IHh M0 ltac:(reflexivity)) as [CC|CC] | edestruct IHh as [CC|CC] ];
+      [ left | right ]; (eapply c_trans; [ exact CC | eassumption ]).
+  - left; apply c_refl; apply t_nat; eapply typing_ctx; eassumption.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    right; apply c_refl; apply t_univ; eapply typing_ctx; eassumption.
 Qed.
 
 (* The argument of a well-typed successor is a natural number.  (Companion to
@@ -2133,6 +2335,8 @@ Proof.
   move=> h; dependent induction h.
   - first [ eapply IHh; reflexivity | exact IHh ].
   - assumption.
+  - (* t_prop_u: the argument's type does not move *)
+    first [ eapply IHh; reflexivity | exact IHh ].
 Qed.
 
 

@@ -57,7 +57,12 @@ Inductive elt :=
      [bot] (Agda's [Coherent (PairCode u v)] carries [Or (NotBot u) (NotBot v)],
      the same role [~~ is_nil g] plays for [abs g]). *)
   | tsig   : elt -> list (elt * elt) -> elt
-  | mkpair : elt -> elt -> elt.
+  | mkpair : elt -> elt -> elt
+  (* Prop fragment (Agda [SigmaProp/BasicSigma.agda]): [tprop] is the code of
+     the second sort.  A leaf, like [tuniv] -- all its content is in [wt],
+     where a type whose code is a member of [tprop] has only [bot] as a
+     member ([wt_prop_bot]), which is what makes proof irrelevance hold. *)
+  | tprop  : elt.
 
 Definition is_bot (a : elt) :bool := 
   match a with 
@@ -108,6 +113,7 @@ Fixpoint rk (u : elt) : nat :=
   | rfl w => 1 + rk w
   | tsig a f => 1 + (max (rk a) (_rk_fun rk f))
   | mkpair x y => 1 + (max (rk x) (rk y))
+  | tprop => 1
   end.
 
 Notation rk_fun := (_rk_fun rk).
@@ -173,6 +179,7 @@ Fixpoint compatible u v {struct u} : bool :=
   | tsig a f , tsig b g =>
       (compatible a b) && (_compatible_fun compatible f g)
   | mkpair x y , mkpair x' y' => (compatible x x') && (compatible y y')
+  | tprop , tprop => true
   | _ , _ => false
   end.
 
@@ -218,6 +225,7 @@ Fixpoint lub (u v : elt) : elt :=
       then tsig (lub a b) (f ++ g)
       else bot
   | mkpair x y, mkpair x' y' => mkpair (lub x x') (lub y y')
+  | tprop, tprop => tprop
   | _, _ => bot
   end.
 
@@ -231,8 +239,8 @@ Lemma rk_lub (u v : elt) : rk (lub u v) <= max (rk u) (rk v).
 Proof.
   induction u as [ | | | | u1 IHu1 | u1 IHu1 uf | uf
                  | u1 IHu1 u2 IHu2 u3 IHu3 | u1 IHu1
-                 | u1 IHu1 uf | u1 IHu1 u2 IHu2 ] in v |- *;
-    destruct v as [ | | | | v1 | v1 vf | vf | v1 v2 v3 | v1 | v1 vf | v1 v2 ];
+                 | u1 IHu1 uf | u1 IHu1 u2 IHu2 | ] in v |- *;
+    destruct v as [ | | | | v1 | v1 vf | vf | v1 v2 v3 | v1 | v1 vf | v1 v2 | ];
     cbn in * ; auto.
   all: try solve [lia].
   - specialize (IHu1 v1).
@@ -407,6 +415,7 @@ le (tid t u v) (tid t' u' v') := (le t t') && (le u u') && (le v v') ;
 le (rfl w) (rfl w') := le w w' ;
 le (tsig a f) (tsig a' f') := (le a a') && (@_le_fun f f' (fun x x' _ => le x x')) ;
 le (mkpair x y) (mkpair x' y') := (le x x') && (le y y') ;
+le tprop tprop => true ;
 le _ _ := false.
 Proof.
   all: cbn ; lia.
@@ -1337,6 +1346,7 @@ Definition le_inv_view (u u' : elt) : Type :=
   | tsig a b => {a' & { b' & (u' = tsig a' b') * ((le a a') * (le_fun b b')) }}
   | mkpair x y => {x' & { y' &
       (u' = mkpair x' y') * ((le x x') * (le y y')) }}
+  | tprop => u' = tprop
   end.
 
 Lemma le_inv u v : le u v -> le_inv_view u v.
@@ -2108,6 +2118,18 @@ Proof. by destruct u ; simp le. Qed.
 
 Lemma le_tuniv_inv u : le tuniv u -> u = tuniv.
 Proof. by destruct u ; simp le. Qed.
+
+Lemma le_tprop_inv u : le tprop u -> u = tprop.
+Proof. by destruct u ; simp le. Qed.
+
+(* Dual: only [bot] and [tprop] itself sit below [tprop].  This is what makes
+   "the type's code is below [tprop]" a two-case analysis in [wt_prop_bot]. *)
+Lemma le_tprop_inv_r u : le u tprop -> u = bot \/ u = tprop.
+Proof.
+  destruct u; simp le; try done; move=> _.
+  - left. reflexivity.
+  - right. reflexivity.
+Qed.
 
 Lemma le_succ_inv {u v} : le (succ u) v -> { w & (v = succ w) * (le u w) }.
 Proof. destruct v ; simp le ; try done. move=> h. by exists v. Qed.

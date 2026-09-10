@@ -152,7 +152,29 @@ Inductive wt : elt -> elt -> Prop :=
     wt y (app g x) ->
     valid (mkpair x y) ->
     wt (tsig a g) tuniv ->
-    wt (mkpair x y) (tsig a g).
+    wt (mkpair x y) (tsig a g)
+
+  (* Prop fragment (Agda [SigmaProp/PaperSemanticsSigma.agda], clauses
+     [FinMem PropCode UCode] and [FinMem (PiCode a f) PropCode]).
+
+     [tprop] is a type code: [Prop : U].  Note what is deliberately absent --
+     [tprop] is not a member of itself (Agda's
+     [decFinMem PropCode PropCode = no]) and no [tsig] code is a member of it
+     (Agda's [decFinMem (SigmaCode a f) PropCode = no]), which is why the Σ
+     fragment is independent of this one. *)
+  | wt_tprop :
+    wt tprop tuniv
+
+  (* A Π code inhabits [tprop] when its codomain values do: the [wt_tpi] rule
+     with [tprop] in place of [tuniv] on the values.  This is [ty-Pi-Prop]'s
+     semantic side, and it is the only way a non-[bot] element gets into
+     [tprop]. *)
+  | wt_tpi_prop a g :
+    wt a tuniv ->
+    (forall ui vi, In (ui, vi) g -> wt ui a) ->
+    (forall ui vi, In (ui, vi) g -> wt vi tprop) ->
+    valid (tpi a g) ->
+    wt (tpi a g) tprop.
 
 (** * Validity *)
 
@@ -181,7 +203,7 @@ Proof. move=> h. inversion h. done. Qed.
     single universe.) *)
 Lemma wt_ty_tuniv u a : wt u a -> wt a tuniv.
 Proof.
-  induction 1; eauto using wt_tuniv, wt_tnat, wt_tpi.
+  induction 1; eauto using wt_tuniv, wt_tnat, wt_tpi, wt_tprop.
 Qed.
 
 (** ** Inversion lemmas *)
@@ -568,6 +590,13 @@ Proof.
               [ exact ih | eapply wt_tsig_tpi; exact WTa | lia | exact Vx ]).
         eapply wt_le; eauto. lia.
       * assumption.
+    + (* wt_tprop: a type code, so [b] is [tuniv] and nothing moves *)
+      apply le_tuniv_inv in LE. subst.
+      eapply wt_tprop.
+    + (* wt_tpi_prop: a Prop-valued Π code, so [b] is [tprop] and nothing
+         moves -- [tprop] is [le]-maximal among its own approximants *)
+      apply le_tprop_inv in LE. subst.
+      eapply wt_tpi_prop; eauto.
   - (* If u : a and v : a, then lub u v : a. *)
     move=> u a h v RK Cav WTv.
     have WTa: wt a tuniv. eapply wt_ty_tuniv; eauto.
@@ -741,6 +770,28 @@ Proof.
          eapply (@wt_lub _ (ih _ RKy) _ _ Hy');
            [ lia | exact Cy | exact Hv2' ].
       ++ cbn in Vlub. exact Vlub.
+    + (* wt_tpi_prop: the [wt_tpi] argument verbatim, with the codomain
+         values at [tprop] instead of [tuniv] *)
+      inversion WTv; subst.
+      cbn in Cav. move: Cav => /andP [Cav Cgl].
+      rewrite Cgl.
+      eapply wt_tpi_prop; eauto.
+      ++ lub_rec.
+      ++ intros ui vi INgl.
+         have Va: valid a. eauto with valid.
+         have Vv: valid v. eauto with valid.
+         have RKlub: rk (lub a v) <= max (rk a) (rk v). eapply rk_lub.
+         destruct (in_app_or _ _ _ INgl) as [Ing|Inl].
+         * eapply wt_le; eauto.  lia.
+           eapply le_lub_left; eauto.
+           lub_rec.
+         * eapply wt_le; eauto.  lia.
+           eapply le_lub_right; eauto.
+           lub_rec.
+      ++ intros ui vi INgl.
+         destruct (in_app_or _ _ _ INgl) as [Ing|Inl].
+         eauto. eauto.
+      ++ cbn in Vlub. rewrite Cgl in Vlub. done.
 Qed.
          
 End WTLE.         
@@ -780,6 +831,130 @@ Proof.
 Defined.
 
 
+(* ------------------------------------------------------------------
+   The Prop fragment's membership theory.
+   ------------------------------------------------------------------ *)
+
+(* A [tpi] code now inhabits TWO type codes, [tuniv] and [tprop].  Wherever
+   the surrounding argument already knows the type approximates [tuniv] --
+   which is exactly what [EvalRel Core.tuniv] gives -- that pins it down. *)
+Lemma wt_tpi_ty_tuniv b f a : wt (tpi b f) a -> le a tuniv -> a = tuniv.
+Proof.
+  move=> h LE. dependent destruction h.
+  - reflexivity.
+  - exfalso. move: (le_tprop_inv _ LE) => E. discriminate.
+Qed.
+
+Lemma wt_tpi_prop_tail a u v g :
+  wt (tpi a ((u,v)::g)) tprop -> wt (tpi a g) tprop.
+Proof.
+  intro h. inversion h.
+  eapply wt_tpi_prop; eauto.
+  - intros ui vi Ing. eapply H2; eauto. right. eauto.
+  - intros ui vi Ing. eapply H3; eauto. right. eauto.
+  - apply valid_tpi_inv in H4. move: H4 => [Va Vl].
+    eapply valid_tpi_intro; eauto.
+    eapply valid_fun_tail; eauto.
+Qed.
+
+(** The Prop analogue of [all_app_is_tuniv]: applying a Prop-valued Π code to
+    any valid argument lands in [tprop].  No rank bookkeeping is needed here,
+    because the closed [wt_lub] above is already available. *)
+Lemma all_app_is_tprop {a g} (h : wt (tpi a g) tprop) :
+  forall u, valid u -> wt (app g u) tprop.
+Proof.
+  move: h. induction g as [|[ui vi] g IHg]; intros h u Vu.
+  - rewrite app_nil_eq. eapply wt_bot. eapply wt_tprop.
+  - have WTt : wt (tpi a g) tprop by (eapply wt_tpi_prop_tail; eauto).
+    specialize (IHg WTt u Vu).
+    have WT1 : wt vi tprop by (inversion h; apply: (H3 ui vi); left; reflexivity).
+    have Vfc : valid_fun ((ui, vi) :: g) by (eauto with valid).
+    rewrite app_cons_eq.
+    destruct (le ui u) eqn:EQ.
+    + eapply wt_lub; [ exact WT1 | | exact IHg ].
+      eapply compatible_coherent_app; eauto.
+      eapply le_compatible; eauto.
+      eauto with valid.
+    + exact IHg.
+Qed.
+
+(** THE payload of the Prop fragment: a type whose code inhabits [tprop] has
+    only [bot] as a member.  Proof irrelevance is then free, because
+    [Val]/[EqVal] at a [bot] ELEMENT code are already total
+    ([Val_Bot]/[EqVal_Bot]) -- so the logical relation needs no change at all.
+
+    Agda: [FinMem-Prop-Bot] (PaperSemanticsSigma.agda:3061).  The one
+    non-trivial case is [abs] at a Prop-valued Π ([FinMem-Prop-Bot-FunEl]):
+    every edge value of the type's graph lands in [tprop], hence recursively in
+    [bot], but a [valid] table carries no [bot] value and is non-empty -- so
+    that case is vacuous rather than collapsing. *)
+Lemma wt_prop_bot_rec : forall k u a, rk a < k -> wt u a -> wt a tprop -> u = bot.
+Proof.
+  elim /strong_ind => m ih u a RK Hu Ha.
+  dependent destruction Ha.
+  - (* a = bot: nothing but [bot] inhabits [bot] *)
+    exact (wt_bot_inv Hu).
+  - (* a = tpi a0 g with all codomain values in [tprop] *)
+    rename a into a0.
+    dependent destruction Hu.
+    + reflexivity.
+    + (* u = abs f: vacuous *)
+      exfalso.
+      have Vabs : valid (abs f) by assumption.
+      have NN : ~~ is_nil f by (move: Vabs; cbn; move=> /andP [_ h]; exact h).
+      destruct f as [|[u1 v1] f']; first (cbn in NN; done).
+      have INf : In (u1, v1) ((u1, v1) :: f') by (left; reflexivity).
+      have Vf : valid_fun ((u1, v1) :: f') by (eauto with valid).
+      have Vu1 : valid u1 by (eauto with valid).
+      have WTv1 : wt v1 (app g u1) by (eapply H0; exact INf).
+      have WTapp : wt (app g u1) tprop
+        by (eapply (@all_app_is_tprop a0 g); [ eapply wt_tpi_prop; eauto | exact Vu1 ]).
+      have RKa : rk (app g u1) <= rk_fun g by (eapply rk_app).
+      have RKg : rk_fun g < rk (tpi a0 g) by (cbn; lia).
+      have RKlt : S (rk (app g u1)) < m by lia.
+      have E : v1 = bot
+        by (eapply (ih (S (rk (app g u1))) RKlt v1 (app g u1));
+              [ lia | exact WTv1 | exact WTapp ]).
+      (* but a valid table has no [bot] value *)
+      have NB := valid_fun_no_bot Vf.
+      rewrite /no_bot_result /= in NB.
+      move: NB => /andP [hnb _].
+      rewrite E in hnb. cbn in hnb. done.
+Qed.
+
+(** The domain-level Prop-to-U subtyping -- the semantic content of the typing
+    rule [t_prop_u] (Agda [Adequacy5Helpers.agda], "Part 5b: FinMem
+    PropCode-to-UCode conversion").  [tprop]'s inhabitants are [bot] and the
+    Prop-valued Pi codes, and a Pi code all of whose codomain values are Props
+    is in particular one all of whose codomain values are types -- recursively,
+    down the rank of the code. *)
+Lemma wt_prop_univ_rec : forall k v, rk v < k -> wt v tprop -> wt v tuniv.
+Proof.
+  elim /strong_ind => m ih v RK h.
+  dependent destruction h.
+  - (* v = bot: [bot] inhabits every code *)
+    eapply wt_bot; eapply wt_tuniv.
+  - (* v = tpi a g, with every codomain value in [tprop] *)
+    rename a into a0.
+    have RKg : S (rk_fun g) <= rk (tpi a0 g) by (cbn; lia).
+    eapply wt_tpi; try eassumption.
+    move=> ui vi Hin.
+    have RKvi : rk vi <= rk_fun g by (exact (@In_rk_fun2 (ui, vi) g Hin)).
+    have RKlt : S (rk vi) < m by lia.
+    eapply (ih (S (rk vi)) RKlt vi); [ lia | eapply H0; exact Hin ].
+Qed.
+
+Lemma wt_prop_univ v : wt v tprop -> wt v tuniv.
+Proof.
+  move=> h. eapply (@wt_prop_univ_rec (S (rk v)) v); [ lia | exact h ].
+Qed.
+
+Lemma wt_prop_bot u a : wt u a -> wt a tprop -> u = bot.
+Proof.
+  move=> h1 h2.
+  eapply (@wt_prop_bot_rec (S (rk a)) u a); [ lia | exact h1 | exact h2 ].
+Qed.
+
 (** Application (Corollary 2): if [abs w : tpi a f] and [u : a], then the
     applied value [app w u] inhabits the codomain image [app f u]. This is the
     semantic counterpart of the application typing rule. *)
@@ -801,7 +976,7 @@ Proof.
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
     (* Extract per-entry typing info from WT *)
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | ]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | ]; subst.
     (* app f u is itself a type *)
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
@@ -851,7 +1026,7 @@ Proof.
     have Vt : valid (app f u) by eapply (app_tpi_valid Vtpi Vu).
     have Vui : valid ui by eapply key_valid; eauto using valid_fun_head.
     have Vvi : valid vi by eapply val_valid; eauto using valid_fun_head.
-    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | ]; subst.
+    inversion WT as [| | | | | |aX wX fX j HuiAll VabsX WTtpiX| | | | | | ]; subst.
     have WTfu : wt (app f u) tuniv.
     { eapply (all_app_is_tuniv); eauto. }
     have WTr' : wt (app w' u) (app f u).

@@ -304,7 +304,10 @@ Proof.
     | n0 Γ0 As Bs hAs hBs                 (* t_tsig *)
     | n0 Γ0 Ap Bp Mp Np hAp hBp hMp hNp   (* t_mkpair *)
     | n0 Γ0 Af Bf Mf hAf hBf hMf          (* t_pfst *)
-    | n0 Γ0 Ag Bg Mg hAg hBg hMg ];       (* t_psnd *)
+    | n0 Γ0 Ag Bg Mg hAg hBg hMg          (* t_psnd *)
+    | n0 Γ0 cvp                           (* t_prop *)
+    | n0 Γ0 Apu hApu                      (* t_prop_u *)
+    | n0 Γ0 Apr Bpr hApr hBpr ];          (* t_tpi_prop *)
   move=> m Δ σ σ' CΔ TS TS' CS.
   - (* t_var *) cbn. exact (CS x).
   - (* t_conv *)
@@ -572,6 +575,36 @@ Proof.
                        ((Bg[(Core.pfst Mg)..])[σ]));
       [ exact CAσ | exact TBσ | exact convM
       | first [ asimpl; reflexivity | symmetry; apply subst1_subst_comm ] ].
+  - (* t_prop: [tprop] is closed, so both substitutions leave it alone *)
+    cbn. eapply c_refl. eapply t_prop. exact CΔ.
+  - (* t_prop_u: lift the [tprop] conversion along Prop-to-U subtyping *)
+    cbn. eapply c_prop_u.
+    exact (subst_conv_cross _ _ _ _ hApu m Δ σ σ' CΔ TS TS' CS).
+  - (* t_tpi_prop: the [t_tpi] case with the codomain at the second sort *)
+    have CAσ : typing Δ Apr[σ] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have ECA : ctx (Δ ++ Apr[σ]) by (eapply c_cons; [ exact CΔ | exact CAσ ]).
+    have convA : conv Δ Apr[σ] Apr[σ'] Core.tuniv
+      := subst_conv_cross _ _ _ _ hApr m Δ σ σ' CΔ TS TS' CS.
+    have TSl : typing_subst (Δ ++ Apr[σ]) (⇑ σ) (Γ0 ++ Apr)
+      by (eapply typing_subst_lift; eauto).
+    have TSl' : typing_subst (Δ ++ Apr[σ]) (⇑ σ') (Γ0 ++ Apr)
+      by (eapply typing_subst_lift_conv; eauto).
+    have CSl : ConvSub (Δ ++ Apr[σ]) (Γ0 ++ Apr) (⇑ σ) (⇑ σ')
+      by (eapply ConvSub_lift; eauto).
+    have convB : conv (Δ ++ Apr[σ]) Bpr[⇑ σ] Bpr[⇑ σ'] Core.tprop
+      := subst_conv_cross _ _ _ _ hBpr _ (Δ ++ Apr[σ]) (⇑ σ) (⇑ σ') ECA TSl TSl' CSl.
+    have TBσ : typing (Δ ++ Apr[σ]) Bpr[⇑ σ] Core.tprop
+      by (eapply substitution_tm with (A := Core.tprop); eauto).
+    have CAσ' : typing Δ Apr[σ'] Core.tuniv
+      by (eapply substitution_tm with (A := Core.tuniv); eauto).
+    have ECAσ' : ctx (Δ ++ Apr[σ']) by (eapply c_cons; [ exact CΔ | exact CAσ' ]).
+    have TSlσ' : typing_subst (Δ ++ Apr[σ']) (⇑ σ') (Γ0 ++ Apr)
+      by (eapply typing_subst_lift; [ exact ECAσ' | exact TS' ]).
+    have TBσ' : typing (Δ ++ Apr[σ']) Bpr[⇑ σ'] Core.tprop
+      by (eapply substitution_tm with (A := Core.tprop); eauto).
+    cbn. eapply c_tpi_prop;
+      [ exact CAσ | exact CAσ' | exact TBσ | exact TBσ' | exact convA | exact convB ].
 Qed.
 
 (** [semantic_typing Γ M A] (≈ Agda [AdqV2]) bundles the two value results over
@@ -823,7 +856,7 @@ Proof. destruct v; cbn; done. Qed.
 (* Inversion of [le] at a successor: anything above [succ u] is a successor. *)
 Lemma le_succ_inv (u v : elt) : le (succ u) v -> exists v', v = succ v' /\ le u v'.
 Proof.
-  destruct v as [ | | | | v' | | | | | | ]; try (autorewrite with le; done).
+  destruct v as [ | | | | v' | | | | | | | ]; try (autorewrite with le; done).
   move=> h. exists v'. split; [ reflexivity | ]. by rewrite le_succ in h.
 Qed.
 
@@ -1013,7 +1046,7 @@ Proof.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
       (* the function's type code must be a Pi [tpi b f] *)
-      destruct abig as [ | | | | | b f | | | | | ];
+      destruct abig as [ | | | | | b f | | | | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       (* domain/value-graph facts *)
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
@@ -1109,7 +1142,7 @@ Proof.
       have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evM_sing.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-      destruct abig as [ | | | | | b f | | | | | ];
+      destruct abig as [ | | | | | b f | | | | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
       have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -1277,7 +1310,7 @@ Proof.
     split; intros RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
   (* [u <> bot]: [EvalRel (succ M) ρ u] gives [u <= succ v] and [EvalRel M ρ v] *)
   move: EN. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
-  destruct u as [ | | | | w | b f | g | | | | ];
+  destruct u as [ | | | | w | b f | g | | | | | ];
     try discriminate; try (exfalso; move: LEuv; done).
   (* only [u = succ w] survives *)
   have Ea : a = tnat by (inversion WT; reflexivity). subst a.
@@ -1393,7 +1426,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -1411,7 +1444,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -1576,7 +1609,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ P Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply Val_bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -1805,7 +1838,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ P P' Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply EqVal_Bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -2049,7 +2082,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2067,7 +2100,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2195,7 +2228,7 @@ Lemma st_case_Val (T : Tm (S n)) M M0 M1
     Val RB Δ (Core.ncase M M0 M1)[σ] (T[M..])[σ] WT.
 Proof.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 | | | | ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | | | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2226,7 +2259,7 @@ Lemma st_case_EqVal (T : Tm (S n)) M M0 M1
     EqVal RB Δ (Core.ncase M M0 M1)[σ] (Core.ncase M M0 M1)[σ'] (T[M..])[σ] WT.
 Proof.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 | | | | ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | | | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2418,7 +2451,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       Val RB0 Δ Core.zero Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply Val_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2436,7 +2469,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ Core.zero M[σ] Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0.
-    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | ];
+    destruct u0 as [ | | | | w0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Le0; done ].
     - apply EqVal_Bot.
     - have Ea : a0 = tnat by (inversion h0; reflexivity). subst a0.
@@ -2625,7 +2658,7 @@ Proof.
       EvalRel Core.tnat ρ a0 -> forall RB0, max (rk u0) (rk a0) < RB0 ->
       EqVal RB0 Δ P P' Core.tnat[σ] h0.
   { move=> u0 Vu0 Le0 a0 h0 Ea0 RB0 Hr0. cbn in Ea0.
-    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | ];
+    destruct a0 as [ | | | | z0 | b0 f0 | g0 | | | | | ];
       try solve [ autorewrite with le in Ea0; done ].
     - apply EqVal_Bot_ty.
     - have Vsu0 : valid (succ u0) by (cbn; exact Vu0).
@@ -2809,7 +2842,7 @@ Proof.
   move=> TT TM1' CMM' CM0 CM1 STT STM1' SCM SCM0 SCM1.
   move=> ρ m Δ σ TS Fρ VS CΔ u a WT evNcase evT.
   cbn in evNcase. move: evNcase => [w [evMw Hbr]].
-  destruct w as [ | | | | vp | b0 f0 | g0 | | | | ]; cbn in Hbr; try done.
+  destruct w as [ | | | | vp | b0 f0 | g0 | | | | | ]; cbn in Hbr; try done.
   - (* scrutinee is [bot]: so is the result *)
     move: Hbr => [Vu Leu].
     have Eu : u = bot by (apply le_bot_inv; exact Leu).
@@ -2877,7 +2910,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | | | | | ];
+  destruct abig as [ | | | | | b f | | | | | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -3163,7 +3196,7 @@ Proof.
       have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (v0 ↦ u) evEdge.
       unfold singleton in LEbig. rewrite Hu in LEbig.
       have [gt [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-      destruct abig as [ | | | | | b f | | | | | ];
+      destruct abig as [ | | | | | b f | | | | | | ];
         try solve [ exfalso; clear -WTbig; inversion WTbig ].
       have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
       have Vg : valid_fun gt := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
@@ -3347,7 +3380,7 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   cbn in evId.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | | t v w | | | ]; try done.
+  destruct u as [ | | | | | | | t v w | | | | ]; try done.
   - (* u = bot *) apply Val_Bot.
   - (* u = tid t v w *)
     move: evId => [Vid [evAt [evav evbw]]].
@@ -3392,7 +3425,7 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evId0 := evId. cbn in evId.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | | t v w | | | ]; try done.
+  destruct u as [ | | | | | | | t v w | | | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - move: evId => [Vid [evAt [evav evbw]]].
     have Eatu : a0 = tuniv by (inversion WT; auto). subst a0.
@@ -3473,8 +3506,8 @@ Proof.
   move=> RB Hrank. destruct RB; [ exact I | ].
   (* [try done] also disposes of the [bot] type code and the [bot] element:
      [Val] is [True] at both *)
-  destruct a0 as [ | | | | | | | t v w | | | ]; try done.
-  destruct u as [ | | | | | | | | ww | | ]; try done.
+  destruct a0 as [ | | | | | | | t v w | | | | ]; try done.
+  destruct u as [ | | | | | | | | ww | | | ]; try done.
   (* u = rfl ww, type code = tid t v w *)
   move: evId => [Vid [evAt [evav evaw]]].
   rewrite Val_rfl.
@@ -3533,8 +3566,8 @@ Proof.
           [ eapply t_rfl; [ exact TAs' | exact Tas' ] | apply c_sym; exact convIds ]).
   have evId0 := evId. cbn in evR, evId.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a0 as [ | | | | | | | t v w | | | ]; try done.
-  destruct u as [ | | | | | | | | ww | | ]; try done.
+  destruct a0 as [ | | | | | | | t v w | | | | ]; try done.
+  destruct u as [ | | | | | | | | ww | | | ]; try done.
   move: evId => [Vid [evAt [evav evaw]]].
   rewrite EqVal_rfl.
   have VTy : Val (S RB) Δ (Core.tid A a a)[σ] Core.tuniv[σ] (wt_rfl_ty WT).
@@ -4241,9 +4274,9 @@ Proof.
   have [VargL EargR] :
       Val (S RB0) Δ (Core.rfl P0) (Core.tid A[σ] a[σ] b[σ]) WTu1
       /\ EqVal (S RB0) Δ (Core.rfl P0) p[σ] (Core.tid A[σ] a[σ] b[σ]) WTu1.
-  { destruct b1 as [ | | | | | | | tb xb yb | | | ];
+  { destruct b1 as [ | | | | | | | tb xb yb | | | | ];
       try solve [ (split; exact I) | (cbn in evId_b1; done) ].
-    destruct u1 as [ | | | | | | | | u0 | | ]; try solve [ (split; exact I) ].
+    destruct u1 as [ | | | | | | | | u0 | | | ]; try solve [ (split; exact I) ].
     cbn in evId_b1. move: evId_b1 => [Vidb [evA_tb [ev_xb ev_yb]]].
     have Rtb : rk tb < rk (tid tb xb yb) by (cbn; lia).
     have Rxb : rk xb < rk (tid tb xb yb) by (cbn; lia).
@@ -4373,7 +4406,7 @@ Proof.
     split; move=> RB Hrank; [ apply Val_Bot | apply EqVal_Bot ]. }
     (* the proof's value drives the eliminator *)
     cbn in evJ. move: evJ => [wp [evP Ebr]].
-    destruct wp as [ | | | | | | | | w' | | ]; try done.
+    destruct wp as [ | | | | | | | | w' | | | ]; try done.
     { (* the proof takes [bot], so the result does too *)
       move: Ebr => [_ /le_bot_inv Eu]. subst u. by rewrite /= in Hu. }
     (* enlarge the proof's value to a well-typed one: its type code is an [Id]
@@ -4381,7 +4414,7 @@ Proof.
     have ITp : InvTyped Γ p (Core.tid A a b) ρ := typing_EvalRel Tp Fρ.
     have [pv [ap [WTp [LEp [evPbig evIdCode]]]]] := ITp _ evP.
     move: (le_rfl_inv LEp) => [w'' [Epv Lw'w'']]. subst pv.
-    destruct ap as [ | | | | | | | t up vp | | | ];
+    destruct ap as [ | | | | | | | t up vp | | | | ];
       try solve [ cbn in evIdCode; done | (move: (wt_bot_inv WTp); discriminate) ].
     have evIdC := evIdCode. cbn in evIdC.
     move: evIdC => [Vid [evA_t [eva_up evb_vp]]].
@@ -4445,7 +4478,7 @@ Proof.
     have [vd [ad [WTd [LEd [evDbig evBase]]]]] := ITd _ Ebr.
     unfold singleton in LEd. rewrite Hu in LEd.
     have [g [Evd LEfun]] := le_abs_inv LEd. subst vd.
-    destruct ad as [ | | | | | bd fd | | | | | ];
+    destruct ad as [ | | | | | bd fd | | | | | | ];
       try solve [ exfalso; clear -WTd; inversion WTd ].
     have evBaseC := evBase. rewrite /base_ty in evBaseC. cbn in evBaseC.
     move: evBaseC => [Vbd [Vfd [evA_bd [ad2 [evA_bd2 EBfun]]]]].
@@ -4798,7 +4831,7 @@ Proof.
     := substitution_conv Γ b b' A Δ σ cb TS CΔ.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evId0 := evId. cbn in evId.
-  destruct u as [ | | | | | | | t v w | | | ]; try done.
+  destruct u as [ | | | | | | | t v w | | | | ]; try done.
   { (* u = bot *) apply EqVal_Bot. }
   move: evId => [Vid [evAt [evav evbw]]].
   have Eatu : a0 = tuniv by (inversion WT; auto). subst a0.
@@ -4895,8 +4928,8 @@ Proof.
           [ eapply t_rfl; [ exact TAs | exact Ta's ] | apply c_sym; exact convIds ]).
   have evId0 := evId. cbn in evR, evId.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a0 as [ | | | | | | | t v w | | | ]; try done.
-  destruct u as [ | | | | | | | | ww | | ]; try done.
+  destruct a0 as [ | | | | | | | t v w | | | | ]; try done.
+  destruct u as [ | | | | | | | | ww | | | ]; try done.
   move: evId => [Vid [evAt [evav evaw]]].
   rewrite EqVal_rfl.
   have VTy : Val (S RB) Δ (Core.tid A a a)[σ] Core.tuniv[σ] (wt_rfl_ty WT).
@@ -5025,12 +5058,12 @@ Proof.
   { have Eu : u = bot by (apply is_bot_eq; rewrite Hu). subst u. apply EqVal_Bot. }
   (* ---- the proof's value drives both eliminators ---- *)
   cbn in evJ. move: evJ => [wp [evP Ebr]].
-  destruct wp as [ | | | | | | | | w' | | ]; try done.
+  destruct wp as [ | | | | | | | | w' | | | ]; try done.
   { move: Ebr => [_ /le_bot_inv Eu]. subst u. by rewrite /= in Hu. }
   have ITp : InvTyped Γ p (Core.tid A a b) ρ := typing_EvalRel Tp Fρ.
   have [pv [ap [WTp [LEp [evPbig evIdCode]]]]] := ITp _ evP.
   move: (le_rfl_inv LEp) => [w'' [Epv Lw'w'']]. subst pv.
-  destruct ap as [ | | | | | | | t up vp | | | ];
+  destruct ap as [ | | | | | | | t up vp | | | | ];
     try solve [ cbn in evIdCode; done | (move: (wt_bot_inv WTp); discriminate) ].
   have evIdC := evIdCode. cbn in evIdC.
   move: evIdC => [Vid [evA_t [eva_up evb_vp]]].
@@ -5132,7 +5165,7 @@ Proof.
   have [vd [ad [WTd [LEd [evDbig evBase]]]]] := ITd _ Ebr.
   unfold singleton in LEd. rewrite Hu in LEd.
   have [g [Evd LEfun]] := le_abs_inv LEd. subst vd.
-  destruct ad as [ | | | | | bd fd | | | | | ];
+  destruct ad as [ | | | | | bd fd | | | | | | ];
     try solve [ exfalso; clear -WTd; inversion WTd ].
   have evBaseC := evBase. rewrite /base_ty in evBaseC. cbn in evBaseC.
   move: evBaseC => [Vbd [Vfd [evA_bd [ad2 [evA_bd2 EBfun]]]]].
@@ -5627,11 +5660,11 @@ Proof.
   have evAN0 := evAN.            (* keep the folded [EvalRel] for the edges *)
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | b f | | | | | ]; try done.
+  destruct u as [ | | | | | b f | | | | | | ]; try done.
   - (* u = bot: trivial *) apply Val_Bot.
   - (* u = tpi b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
-    have Eatu : a = tuniv by (inversion WT; auto).
+    have Eatu : a = tuniv by (eapply wt_tpi_ty_tuniv; [ exact WT | exact evAB ]).
     subst a.
     have [valA _] :=
       STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ b tuniv (wt_tpi_dom WT) evAdom evU.
@@ -5667,11 +5700,11 @@ Proof.
   have evAN0 := evAN.            (* keep the folded [EvalRel] for the edges *)
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | b f | | | | | ]; try done.
+  destruct u as [ | | | | | b f | | | | | | ]; try done.
   - (* u = bot: trivial *) apply EqVal_Bot.
   - (* u = tpi b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
-    have Eatu : a = tuniv by (inversion WT; auto). subst a.
+    have Eatu : a = tuniv by (eapply wt_tpi_ty_tuniv; [ exact WT | exact evAB ]). subst a.
     (* the two [ValTy]s, from the value edge at [(σ,σ)] and [(σ',σ')] *)
     have VMv : Val (S RB) Δ (Core.tpi A B)[σ] Core.tuniv[σ] WT.
     { eapply st_tpi_Val_edge; eassumption. }
@@ -5771,7 +5804,7 @@ Proof.
   have evAN0 := evAN.
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | | | | b f | ]; try done.
+  destruct u as [ | | | | | | | | | b f | | ]; try done.
   - (* u = bot *) apply Val_Bot.
   - (* u = tsig b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -5810,7 +5843,7 @@ Proof.
   have evAN0 := evAN.
   cbn in evAN.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | | | | b f | ]; try done.
+  destruct u as [ | | | | | | | | | b f | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = tsig b f *)
     move: evAN => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -5889,8 +5922,8 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evS0 := evS. have evP0 := evP.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | | | | | b f | ]; try done.
-  destruct u as [ | | | | | | | | | | x y ]; try done.
+  destruct a as [ | | | | | | | | | b f | | ]; try done.
+  destruct u as [ | | | | | | | | | | x y | ]; try done.
   (* u = mkpair x y at the type code tsig b f *)
   cbn in evP. move: evP => [Vxy [EMx ENy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
@@ -6005,8 +6038,8 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evS0 := evS. have evP0 := evP.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | | | | | b f | ]; try done.
-  destruct u as [ | | | | | | | | | | x y ]; try done.
+  destruct a as [ | | | | | | | | | b f | | ]; try done.
+  destruct u as [ | | | | | | | | | | x y | ]; try done.
   cbn in evP. move: evP => [Vxy [EMx ENy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
   have Vy : valid y by (eapply valid_mkpair2; exact Vxy).
@@ -6119,7 +6152,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM Fρ.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair u y) evMk.
   have [u1 [y1 [Eub [LEu1 LEy1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -6189,7 +6222,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM Fρ.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair u y) evMk.
   have [u1 [y1 [Eub [LEu1 LEy1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -6318,7 +6351,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM Fρ.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair x u) evMk.
   have [u1 [y1 [Eub [LEx1 LEu1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -6457,7 +6490,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM Fρ.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair x u) evMk.
   have [u1 [y1 [Eub [LEx1 LEu1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -6667,10 +6700,10 @@ Proof.
   have evAN0 := evAN. have evAB0 := evAB.
   cbn in evAN. cbn in evAB.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | g_val | | | | ]; try done.
+  destruct u as [ | | | | | | g_val | | | | | ]; try done.
   - (* u = bot *) apply Val_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | | | | | ];
+    destruct a as [ | | | | | b f_ty | | | | | | ];
       try solve [ cbn in evAB; done | exfalso; clear -WT; inversion WT ].
     move: evAN => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evAB => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
@@ -6825,10 +6858,10 @@ Proof.
   have evAN0 := evAN. have evAB0 := evAB.
   cbn in evAN. cbn in evAB.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct u as [ | | | | | | g_val | | | | ]; try done.
+  destruct u as [ | | | | | | g_val | | | | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | | | | | ];
+    destruct a as [ | | | | | b f_ty | | | | | | ];
       try solve [ cbn in evAB; done | exfalso; clear -WT; inversion WT ].
     move: evAN => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evAB => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
@@ -7117,7 +7150,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | | | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  destruct abig as [ | | | | | b f | | | | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
   have Vw : valid w := EvalRel_valid evMw.
@@ -7211,7 +7244,7 @@ Proof.
   have [vbig [abig [WTbig [LEbig [evMbig evTpi]]]]] := IT (w ↦ u) evN_sing.
   unfold singleton in LEbig. rewrite Hu in LEbig.
   have [g [Evbig LEfun]] := le_abs_inv LEbig. subst vbig.
-  destruct abig as [ | | | | | b f | | | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
+  destruct abig as [ | | | | | b f | | | | | | ]; try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evTpiC := evTpi. cbn in evTpiC. move: evTpiC => [Vb [Vf [evA_b _]]].
   have Vg : valid_fun g := proj1 (andb_prop _ _ (wt_valid_tm WTbig)).
   have Vw : valid w := EvalRel_valid evMw.
@@ -7358,13 +7391,13 @@ Proof.
   have evN' : EvalRel N' ρ u := fwd u evN.
   have evTpi0 := evTpi. cbn in evTpi.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | b f_ty | | | | | ];
+  destruct a as [ | | | | | b f_ty | | | | | | ];
     try solve [ exfalso; clear -evTpi; cbn in evTpi; done ].
   - (* a = bot: the type value is [bot], so [u = bot] *)
     have Eu := wt_bot_inv WT. subst u. apply EqVal_Bot.
   - (* a = tpi b f_ty *)
     move: evTpi => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
-    destruct u as [ | | | | | | g_val | | | | ];
+    destruct u as [ | | | | | | g_val | | | | | ];
       try solve [ exfalso; clear -WT; inversion WT ].
     + (* u = bot *) apply EqVal_Bot.
     + (* u = abs g_val *)
@@ -7509,7 +7542,7 @@ Proof.
   { have Eu : u = bot by (apply is_bot_eq; rewrite Bu). subst u. apply EqVal_Bot. }
   (* [u <> bot]: from [EvalRel (succ M) ρ u], [u <= succ v] and [EvalRel M ρ v] *)
   move: EM. cbn. rewrite Bu. move=> [Vu [v [LEuv EMv]]].
-  destruct u as [ | | | | w | b f | g | | | | ];
+  destruct u as [ | | | | w | b f | g | | | | | ];
     try discriminate; try (exfalso; move: LEuv; done).
   (* only [u = succ w] survives *)
   have Ea : a = tnat by (inversion WT; reflexivity). subst a.
@@ -7630,11 +7663,11 @@ Proof.
     := substitution_conv (Γ ++ A0) B0 B1 Core.tuniv (Δ ++ A0[σ]) (⇑ σ) CB TSlift CE.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evM0 := evM. cbn in evM.
-  destruct u as [ | | | | | b f | | | | | ]; try done.
+  destruct u as [ | | | | | b f | | | | | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = tpi b f *)
     move: evM => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
-    have Eatu : a = tuniv by (inversion WT; auto). subst a.
+    have Eatu : a = tuniv by (eapply wt_tpi_ty_tuniv; [ exact WT | exact evA ]). subst a.
     have VMv : Val (S RB) Δ (Core.tpi A0 B0)[σ] Core.tuniv[σ] WT.
     { eapply st_tpi_Val_edge with (σ' := σ); try eassumption.
       - exact (ConvSub_refl TS).
@@ -7707,7 +7740,7 @@ Proof.
     := substitution_conv (Γ ++ A0) B0 B1 Core.tuniv (Δ ++ A0[σ]) (⇑ σ) CB TSlift CE.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evM0 := evM. cbn in evM.
-  destruct u as [ | | | | | | | | | b f | ]; try done.
+  destruct u as [ | | | | | | | | | b f | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = tsig b f *)
     move: evM => [Vb [Vf [evAdom [a' [evAdom' EFun]]]]].
@@ -7855,7 +7888,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM FR.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair u y) evMk.
   have [u1 [y1 [Eub [LEu1 LEy1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -7951,7 +7984,7 @@ Proof.
   have IT : InvTyped Γ M0 (Core.tsig A B) ρ := typing_EvalRel TM FR.
   have [ubig [abig [WTbig [LEbig [evMbig evSig]]]]] := IT (mkpair x u) evMk.
   have [u1 [y1 [Eub [LEx1 LEu1]]]] := le_mkpair_inv LEbig. subst ubig.
-  destruct abig as [ | | | | | | | | | b f | ];
+  destruct abig as [ | | | | | | | | | b f | | ];
     try solve [ exfalso; clear -WTbig; inversion WTbig ].
   have evSigC := evSig. cbn in evSigC. move: evSigC => [Vb [Vf [evA_b _]]].
   pose RBf := S (max (max (rk (mkpair u1 y1)) (rk (tsig b f))) (max (rk u) (rk a))).
@@ -8139,8 +8172,8 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evP0 := evP. have evS0 := evS.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | | | | | b f | ]; try done.
-  destruct u as [ | | | | | | | | | | x y ]; try done.
+  destruct a as [ | | | | | | | | | b f | | ]; try done.
+  destruct u as [ | | | | | | | | | | x y | ]; try done.
   cbn in evP. move: evP => [Vxy [EMx ENy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
   have evSc := evS. cbn in evSc. move: evSc => [Vb [Vf [evA_b _]]].
@@ -8243,8 +8276,8 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evP0 := evP. have evS0 := evS.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | | | | | b f | ]; try done.
-  destruct u as [ | | | | | | | | | | x y ]; try done.
+  destruct a as [ | | | | | | | | | b f | | ]; try done.
+  destruct u as [ | | | | | | | | | | x y | ]; try done.
   cbn in evP. move: evP => [Vxy [EMx ENy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
   have evSc := evS. cbn in evSc. move: evSc => [Vb [Vf [evA_b _]]].
@@ -8382,8 +8415,8 @@ Proof.
   have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
   have evP0 := evP. have evS0 := evS.
   move=> RB Hrank. destruct RB; [ exact I | ].
-  destruct a as [ | | | | | | | | | b f | ]; try done.
-  destruct u as [ | | | | | | | | | | x y ]; try done.
+  destruct a as [ | | | | | | | | | b f | | ]; try done.
+  destruct u as [ | | | | | | | | | | x y | ]; try done.
   cbn in evP. move: evP => [Vxy [EFx ESy]].
   have Vx : valid x by (eapply valid_mkpair1; exact Vxy).
   have Vy : valid y by (eapply valid_mkpair2; exact Vxy).
@@ -8557,10 +8590,10 @@ Proof.
   move=> RB Hrank. destruct RB; [ exact I | ].
   have evM0 := evM. have evA0 := evA.
   cbn in evM. cbn in evA.
-  destruct u as [ | | | | | | g_val | | | | ]; try done.
+  destruct u as [ | | | | | | g_val | | | | | ]; try done.
   - (* u = bot *) apply EqVal_Bot.
   - (* u = abs g_val *)
-    destruct a as [ | | | | | b f_ty | | | | | ];
+    destruct a as [ | | | | | b f_ty | | | | | | ];
       try solve [ cbn in evA; done | exfalso; clear -WT; inversion WT ].
     move: evM => [Vg [NBg [a_d [WTad [ERA_ad EFunM]]]]].
     move: evA => [Vb [Vf_ty [ERA_b [a'_T [ERA_aT EFunB]]]]].
@@ -8642,6 +8675,227 @@ Proof.
 Qed.
 
 
+(* ==================================================================
+   The Prop fragment: the second sort.
+
+   Agda: [ty-Prop], [ty-Prop-U], [ty-Pi-Prop], [conv-Prop], [conv-Prop-U],
+   [conv-Pi-Prop] ([Adequacy5.agda]).  [Val]/[EqVal] at a [tprop] TYPE code is
+   the [tuniv] content at the [wt_prop_univ]-lifted code (raw_validity's
+   [Val_prop_to_univ]), which is what makes all six rules cheap:
+
+     - Pi-formation at [Prop] is [st_tpi]/[sc_tpi] plus that transfer;
+     - the two Prop-to-U subtyping rules are the transfer, applied at a TYPED
+       ENLARGEMENT of the given code (Agda's [theorem1], here
+       [typing_EvalRel]), followed by [restrictVal] back down to the code --
+       this is Agda's [adequacySub2-Prop-U-PiCode];
+     - proof irrelevance is [InvTyped_prop_bot]: every approximation of a term
+       at a Prop type is [bot], where [EqVal] is total ([EqVal_Bot]).
+   ================================================================== *)
+
+(** [Prop : U] -- the second sort is itself a type.  [tprop] is a code leaf,
+    so this is [st_univ] verbatim. *)
+Lemma st_prop :
+  ctx Γ ->
+(* ------------------------- *)
+  semantic_typing Γ Core.tprop Core.tuniv.
+Proof.
+  move=> CG.
+  unfold semantic_typing.
+  intros ρ m Δ s s' Ts Ts' CS F VSs VSs' ES CD u a WT EN EU.
+  cbn in EN.
+  split; intros RB.
+  - destruct (is_bot u) eqn:IB; destruct u; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+  - destruct (is_bot u) eqn:IB; destruct u; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+    + destruct RB; try done. cbn.
+      destruct a; try done.
+Qed.
+
+(** Prop-to-U subtyping ([ty-Prop-U]).  Stated at an arbitrary context, since
+    [st_tpi_prop] below needs it at the extended one. *)
+Lemma st_prop_u {q} (Δ0 : Ctx q) (A : Tm q) :
+  typing Δ0 A Core.tprop ->
+  semantic_typing Δ0 A Core.tprop ->
+(* ------------------------- *)
+  semantic_typing Δ0 A Core.tuniv.
+Proof.
+  move=> TA STA.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT EM EU.
+  cbn in EU.
+  destruct a; cbn in EU; try done.
+  - (* the given type code is [bot], hence so is the element *)
+    move: (wt_bot_inv WT) => Eu. subst u.
+    split; move=> RB _; [ apply Val_Bot | apply EqVal_Bot ].
+  - (* the given type code is [tuniv]: take the typed enlargement [u'] of [u]
+       -- it inhabits [tprop] -- run the IH there, transfer to [tuniv], and
+       restrict back down to [u]. *)
+    have IA : InvTyped Δ0 A Core.tprop ρ := typing_EvalRel TA Fρ.
+    move: (IA u EM) => [u' [c [WT' [LEu [EMu' Ec]]]]].
+    cbn in Ec.
+    have evP : EvalRel Core.tprop ρ tprop by (cbn; apply le_refl).
+    case: (le_tprop_inv_r _ Ec) => Ecc; subst c.
+    + (* the enlargement's type code is [bot], so [u] is [bot] *)
+      move: (wt_bot_inv WT') => Eu'; subst u'.
+      move: (le_bot_inv _ LEu) => Eu; subst u.
+      split; move=> RB _; [ apply Val_Bot | apply EqVal_Bot ].
+    + move: (STA ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u' tprop WT' EMu' evP)
+        => [Vh Eh].
+      split.
+      * move=> RB Hrank.
+        set kh := max RB (S (max (rk u') 1)).
+        have HRB : RB <= S kh by (rewrite /kh; lia).
+        have H1 : max (rk u') (rk tprop) < S kh by (cbn; rewrite /kh; lia).
+        have V2 : Val (S kh) Δ A[σ] Core.tuniv (wt_prop_univ WT')
+          by (eapply Val_prop_to_univ; exact (Vh (S kh) H1)).
+        have V3 : Val (S kh) Δ A[σ] Core.tuniv WT
+          by (eapply restrictVal; [ exact LEu | exact V2 ]).
+        eapply Val_fuel_down_to;
+          [ exact HRB | cbn in Hrank |- *; lia | cbn in Hrank |- *; lia | exact V3 ].
+      * move=> RB Hrank.
+        set kh := max RB (S (max (rk u') 1)).
+        have HRB : RB <= S kh by (rewrite /kh; lia).
+        have H1 : max (rk u') (rk tprop) < S kh by (cbn; rewrite /kh; lia).
+        have E2 : EqVal (S kh) Δ A[σ] A[σ'] Core.tuniv (wt_prop_univ WT')
+          by (eapply EqVal_prop_to_univ; exact (Eh (S kh) H1)).
+        have E3 : EqVal (S kh) Δ A[σ] A[σ'] Core.tuniv WT
+          by (eapply restrictEqVal; [ exact LEu | exact E2 ]).
+        eapply EqVal_fuel_down_to;
+          [ exact HRB | cbn in Hrank |- *; lia | cbn in Hrank |- *; lia | exact E3 ].
+Qed.
+
+(** Prop-to-U subtyping on conversions ([conv-Prop-U]): [st_prop_u]'s binary
+    half. *)
+Lemma sc_prop_u {q} (Δ0 : Ctx q) (M N : Tm q) :
+  conv Δ0 M N Core.tprop ->
+  semantic_conv2 Δ0 M N Core.tprop ->
+(* ------------------------- *)
+  semantic_conv2 Δ0 M N Core.tuniv.
+Proof.
+  move=> CMN SC.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a WT EM EU RB Hrank.
+  cbn in EU.
+  have [TM _] := conv_typing CMN.
+  destruct a; cbn in EU; try done.
+  - move: (wt_bot_inv WT) => Eu. subst u. apply EqVal_Bot.
+  - have IA : InvTyped Δ0 M Core.tprop ρ := typing_EvalRel TM Fρ.
+    move: (IA u EM) => [u' [c [WT' [LEu [EMu' Ec]]]]].
+    cbn in Ec.
+    have evP : EvalRel Core.tprop ρ tprop by (cbn; apply le_refl).
+    case: (le_tprop_inv_r _ Ec) => Ecc; subst c.
+    + move: (wt_bot_inv WT') => Eu'; subst u'.
+      move: (le_bot_inv _ LEu) => Eu; subst u. apply EqVal_Bot.
+    + set kh := max RB (S (max (rk u') 1)).
+      have HRB : RB <= S kh by (rewrite /kh; lia).
+      have H1 : max (rk u') (rk tprop) < S kh by (cbn; rewrite /kh; lia).
+      have E2 : EqVal (S kh) Δ M[σ] N[σ] Core.tuniv (wt_prop_univ WT')
+        by (eapply EqVal_prop_to_univ;
+            exact (SC ρ m Δ σ TS Fρ VS CΔ u' tprop WT' EMu' evP (S kh) H1)).
+      have E3 : EqVal (S kh) Δ M[σ] N[σ] Core.tuniv WT
+        by (eapply restrictEqVal; [ exact LEu | exact E2 ]).
+      eapply EqVal_fuel_down_to;
+        [ exact HRB | cbn in Hrank |- *; lia | cbn in Hrank |- *; lia | exact E3 ].
+Qed.
+
+(** Pi-formation at the second sort ([ty-Pi-Prop]): [st_tpi] with the codomain
+    lifted to [tuniv], plus the [tprop]/[tuniv] transfer on the result. *)
+Lemma st_tpi_prop A B :
+  typing Γ A Core.tuniv ->
+  typing (Γ ++ A) B Core.tprop ->
+  semantic_typing Γ A Core.tuniv ->
+  semantic_typing (Γ ++ A) B Core.tprop ->
+(* ------------------------- *)
+  semantic_typing Γ (Core.tpi A B) Core.tprop.
+Proof.
+  move=> TA TB STA STB.
+  have TBu : typing (Γ ++ A) B Core.tuniv by (eapply t_prop_u; exact TB).
+  have STBu : semantic_typing (Γ ++ A) B Core.tuniv
+    by (eapply st_prop_u; [ exact TB | exact STB ]).
+  have STPi := st_tpi TA TBu STA STBu.
+  move=> ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u a WT EM EU.
+  cbn in EU.
+  destruct a; cbn in EU; try done.
+  - move: (wt_bot_inv WT) => Eu. subst u.
+    split; move=> RB _; [ apply Val_Bot | apply EqVal_Bot ].
+  - have WTu : wt u tuniv := wt_prop_univ WT.
+    have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+    move: (STPi ρ m Δ σ σ' TS TS' CS Fρ VS VS' EVS CΔ u tuniv WTu EM evU)
+      => [Vh Eh].
+    split.
+    + move=> RB Hrank. destruct RB as [|RB]; first (cbn in Hrank; lia).
+      have V1 : Val (S RB) Δ (Core.tpi A B)[σ] Core.tuniv WTu
+        by (eapply (Vh (S RB)); cbn in Hrank |- *; lia).
+      eapply Val_univ_to_prop; exact V1.
+    + move=> RB Hrank. destruct RB as [|RB]; first (cbn in Hrank; lia).
+      have E1 : EqVal (S RB) Δ (Core.tpi A B)[σ] (Core.tpi A B)[σ'] Core.tuniv WTu
+        by (eapply (Eh (S RB)); cbn in Hrank |- *; lia).
+      eapply EqVal_univ_to_prop; exact E1.
+Qed.
+
+(** Proof irrelevance ([conv-Prop]): at a Prop type every approximation of the
+    subject is [bot], and [EqVal] is total there. *)
+Lemma sc_prop M N A :
+  typing Γ A Core.tprop ->
+  typing Γ M A ->
+  typing Γ N A ->
+(* ------------------------- *)
+  semantic_conv2 Γ M N A.
+Proof.
+  move=> TA TM TN.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a WT EM EA RB Hrank.
+  have IA : InvTyped Γ A Core.tprop ρ := typing_EvalRel TA Fρ.
+  have IM : InvTyped Γ M A ρ := typing_EvalRel TM Fρ.
+  have Eu : u = bot := InvTyped_prop_bot IA IM EM.
+  subst u. apply EqVal_Bot.
+Qed.
+
+(** The Pi congruence at the second sort ([conv-Pi-Prop]): [sc_tpi] with the
+    codomain conversion lifted, plus the transfer. *)
+Lemma sc_tpi_prop A0 A1 (B0 B1 : Tm (S n)) :
+  typing Γ A0 Core.tuniv ->
+  typing Γ A1 Core.tuniv ->
+  typing (Γ ++ A0) B0 Core.tprop ->
+  typing (Γ ++ A1) B1 Core.tprop ->
+  conv Γ A0 A1 Core.tuniv ->
+  conv (Γ ++ A0) B0 B1 Core.tprop ->
+  semantic_typing Γ A0 Core.tuniv ->
+  semantic_typing Γ A1 Core.tuniv ->
+  semantic_typing (Γ ++ A0) B0 Core.tprop ->
+  semantic_typing (Γ ++ A1) B1 Core.tprop ->
+  semantic_conv2 Γ A0 A1 Core.tuniv ->
+  semantic_conv2 (Γ ++ A0) B0 B1 Core.tprop ->
+(* ------------------------- *)
+  semantic_conv2 Γ (Core.tpi A0 B0) (Core.tpi A1 B1) Core.tprop.
+Proof.
+  move=> TA0 TA1 TB0 TB1 CA CB STA0 STA1 STB0 STB1 SCA SCB.
+  have TB0u : typing (Γ ++ A0) B0 Core.tuniv by (eapply t_prop_u; exact TB0).
+  have TB1u : typing (Γ ++ A1) B1 Core.tuniv by (eapply t_prop_u; exact TB1).
+  have CBu : conv (Γ ++ A0) B0 B1 Core.tuniv by (eapply c_prop_u; exact CB).
+  have STB0u : semantic_typing (Γ ++ A0) B0 Core.tuniv
+    by (eapply st_prop_u; [ exact TB0 | exact STB0 ]).
+  have STB1u : semantic_typing (Γ ++ A1) B1 Core.tuniv
+    by (eapply st_prop_u; [ exact TB1 | exact STB1 ]).
+  have SCBu : semantic_conv2 (Γ ++ A0) B0 B1 Core.tuniv
+    by (eapply sc_prop_u; [ exact CB | exact SCB ]).
+  have SCPi := sc_tpi TA0 TA1 TB0u TB1u CA CBu
+                      STA0 STA1 STB0u STB1u SCA SCBu.
+  move=> ρ m Δ σ TS Fρ VS CΔ u a WT EM EU RB Hrank.
+  cbn in EU.
+  destruct a; cbn in EU; try done.
+  - move: (wt_bot_inv WT) => Eu. subst u. apply EqVal_Bot.
+  - have WTu : wt u tuniv := wt_prop_univ WT.
+    have evU : EvalRel Core.tuniv ρ tuniv by (cbn; apply le_refl).
+    destruct RB as [|RB]; first (cbn in Hrank; lia).
+    have E1 : EqVal (S RB) Δ (Core.tpi A0 B0)[σ] (Core.tpi A1 B1)[σ] Core.tuniv WTu
+      by (eapply (SCPi ρ m Δ σ TS Fρ VS CΔ u tuniv WTu EM evU);
+          cbn in Hrank |- *; lia).
+    eapply EqVal_univ_to_prop; exact E1.
+Qed.
+
 End SemanticTyping.
 
 
@@ -8658,7 +8912,7 @@ Fixpoint adequacySub {g} (Γ : Ctx g) (M A : Tm g) :
 with adequacyEqSub {g} (Γ : Ctx g) (M N A : Tm g) :
   conv Γ M N A -> semantic_conv2 Γ M N A.
 Proof. 
-  - move=> h. dependent destruction h.
+  - move=> h. dependent destruction h; try prop_only.
     + eapply st_var; eauto.
     + eapply st_conv; eauto.
     + eapply st_abs; eauto.
@@ -8677,7 +8931,10 @@ Proof.
     + eapply st_mkpair; eauto.
     + eapply st_pfst; eauto.
     + eapply st_psnd; eauto.
-  - move=> h. dependent destruction h.
+    + (* t_prop *) eapply st_prop; eauto.
+    + (* t_prop_u *) eapply st_prop_u; eauto.
+    + (* t_tpi_prop *) eapply st_tpi_prop; eauto.
+  - move=> h. dependent destruction h; try prop_only.
     + eapply sc_conv; eauto.
     + eapply sc_refl; eauto. 
     + eapply sc_sym; eauto.
@@ -8706,6 +8963,9 @@ Proof.
     + eapply sc_mkpair2; eauto.
     + eapply sc_pfst; eauto.
     + eapply sc_psnd; eauto.
+    + (* c_prop *) eapply sc_prop; eauto.
+    + (* c_prop_u *) eapply sc_prop_u; eauto.
+    + (* c_tpi_prop *) eapply sc_tpi_prop; eauto.
 Qed.
 
 Definition empty {n} : fin 0 -> Tm n := 
@@ -8859,7 +9119,7 @@ Proof.
   clear EV1 EVfun.
   (* expose [WT]'s constructor form so the [{struct h}] [EqValTy] fixpoint
      iota-reduces *)
-  dependent destruction WT.
+  dependent destruction WT; try prop_only.
   cbn [Rec.EqValTy] in EVT.
   move: EVT => [_ [_ [B0 [F0 [HRA0 [A' [B' [HRPi [cD [cC _]]]]]]]]]].
   have [EA EB] := HeadRed_tpi_eq HRPi. subst A' B'.
@@ -8885,6 +9145,41 @@ Proof.
   { eapply HeadRed_tpi_det. exact HR. apply ms_refl. }
   subst B0' F0'.
   split; auto.
+Qed.
+
+(** * Consistency: distinct type formers are not convertible.
+
+    [tnat] and [tpi A B] cannot be convertible at the universe.  If they were,
+    [piConv] would head-reduce [tnat] to a Π-code, but [tnat] is a head-normal
+    form (no [HeadRed1] step applies to it), so the only reduction sequence out
+    of it is the empty one — contradicting [tnat = tpi B0 F0]. *)
+
+Lemma tnat_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tnat (Core.tpi A B) Core.tuniv.
+Proof.
+  move=> H.
+  destruct (piConv H) as [B0 [F0 [HR _]]].
+  (* HR : HeadRed Core.tnat (Core.tpi B0 F0) *)
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
+Qed.
+
+(* Symmetric form. *)
+Lemma tpi_not_tnat {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ (Core.tpi A B) Core.tnat Core.tuniv.
+Proof.
+  move=> H. apply tnat_not_tpi with (Γ := Γ) (A := A) (B := B).
+  apply c_sym. exact H.
+Qed.
+
+(* [tuniv] is also head-normal, so it is not convertible to a Π type. *)
+Lemma tuniv_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tuniv (Core.tpi A B) Core.tuniv.
+Proof.
+  move=> H.
+  destruct (piConv H) as [B0 [F0 [HR _]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
 Qed.
 
 (* ===========================================================
@@ -8937,7 +9232,7 @@ Proof.
   rewrite (instId'_Tm A0) (instId'_Tm (Core.tsig B1 F1)) (instId'_Tm Core.tuniv) in EV1.
   have EVT := EqVal_EqValTy EV1.
   clear EV1 EVfun.
-  dependent destruction WT.
+  dependent destruction WT; try prop_only.
   rewrite EqValTy_tsig in EVT. cbn [Rec.EqValTySig] in EVT.
   move: EVT => [_ [_ [B0 [F0 [HRA0 [A' [B' [HRSig [cD [cC _]]]]]]]]]].
   have [EA EB] := HeadRed_tsig_eq HRSig. subst A' B'.
@@ -8958,6 +9253,14 @@ Proof.
   { eapply HeadRed_tsig_det. exact HR. apply ms_refl. }
   subst B0' F0'.
   split; auto.
+Qed.
+
+Lemma tuniv_not_tsig {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tuniv (Core.tsig A B) Core.tuniv.
+Proof.
+  move=> H. destruct (sigmaConv H) as [B0 [F0 [HR _]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
 Qed.
 
 (* ===========================================================
@@ -9018,7 +9321,7 @@ Proof.
   rewrite (instId'_Tm T) (instId'_Tm (Core.tid A1 a1 b1)) (instId'_Tm Core.tuniv) in EV1.
   have EVT := EqVal_EqValTy EV1.
   clear EV1 EVfun.
-  dependent destruction WT.
+  dependent destruction WT; try prop_only.
   cbn [Rec.EqValTy] in EVT.
   move: EVT => [_ [_ [A0 [a0 [b0 [HRT [A' [a' [b' [HRId [cA [ca [cb _]]]]]]]]]]]]].
   have [E1 [E2 E3]] := HeadRed_tid_eq HRId. subst A' a' b'.
@@ -9096,6 +9399,19 @@ Qed.
     (Note this is *not* in tension with Agda's observation that the
     [conv-J-beta] *rule* needs no Id-injectivity: that is about the rule's two
     sides having equal types, which they do.) *)
+(* [tuniv] is head-normal and is not an [tid], so it is never convertible to
+   one.  This rules out the second alternative that the Prop-to-U subtyping
+   rule [t_prop_u] adds to the [typing_*_inv] family (see the comment on
+   [typing_app_inv] in [syntax/typing.v]). *)
+Lemma tuniv_not_tid {n} (Γ : Ctx n) (A a b : Tm n) :
+  conv Γ Core.tuniv (Core.tid A a b) Core.tuniv -> False.
+Proof.
+  move=> cc.
+  destruct (idConv cc) as [Ac [ac [bc [HR _]]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
+Qed.
+
 Lemma jcase_beta_conv {n} (Γ : Ctx n) (A a b C d a0 : Tm n) :
   typing Γ A Core.tuniv -> typing Γ a A -> typing Γ b A ->
   typing Γ C (motive_ty A) -> typing Γ d (base_ty A C) ->
@@ -9104,7 +9420,9 @@ Lemma jcase_beta_conv {n} (Γ : Ctx n) (A a b C d a0 : Tm n) :
          (Core.app (Core.app (Core.app C a) b) (Core.rfl a0)).
 Proof.
   move=> TA Ta Tb TC Td TR.
-  move: (typing_rfl_inv TR) => [A' [Ta0' cc]].
+  move: (typing_rfl_inv TR) => [A' [Ta0' cc0]].
+  have cc : conv Γ (Core.tid A' a0 a0) (Core.tid A a b) Core.tuniv
+    by (case: cc0 => cc0; [ exact cc0 | exfalso; exact (tuniv_not_tid cc0) ]).
   have [cAA' [ca0a ca0b]] := idInjectivity cc.
   have Ta0 : typing Γ a0 A by (eapply t_conv; [ exact Ta0' | exact cAA' ]).
   have ca0aA : conv Γ a0 a A by (eapply c_conv; [ exact ca0a | exact cAA' ]).
@@ -9151,15 +9469,21 @@ Lemma typing_mkpair_inv {n} (Γ : Ctx n) (M N T : Tm n) :
   typing Γ (Core.mkpair M N) T ->
   exists A0 B0, typing Γ A0 Core.tuniv /\ typing (Γ ++ A0) B0 Core.tuniv
              /\ typing Γ M A0 /\ typing Γ N B0[M..]
-             /\ conv Γ (Core.tsig A0 B0) T Core.tuniv.
+             /\ (conv Γ (Core.tsig A0 B0) T Core.tuniv
+                 \/ conv Γ Core.tuniv T Core.tuniv).
 Proof.
   move=> h. dependent induction h.
   - specialize (IHh M N ltac:(eauto)).
     destruct IHh as [A0 [B0 [tA0 [tB0 [tM [tN CC]]]]]].
     exists A0, B0. repeat split; auto.
-    eapply c_trans; eauto.
+    destruct CC as [CC|CC]; [ left | right ]; (eapply c_trans; [ exact CC | eassumption ]).
   - exists A, B. repeat split; auto.
-    apply c_refl. eapply t_tsig; eauto.
+    left. apply c_refl. eapply t_tsig; eauto.
+  - (* t_prop_u: the given type is literally [tuniv] *)
+    specialize (IHh M N ltac:(eauto)).
+    destruct IHh as [A0 [B0 [tA0 [tB0 [tM [tN _]]]]]].
+    exists A0, B0. repeat split; auto.
+    right. apply c_refl. apply t_univ. eapply typing_ctx; eassumption.
 Qed.
 
 Lemma red1_conv {n} (Γ : Ctx n) (M A : Tm n) :
@@ -9184,7 +9508,10 @@ Proof.
     | n Γ Asg Bsg tAsg IHAsg tBsg IHBsg
     | n Γ Amp Bmp Mmp Nmp tAmp IHAmp tBmp IHBmp tMmp IHMmp tNmp IHNmp
     | n Γ Af Bf Mf tAf IHAf tBf IHBf tMf IHMf
-    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs ]; intros N' hr.
+    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs
+    | n Γ cΓ
+    | n Γ Apu tApu IHApu
+    | n Γ Apr Bpr tApr IHApr tBpr IHBpr ]; intros N' hr.
   all: try solve [ inversion hr ].
   - (* t_conv: peel the conversion, recurse, re-wrap. *)
     eapply c_conv; [ eapply IHM; exact hr | exact cAB ].
@@ -9193,7 +9520,10 @@ Proof.
     destruct hr as [ [A0 [M' [-> ->]]] | [F2 [hrF ->]] ].
     + (* β: the redex is [app (abs A0 M') a].  [c_beta] wants everything at the
          abstraction's *own* domain [A0], so move [a] and [B] across [cA]. *)
-      destruct (typing_abs_inv _ _ _ _ _ tF) as [B2 [tM' cPi]].
+      destruct (typing_abs_inv _ _ _ _ _ tF) as [B2 [tM' cPi0]].
+      have cPi : conv Γ (Core.tpi A0 B2) (Core.tpi A B) Core.tuniv
+        by (case: cPi0 => cPi0;
+              [ exact cPi0 | exfalso; exact (tuniv_not_tpi cPi0) ]).
       destruct (piInjectivity cPi) as [cA cB].
       have tA0 : typing Γ A0 Core.tuniv by (exact (proj1 (conv_typing cA))).
       have tBA0 : typing (Γ ++ A0) B Core.tuniv
@@ -9233,7 +9563,10 @@ Proof.
        the derivation's, through [sigmaInjectivity]. *)
     apply HeadRed1_pfst_inv in hr.
     destruct hr as [ [M1 [M2 [-> ->]]] | [P2 [hrP ->]] ].
-    + destruct (typing_mkpair_inv tMf) as [A0 [B0 [tA0 [tB0 [tM1 [tM2 cSig]]]]]].
+    + destruct (typing_mkpair_inv tMf) as [A0 [B0 [tA0 [tB0 [tM1 [tM2 cSig0]]]]]].
+      have cSig : conv Γ (Core.tsig A0 B0) (Core.tsig Af Bf) Core.tuniv
+        by (case: cSig0 => cSig0;
+              [ exact cSig0 | exfalso; exact (tuniv_not_tsig cSig0) ]).
       destruct (sigmaInjectivity cSig) as [cA cB].
       eapply c_conv;
         [ eapply c_beta_fst; [ exact tA0 | exact tB0 | exact tM1 | exact tM2 ]
@@ -9245,7 +9578,10 @@ Proof.
        along the first-projection beta. *)
     apply HeadRed1_psnd_inv in hr.
     destruct hr as [ [M1 [M2 [-> ->]]] | [P2 [hrP ->]] ].
-    + destruct (typing_mkpair_inv tMs) as [A0 [B0 [tA0 [tB0 [tM1 [tM2 cSig]]]]]].
+    + destruct (typing_mkpair_inv tMs) as [A0 [B0 [tA0 [tB0 [tM1 [tM2 cSig0]]]]]].
+      have cSig : conv Γ (Core.tsig A0 B0) (Core.tsig As Bs) Core.tuniv
+        by (case: cSig0 => cSig0;
+              [ exact cSig0 | exfalso; exact (tuniv_not_tsig cSig0) ]).
       destruct (sigmaInjectivity cSig) as [cA cB].
       have cB0 : conv Γ (Core.psnd (Core.mkpair M1 M2)) M2 B0[M1..]
         by (eapply c_beta_snd; [ exact tA0 | exact tB0 | exact tM1 | exact tM2 ]).
@@ -9262,6 +9598,9 @@ Proof.
              tAs tBs tM1s tFst cFst.
       eapply c_conv; [ eapply c_conv; [ exact cB0 | exact cBs1 ] | exact cBs2 ].
     + eapply c_psnd; [ exact tAs | exact tBs | eapply IHMs; exact hrP ].
+  - (* t_prop_u: [tprop] and [tpi] are head-normal, so only the subject of the
+       subtyping rule can reduce; its conversion lifts by [c_prop_u]. *)
+    eapply c_prop_u. eapply IHApu; exact hr.
 Qed.
 
 (* Agda: subject-red1 : HasType G M A -> HeadRed1 M N -> HasType G N A *)
@@ -9287,7 +9626,10 @@ Proof.
     | n Γ Asg Bsg tAsg IHAsg tBsg IHBsg
     | n Γ Amp Bmp Mmp Nmp tAmp IHAmp tBmp IHBmp tMmp IHMmp tNmp IHNmp
     | n Γ Af Bf Mf tAf IHAf tBf IHBf tMf IHMf
-    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs ]; intros N' hr.
+    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs
+    | n Γ cΓ
+    | n Γ Apu tApu IHApu
+    | n Γ Apr Bpr tApr IHApr tBpr IHBpr ]; intros N' hr.
   all: try solve [ inversion hr ].
   - (* t_conv: peel the conversion, recurse, re-wrap. *)
     eapply t_conv; [ eapply IHM; exact hr | exact cAB ].
@@ -9295,7 +9637,10 @@ Proof.
     apply HeadRed1_app_inv in hr.
     destruct hr as [ [A0 [M' [-> ->]]] | [F2 [hrF ->]] ].
     + (* β: F = abs A0 M'.  Invert the Lam typing, align via Π-injectivity. *)
-      destruct (typing_abs_inv _ _ _ _ _ tF) as [B2 [tM' cPi]].
+      destruct (typing_abs_inv _ _ _ _ _ tF) as [B2 [tM' cPi0]].
+      have cPi : conv Γ (Core.tpi A0 B2) (Core.tpi A B) Core.tuniv
+        by (case: cPi0 => cPi0;
+              [ exact cPi0 | exfalso; exact (tuniv_not_tpi cPi0) ]).
       destruct (piInjectivity cPi) as [cA cB].
       have tM'A : typing (Γ ++ A) M' B2
         by (eapply ctx_conv_typing; [ exact cA | exact tM' ]).
@@ -9360,6 +9705,8 @@ Proof.
   - have TP : typing Γ (Core.psnd Ms) Bs[(Core.pfst Ms)..]
       by (eapply t_psnd; [ exact tAs | exact tBs | exact tMs ]).
     exact (proj2 (conv_typing (red1_conv TP hr))).
+  - (* t_prop_u: the reduct stays a Prop, then lifts again *)
+    eapply t_prop_u. eapply IHApu; exact hr.
 Qed.
 
 (* Subject reduction for multi-step head reduction. *)
@@ -9371,40 +9718,7 @@ Proof.
   - apply IH. eapply subject_red1; eassumption.
 Qed.
 
-(** * Consistency: distinct type formers are not convertible.
 
-    [tnat] and [tpi A B] cannot be convertible at the universe.  If they were,
-    [piConv] would head-reduce [tnat] to a Π-code, but [tnat] is a head-normal
-    form (no [HeadRed1] step applies to it), so the only reduction sequence out
-    of it is the empty one — contradicting [tnat = tpi B0 F0]. *)
-
-Lemma tnat_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
-  ~ conv Γ Core.tnat (Core.tpi A B) Core.tuniv.
-Proof.
-  move=> H.
-  destruct (piConv H) as [B0 [F0 [HR _]]].
-  (* HR : HeadRed Core.tnat (Core.tpi B0 F0) *)
-  inversion HR; subst; try discriminate.
-  match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
-Qed.
-
-(* Symmetric form. *)
-Lemma tpi_not_tnat {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
-  ~ conv Γ (Core.tpi A B) Core.tnat Core.tuniv.
-Proof.
-  move=> H. apply tnat_not_tpi with (Γ := Γ) (A := A) (B := B).
-  apply c_sym. exact H.
-Qed.
-
-(* [tuniv] is also head-normal, so it is not convertible to a Π type. *)
-Lemma tuniv_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
-  ~ conv Γ Core.tuniv (Core.tpi A B) Core.tuniv.
-Proof.
-  move=> H.
-  destruct (piConv H) as [B0 [F0 [HR _]]].
-  inversion HR; subst; try discriminate.
-  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
-Qed.
 
 (* [tuniv] and [tnat] are distinct head-normal forms, hence not convertible.
    Proved semantically: conversion soundness ([conv_EvalRel]) at the bottom
@@ -9443,14 +9757,6 @@ Qed.
 (* Sigma non-confusion.  [sigmaConv] turns a conversion into a [HeadRed] onto a
    [tsig], which every other head-normal former refutes by inversion; the two
    reversed forms go through [piConv]/[idConv] the same way. *)
-Lemma tuniv_not_tsig {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
-  ~ conv Γ Core.tuniv (Core.tsig A B) Core.tuniv.
-Proof.
-  move=> H. destruct (sigmaConv H) as [B0 [F0 [HR _]]].
-  inversion HR; subst; try discriminate.
-  match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
-Qed.
-
 Lemma tnat_not_tsig {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
   ~ conv Γ Core.tnat (Core.tsig A B) Core.tuniv.
 Proof.
@@ -9512,6 +9818,65 @@ Qed.
     [syntax/typing.v]) together with the [tnat]/[tuniv] vs Π non-confusion
     facts. *)
 
+(* ------------------------------------------------------------------
+   Non-confusion for the second sort, and the alternative-killing tactic.
+
+   [tprop] is a head-normal former distinct from every other one, so the same
+   three [*Conv] head-reduction lemmas refute it; [tprop] vs [tnat] goes the
+   semantic route ([tuniv_not_tnat]'s script).
+   ------------------------------------------------------------------ *)
+Lemma tprop_not_tpi {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tprop (Core.tpi A B) Core.tuniv.
+Proof.
+  move=> H. destruct (piConv H) as [B0 [F0 [HR _]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tprop _ |- _ ] => inversion S end.
+Qed.
+
+Lemma tprop_not_tsig {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) :
+  ~ conv Γ Core.tprop (Core.tsig A B) Core.tuniv.
+Proof.
+  move=> H. destruct (sigmaConv H) as [B0 [F0 [HR _]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tprop _ |- _ ] => inversion S end.
+Qed.
+
+Lemma tprop_not_tid {n} (Γ : Ctx n) (A a b : Tm n) :
+  ~ conv Γ Core.tprop (Core.tid A a b) Core.tuniv.
+Proof.
+  move=> H. destruct (idConv H) as [Ac [ac [bc [HR _]]]].
+  inversion HR; subst; try discriminate.
+  match goal with [ S : HeadRed1 Core.tprop _ |- _ ] => inversion S end.
+Qed.
+
+Lemma tprop_not_tnat {n} (Γ : Ctx n) :
+  ~ conv Γ Core.tprop Core.tnat Core.tuniv.
+Proof.
+  move=> d.
+  have cΓ : ctx Γ by eapply conv_ctx; exact d.
+  have IC : InvConv Γ Core.tprop Core.tnat Core.tuniv bot_env
+    by (eapply conv_EvalRel; [ exact d | exact (@fits_bot_env n Γ cΓ) ]).
+  move: IC => [_ [_ [fwd _]]].
+  have evP : EvalRel Core.tprop (@bot_env n) tprop by [].
+  have evN : EvalRel Core.tnat (@bot_env n) tprop := fwd _ evP.
+  cbn in evN. done.
+Qed.
+
+(* Every [typing_*_inv] lemma now offers a second alternative -- the [tuniv]
+   that the Prop-to-U subtyping rule [t_prop_u] introduces, or, for [tpi],
+   the second sort [tprop] itself ([t_tpi_prop]).  At a head-normal type
+   former both alternatives are refuted by non-confusion, which is what this
+   tactic does: it leaves the primary conversion in [H]. *)
+Ltac inv_alt H :=
+  case: H => H;
+    [ idtac
+    | exfalso;
+      solve [ exact (tuniv_not_tpi H) | exact (tuniv_not_tnat H)
+            | exact (tuniv_not_tsig H) | exact (tuniv_not_tid H)
+            | exact (tprop_not_tpi H)  | exact (tprop_not_tnat H)
+            | exact (tprop_not_tsig H) | exact (tprop_not_tid H)
+            | exact (tuniv_not_tpi (c_sym _ _ _ _ _ H)) ] ].
+
 (* Values (weak-head-normal forms) and neutral (variable-headed) terms. *)
 Inductive value {n} : Tm n -> Prop :=
 | v_univ : value Core.tuniv
@@ -9523,7 +9888,9 @@ Inductive value {n} : Tm n -> Prop :=
 | v_tid  : forall A a b, value (Core.tid A a b)
 | v_rfl  : forall a, value (Core.rfl a)
 | v_tsig : forall A B, value (Core.tsig A B)
-| v_mkpair : forall M N, value (Core.mkpair M N).
+| v_mkpair : forall M N, value (Core.mkpair M N)
+(* the second sort is a value, like [tuniv] *)
+| v_prop : value Core.tprop.
 
 Inductive neutral {n} : Tm n -> Prop :=
 | ne_var : forall x, neutral (Core.var x)
@@ -9540,15 +9907,15 @@ Proof.
   move=> v; destruct v; move=> HT.
   - exfalso; exact (tuniv_not_tpi (typing_univ_inv HT)).
   - exfalso; exact (tuniv_not_tpi (typing_nat_inv HT)).
-  - exfalso; exact (tuniv_not_tpi (typing_tpi_inv HT)).
-  - exfalso; exact (tnat_not_tpi (typing_zero_inv HT)).
-  - exfalso; exact (tnat_not_tpi (typing_succ_inv HT)).
+  - exfalso. move: (typing_tpi_inv HT) => cc. inv_alt cc. exact (tuniv_not_tpi cc).
+  - exfalso. move: (typing_zero_inv HT) => cc. inv_alt cc. exact (tnat_not_tpi cc).
+  - exfalso. move: (typing_succ_inv HT) => cc. inv_alt cc. exact (tnat_not_tpi cc).
   - eexists; eexists; reflexivity.
   - (* v_tid: an [tid] is a type code, so its type is [tuniv] *)
     exfalso; exact (tuniv_not_tpi (typing_tid_inv HT)).
   - (* v_rfl: a proof's type is an [tid], which is head-normal *)
     exfalso.
-    move: (typing_rfl_inv HT) => [A0 [_ cc]].
+    move: (typing_rfl_inv HT) => [A0 [_ cc]]. inv_alt cc.
     destruct (piConv cc) as [B0 [F0 [HR _]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 (Core.tid _ _ _) _ |- _ ] => inversion S end.
@@ -9556,8 +9923,10 @@ Proof.
     exfalso; exact (tuniv_not_tpi (typing_tsig_inv HT)).
   - (* v_mkpair: a pair's type is a [tsig], which is head-normal *)
     exfalso.
-    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]].
+    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]]. inv_alt cc.
     exact (tsig_not_tpi cc).
+  - (* v_prop: the second sort's own type is [tuniv] *)
+    exfalso. move: (typing_prop_inv HT) => cc. exact (tuniv_not_tpi cc).
 Qed.
 
 (* Canonical forms at [tnat]: a value of type [tnat] is [zero] or a successor. *)
@@ -9567,21 +9936,23 @@ Proof.
   move=> v; destruct v; move=> HT.
   - exfalso; exact (tuniv_not_tnat (typing_univ_inv HT)).
   - exfalso; exact (tuniv_not_tnat (typing_nat_inv HT)).
-  - exfalso; exact (tuniv_not_tnat (typing_tpi_inv HT)).
+  - exfalso. move: (typing_tpi_inv HT) => cc. inv_alt cc. exact (tuniv_not_tnat cc).
   - left; reflexivity.
   - right; eexists; reflexivity.
-  - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
+  - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]]. inv_alt cPi.
     exact (tpi_not_tnat cPi).
   - (* v_tid *) exfalso; exact (tuniv_not_tnat (typing_tid_inv HT)).
   - (* v_rfl: [tid] is head-normal and distinct from [tnat] *)
     exfalso.
-    move: (typing_rfl_inv HT) => [A0 [_ cc]].
+    move: (typing_rfl_inv HT) => [A0 [_ cc]]. inv_alt cc.
     (* [cc : conv Γ (tid A0 a a) tnat tuniv]; both are head-normal codes *)
     exact (tid_not_tnat cc).
   - (* v_tsig *) exfalso; exact (tuniv_not_tnat (typing_tsig_inv HT)).
   - (* v_mkpair *) exfalso.
-    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]].
+    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]]. inv_alt cc.
     exact (tsig_not_tnat cc).
+  - (* v_prop *)
+    exfalso. move: (typing_prop_inv HT) => cc. exact (tuniv_not_tnat cc).
 Qed.
 
 (* Progress, general form: every well-typed term is a value, a neutral
@@ -9602,20 +9973,23 @@ Proof.
     destruct (idConv (typing_nat_inv HT)) as [Ac [ac [bc [HR _]]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
-  - (* tpi (as a type code, so its type is [tuniv]) *) exfalso.
-    destruct (idConv (typing_tpi_inv HT)) as [Ac [ac [bc [HR _]]]].
+  - (* tpi (as a type code, so its type is [tuniv] or [tprop]) *) exfalso.
+    move: (typing_tpi_inv HT) => cc. inv_alt cc.
+    destruct (idConv cc) as [Ac [ac [bc [HR _]]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
   - (* zero *) exfalso.
-    destruct (idConv (typing_zero_inv HT)) as [Ac [ac [bc [HR _]]]].
+    move: (typing_zero_inv HT) => cc. inv_alt cc.
+    destruct (idConv cc) as [Ac [ac [bc [HR _]]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
   - (* succ *) exfalso.
-    destruct (idConv (typing_succ_inv HT)) as [Ac [ac [bc [HR _]]]].
+    move: (typing_succ_inv HT) => cc. inv_alt cc.
+    destruct (idConv cc) as [Ac [ac [bc [HR _]]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 Core.tnat _ |- _ ] => inversion S end.
   - (* abs: its type is a [tpi], which is head-normal *) exfalso.
-    destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
+    destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]]. inv_alt cPi.
     destruct (idConv cPi) as [Ac [ac [bc [HR _]]]].
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 (Core.tpi _ _) _ |- _ ] => inversion S end.
@@ -9629,8 +10003,12 @@ Proof.
     inversion HR; subst; try discriminate.
     match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
   - (* mkpair: its type is a [tsig], which is head-normal *) exfalso.
-    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]].
+    move: (typing_mkpair_inv HT) => [A0 [B0 [_ [_ [_ [_ cc]]]]]]. inv_alt cc.
     exact (tsig_not_tid cc).
+  - (* tprop (a type code) *) exfalso.
+    destruct (idConv (typing_prop_inv HT)) as [Ac [ac [bc [HR _]]]].
+    inversion HR; subst; try discriminate.
+    match goal with [ S : HeadRed1 Core.tuniv _ |- _ ] => inversion S end.
 Qed.
 
 (** Canonical forms at a Σ type: a value of Σ type is a pair.  The [tsig]
@@ -9641,16 +10019,18 @@ Proof.
   move=> v; destruct v; move=> HT.
   - exfalso; exact (tuniv_not_tsig (typing_univ_inv HT)).
   - exfalso; exact (tuniv_not_tsig (typing_nat_inv HT)).
-  - exfalso; exact (tuniv_not_tsig (typing_tpi_inv HT)).
-  - exfalso; exact (tnat_not_tsig (typing_zero_inv HT)).
-  - exfalso; exact (tnat_not_tsig (typing_succ_inv HT)).
-  - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]].
+  - exfalso. move: (typing_tpi_inv HT) => cc. inv_alt cc. exact (tuniv_not_tsig cc).
+  - exfalso. move: (typing_zero_inv HT) => cc. inv_alt cc. exact (tnat_not_tsig cc).
+  - exfalso. move: (typing_succ_inv HT) => cc. inv_alt cc. exact (tnat_not_tsig cc).
+  - exfalso. destruct (typing_abs_inv _ _ _ _ _ HT) as [B2 [_ cPi]]. inv_alt cPi.
     exact (tpi_not_tsig cPi).
   - exfalso; exact (tuniv_not_tsig (typing_tid_inv HT)).
-  - exfalso. move: (typing_rfl_inv HT) => [A0 [_ cc]].
+  - exfalso. move: (typing_rfl_inv HT) => [A0 [_ cc]]. inv_alt cc.
     exact (tid_not_tsig cc).
   - exfalso; exact (tuniv_not_tsig (typing_tsig_inv HT)).
   - eexists; eexists; reflexivity.
+  - (* v_prop *)
+    exfalso. move: (typing_prop_inv HT) => cc. exact (tuniv_not_tsig cc).
 Qed.
 
 Lemma progress_gen {n} (Γ : Ctx n) M A :
@@ -9675,7 +10055,10 @@ Proof.
     | n Γ Asg Bsg tAsg IHAsg tBsg IHBsg
     | n Γ Amp Bmp Mmp Nmp tAmp IHAmp tBmp IHBmp tMmp IHMmp tNmp IHNmp
     | n Γ Af Bf Mf tAf IHAf tBf IHBf tMf IHMf
-    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs ].
+    | n Γ As Bs Ms tAs IHAs tBs IHBs tMs IHMs
+    | n Γ cΓ
+    | n Γ Apu tApu IHApu
+    | n Γ Apr Bpr tApr IHApr tBpr IHBpr ].
   - right; left; constructor.
   - exact IHM.
   - left; constructor.
@@ -9726,6 +10109,9 @@ Proof.
       right; right; eexists; apply hr_psnd.
     + right; left; apply ne_psnd; exact neM.
     + right; right; eexists; apply hr_psnd_scrut; exact stM.
+  - (* t_prop: the second sort is a value *) left; constructor.
+  - (* t_prop_u: the subject is unchanged *) exact IHApu.
+  - (* t_tpi_prop: a Π code is a value, at either sort *) left; constructor.
 Qed.
 
 (* A closed term has no neutral (variable-headed) subterm. *)

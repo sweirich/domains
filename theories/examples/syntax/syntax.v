@@ -22,7 +22,8 @@ Inductive Tm (n_Tm : nat) : Type :=
   | tsig : Tm n_Tm -> Tm (S n_Tm) -> Tm n_Tm
   | mkpair : Tm n_Tm -> Tm n_Tm -> Tm n_Tm
   | pfst : Tm n_Tm -> Tm n_Tm
-  | psnd : Tm n_Tm -> Tm n_Tm.
+  | psnd : Tm n_Tm -> Tm n_Tm
+  | tprop : Tm n_Tm.
 
 Lemma congr_abs {m_Tm : nat} {s0 : Tm m_Tm} {s1 : Tm (S m_Tm)} {t0 : Tm m_Tm}
   {t1 : Tm (S m_Tm)} (H0 : s0 = t0) (H1 : s1 = t1) :
@@ -140,6 +141,11 @@ Proof.
 exact (eq_trans eq_refl (ap (fun x => psnd m_Tm x) H0)).
 Qed.
 
+Lemma congr_tprop {m_Tm : nat} : tprop m_Tm = tprop m_Tm.
+Proof.
+exact (eq_refl).
+Qed.
+
 Lemma upRen_Tm_Tm {m : nat} {n : nat} (xi : fin m -> fin n) :
   fin (S m) -> fin (S n).
 Proof.
@@ -177,6 +183,7 @@ Fixpoint ren_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
   | mkpair _ s0 s1 => mkpair n_Tm (ren_Tm xi_Tm s0) (ren_Tm xi_Tm s1)
   | pfst _ s0 => pfst n_Tm (ren_Tm xi_Tm s0)
   | psnd _ s0 => psnd n_Tm (ren_Tm xi_Tm s0)
+  | tprop _ => tprop n_Tm
   end.
 
 Lemma up_Tm_Tm {m : nat} {n_Tm : nat} (sigma : fin m -> Tm n_Tm) :
@@ -222,6 +229,7 @@ Fixpoint subst_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
       mkpair n_Tm (subst_Tm sigma_Tm s0) (subst_Tm sigma_Tm s1)
   | pfst _ s0 => pfst n_Tm (subst_Tm sigma_Tm s0)
   | psnd _ s0 => psnd n_Tm (subst_Tm sigma_Tm s0)
+  | tprop _ => tprop n_Tm
   end.
 
 Lemma upId_Tm_Tm {m_Tm : nat} (sigma : fin m_Tm -> Tm m_Tm)
@@ -281,6 +289,7 @@ subst_Tm sigma_Tm s = s :=
         (idSubst_Tm sigma_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (idSubst_Tm sigma_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (idSubst_Tm sigma_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma upExtRen_Tm_Tm {m : nat} {n : nat} (xi : fin m -> fin n)
@@ -344,6 +353,7 @@ Fixpoint extRen_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
         (extRen_Tm xi_Tm zeta_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (extRen_Tm xi_Tm zeta_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma upExt_Tm_Tm {m : nat} {n_Tm : nat} (sigma : fin m -> Tm n_Tm)
@@ -409,6 +419,7 @@ Fixpoint ext_Tm {m_Tm : nat} {n_Tm : nat} (sigma_Tm : fin m_Tm -> Tm n_Tm)
         (ext_Tm sigma_Tm tau_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (ext_Tm sigma_Tm tau_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma up_ren_ren_Tm_Tm {k : nat} {l : nat} {m : nat} (xi : fin k -> fin l)
@@ -476,6 +487,7 @@ ren_Tm zeta_Tm (ren_Tm xi_Tm s) = ren_Tm rho_Tm s :=
         (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (compRenRen_Tm xi_Tm zeta_Tm rho_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma up_ren_subst_Tm_Tm {k : nat} {l : nat} {m_Tm : nat}
@@ -552,6 +564,7 @@ subst_Tm tau_Tm (ren_Tm xi_Tm s) = subst_Tm theta_Tm s :=
         (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (compRenSubst_Tm xi_Tm tau_Tm theta_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma up_subst_ren_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -654,6 +667,7 @@ ren_Tm zeta_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
       congr_pfst (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
   | psnd _ s0 =>
       congr_psnd (compSubstRen_Tm sigma_Tm zeta_Tm theta_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma up_subst_subst_Tm_Tm {k : nat} {l_Tm : nat} {m_Tm : nat}
@@ -757,6 +771,7 @@ subst_Tm tau_Tm (subst_Tm sigma_Tm s) = subst_Tm theta_Tm s :=
       congr_pfst (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
   | psnd _ s0 =>
       congr_psnd (compSubstSubst_Tm sigma_Tm tau_Tm theta_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma renRen_Tm {k_Tm : nat} {l_Tm : nat} {m_Tm : nat}
@@ -894,6 +909,7 @@ Fixpoint rinst_inst_Tm {m_Tm : nat} {n_Tm : nat}
         (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s1)
   | pfst _ s0 => congr_pfst (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
   | psnd _ s0 => congr_psnd (rinst_inst_Tm xi_Tm sigma_Tm Eq_Tm s0)
+  | tprop _ => congr_tprop
   end.
 
 Lemma rinstInst'_Tm {m_Tm : nat} {n_Tm : nat} (xi_Tm : fin m_Tm -> fin n_Tm)
@@ -1084,6 +1100,8 @@ Import
 Core.
 
 Arguments var {n_Tm}.
+
+Arguments tprop {n_Tm}.
 
 Arguments psnd {n_Tm}.
 

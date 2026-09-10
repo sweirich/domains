@@ -24,3 +24,9 @@ tsig    : Tm -> (bind Tm in Tm) -> Tm
 mkpair  : Tm -> Tm -> Tm
 pfst    : Tm -> Tm
 psnd    : Tm -> Tm
+
+-- Prop fragment (Agda SigmaProp/).  The second sort: binder-free, a leaf like
+-- tuniv.  All its content is in the judgments (Prop : U, Prop-to-U subtyping,
+-- Pi-into-Prop, and proof irrelevance) and in wt, where a type whose code is a
+-- member of tprop has only bot as a member (wt_prop_bot).
+tprop   : Tm
