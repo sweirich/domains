@@ -16,3 +16,11 @@ fix_    : Tm -> Tm
 tid     : Tm -> Tm -> Tm -> Tm
 rfl     : Tm -> Tm
 jcase   : Tm -> Tm -> Tm -> Tm
+
+
+-- Sigma fragment (Agda SigmaProp/).  Only tsig binds; the pair and its two
+-- projections are binder-free.
+tsig    : Tm -> (bind Tm in Tm) -> Tm
+mkpair  : Tm -> Tm -> Tm
+pfst    : Tm -> Tm
+psnd    : Tm -> Tm

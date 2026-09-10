@@ -281,6 +281,38 @@ Fixpoint EvalRel {n} (t : Tm n) : Env n -> elt -> Prop :=
           | rfl w' => EvalRel M1 ρ (w' ↦ c)
           | _      => False
           end
+  | Core.tsig A B => fun ρ b =>
+        (* Σ mirrors [tpi] verbatim (Agda SigmaProp [EvalRel (Sigma A B)]):
+           a type former evaluating to the code [tsig a g].  Agda's
+           [Coherent (SigmaCode a f)] is this [valid a /\ valid_fun g], and its
+           [Selection]-indexed codomain condition is our [EvalRel_fun]. *)
+        match b with
+        | bot => True
+        | tsig a g =>
+            valid a /\ valid_fun g
+            /\ EvalRel A ρ a
+            /\ exists a', EvalRel A ρ a'
+            /\ EvalRel_fun B ρ a' g
+        | _ => False
+        end
+  | Core.mkpair M N => fun ρ c =>
+        (* [mkpair] is a value former like [abs]/[rfl]: it evaluates to the
+           code [mkpair x y] whose components evaluate [M] and [N] (Agda
+           [EvalRel (MkPair M N)]).  The [valid] conjunct is what carries the
+           "not both [bot]" side condition of [valid (mkpair _ _)] -- the one
+           place Σ is not a transcription of [tpi]. *)
+        match c with
+        | bot => True
+        | mkpair x y => valid (mkpair x y) /\ EvalRel M ρ x /\ EvalRel N ρ y
+        | _ => False
+        end
+  | Core.pfst M => fun ρ c =>
+        (* the projections (Agda [EvalRel (Fst M)] / [EvalRel (Snd M)]): the
+           result is one component of a pair code that [M] evaluates to.  Agda
+           spells out one clause per code shape; they are all this clause. *)
+        if is_bot c then True else exists y, EvalRel M ρ (mkpair c y)
+  | Core.psnd M => fun ρ c =>
+        if is_bot c then True else exists x, EvalRel M ρ (mkpair x c)
   end.
 
 
@@ -377,6 +409,21 @@ Proof.
     move=> [w [_ Hb]]. destruct w; try done.
     + exact (proj1 Hb).
     + eapply valid_singleton_val. exact (IHM2 _ _ Hb).
+  - (* tsig: the [tpi] argument verbatim *)
+    destruct u; try done.
+    move=> [Vu [Vf [WTu [E1 _]]]].
+    eapply valid_tsig_intro; eauto.
+  - (* mkpair: the clause records the code's validity (this is where the
+       "not both bot" condition is carried) *)
+    destruct u; try done. move=> [V _]. exact V.
+  - (* pfst: the result is the first component of a pair code *)
+    destruct (is_bot u) eqn:h.
+    destruct u; try done.
+    move=> [y H]. exact (valid_mkpair1 _ _ (IHM _ _ H)).
+  - (* psnd: ... and the second *)
+    destruct (is_bot u) eqn:h.
+    destruct u; try done.
+    move=> [x H]. exact (valid_mkpair2 _ _ (IHM _ _ H)).
 Qed.
 
 (** * monotonicity *)
@@ -428,7 +475,7 @@ Proof.
   - (* M = ncase *)
     destruct h1 as [w [EM Hb]]. exists w. split.
     + eapply IHM1; eauto.
-    + destruct w as [ | | | | v | | | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
       * have Vv : valid v := EvalRel_valid EM.
@@ -466,9 +513,33 @@ Proof.
   - (* M = jcase *)
     destruct h1 as [w [EM Hb]]. exists w. split.
     + eapply IHM3; eauto.
-    + destruct w as [ | | | | v | | | | ]; try contradiction.
+    + destruct w as [ | | | | v | | | | | | ]; try contradiction.
       * exact Hb.
       * eapply IHM2; eauto.
+  - (* M = tsig M1 M2: the [tpi] argument verbatim *)
+    destruct u; try done.
+    destruct h1 as [Vu [Vl [WT1 [a' [E1 h3]]]]].
+    repeat split; eauto.
+    exists a'.
+    repeat split; eauto.
+    intros u1 v1 Vu1 APP.
+    specialize (h3 u1 v1 Vu1 APP).
+    destruct h3 as [x [Lx [WT E2]]].
+    exists x. repeat split; eauto.
+    eapply IHM2; eauto with valid.
+    eapply le_env_cons; eauto using le_refl.
+    eapply le_refl; eauto with valid.
+  - (* M = mkpair M1 M2: componentwise, as [tid] *)
+    destruct u; try done.
+    move: h1 => [V [E1 E2]].
+    split; [ exact V | ].
+    split; [ eapply IHM1; eauto | eapply IHM2; eauto ].
+  - (* M = pfst M *)
+    destruct (is_bot u); try done.
+    destruct h1 as [y H]. exists y. eapply IHM; eauto.
+  - (* M = psnd M *)
+    destruct (is_bot u); try done.
+    destruct h1 as [x H]. exists x. eapply IHM; eauto.
 Qed.
 
 
@@ -511,7 +582,7 @@ Proof.
       apply le_bot_inv in LE. subst u'. done.
     + (* u = abs l *)
       move: ER1 => [Vl [Nl [a [WTa [Ea h]]]]].
-      destruct u' as [ | | | | | | l0 | | ]; try done.
+      destruct u' as [ | | | | | | l0 | | | | ]; try done.
       (* only u' = abs l0 case remains *)
       cbn in Vu'.
       have Vl0 : valid_fun l0 by move/andP : Vu' => [? _].
@@ -581,7 +652,7 @@ Proof.
 
   - (* ncase *)
     destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
-    destruct w as [ | | | | v | | | | ]; try contradiction.
+    destruct w as [ | | | | v | | | | | | ]; try contradiction.
     + (* bot: branch [valid u /\ le u bot] descends to [valid u' /\ le u' bot] *)
       move: Hb => [_ Lub]. split; [ exact Vu' | ].
       have Vb : valid bot by done.
@@ -598,11 +669,11 @@ Proof.
 
   - (* tpi A B *)
 
-    destruct u as [ | | | | | a f | | | ]; try done.
+    destruct u as [ | | | | | a f | | | | | ]; try done.
     + (* u = bot, u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
     + (* u = tpi a f *)
-      destruct u' as [ | | | | | a' f' | | | ]; try done.
+      destruct u' as [ | | | | | a' f' | | | | | ]; try done.
       (* only u' = tpi a' f' case *)
       move: ER1 => [Va [Vf [evA [a0 [evA0 body1]]]]].
       cbn in Vu'.
@@ -645,10 +716,10 @@ Proof.
         [ exact Vρ | apply valid_singleton; [ exact Vq | exact Vw' ]
         | exact Hst | apply le_singleton_val; [ exact Vq | exact Vw' | exact Lw ] ].
   - (* tid: componentwise, as for [tpi] but with no function table *)
-    destruct u as [ | | | | | | | t v w | ]; try done.
+    destruct u as [ | | | | | | | t v w | | | ]; try done.
     + (* u = bot, so u' = bot *)
       apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | t' v' w' | ]; try done.
+    + destruct u' as [ | | | | | | | t' v' w' | | | ]; try done.
       move: ER1 => [_ [EA [E0 E1]]].
       autorewrite with le in LE.
       move: LE => /andP. move=> [LE12 LEw]. move: LE12 => /andP. move=> [LEt LEv].
@@ -658,14 +729,14 @@ Proof.
       split; [ eapply IHM1; eauto | ].
       split; [ eapply IHM2; eauto | eapply IHM3; eauto ].
   - (* rfl: the witness descends *)
-    destruct u as [ | | | | | | | | w ]; try done.
+    destruct u as [ | | | | | | | | w | | ]; try done.
     + apply le_bot_inv in LE. subst u'. done.
-    + destruct u' as [ | | | | | | | | w' ]; try done.
+    + destruct u' as [ | | | | | | | | w' | | ]; try done.
       autorewrite with le in LE. eapply IHM; eauto.
   - (* jcase: as for [ncase]; the proof branch is an [app] edge, which is
        monotone in the value it records *)
     destruct ER1 as [w [EM Hb]]. exists w. split; [ exact EM | ].
-    destruct w as [ | | | | | | | | v ]; try contradiction.
+    destruct w as [ | | | | | | | | v | | ]; try contradiction.
     + move: Hb => [_ Lub]. split; [ exact Vu' | ].
       have Vb : valid bot by done.
       eapply le_trans; [ exact Vu' | exact Vu1 | exact Vb | exact LE | exact Lub ].
@@ -679,6 +750,78 @@ Proof.
         eapply IHM2;
           [ exact Vρ | apply valid_singleton; [ exact Vv | exact Vu' ]
           | exact Hb | apply le_singleton_val; [ exact Vv | exact Vu' | exact LE ] ].
+  - (* tsig A B: the [tpi] argument verbatim, with [le_sig] for [le_tpi] *)
+    destruct u as [ | | | | | | | | | a f | ]; try done.
+    + (* u = bot, u' = bot *)
+      apply le_bot_inv in LE. subst u'. done.
+    + destruct u' as [ | | | | | | | | | a' f' | ]; try done.
+      move: ER1 => [Va [Vf [evA [a0 [evA0 body1]]]]].
+      cbn in Vu'.
+      move: Vu' => /andP. move=> [Va' Vf'].
+      fold (valid_fun f') in Vf'.
+      rewrite le_sig in LE. move: LE => /andP. move=> [LEa LEf].
+      split. apply Va'.
+      split. apply Vf'.
+      split. eapply (IHM1 _ a a'); eauto.
+      exists a0.
+      split. eauto.
+      move=> u v Vu APP.
+      destruct (valid_app_exists Vf Vu) as [w [APPw Vw]].
+      move: (le_fun_mono Vf' Vf LEf Vu) => LEv. rewrite APP APPw in LEv.
+      destruct (body1 u w Vu APPw) as [x [WTx [LEx ERx]]].
+      exists x.
+      split. auto.
+      split. auto.
+      eapply IHM2; eauto.
+      eapply valid_cons. eapply wt_valid_tm. eauto. eauto.
+      rewrite -APP. eapply (@valid_app f' u); eauto.
+  - (* mkpair M1 M2: componentwise, as [tid] *)
+    destruct u as [ | | | | | | | | | | x y ]; try done.
+    + apply le_bot_inv in LE. subst u'. done.
+    + destruct u' as [ | | | | | | | | | | x' y' ]; try done.
+      move: ER1 => [_ [E1 E2]].
+      autorewrite with le in LE.
+      move: LE => /andP. move=> [Lx Ly].
+      have Vu'c := Vu'. cbn in Vu'c.
+      move: Vu'c => /andP. move=> [Vxy _]. move: Vxy => /andP. move=> [Vx' Vy'].
+      split; [ exact Vu' | ].
+      split; [ eapply IHM1; eauto | eapply IHM2; eauto ].
+  - (* pfst M: shrink the FIRST component inside the pair code.  The pair
+       stays valid because [u'] is not [bot], which is what discharges the
+       "not both bot" conjunct. *)
+    destruct (is_bot u') eqn:Hu'.
+    + destruct u'; done.
+    + destruct (is_bot u) eqn:Hu.
+      ++ destruct u; try done. apply le_bot_inv in LE. subst u'.
+         cbn in Hu'. done.
+      ++ destruct ER1 as [y H].
+         have Vp : valid (mkpair u y) by (eapply EvalRel_valid; exact H).
+         have Vy : valid y by (eapply valid_mkpair2; exact Vp).
+         exists y.
+         eapply (IHM ρ (mkpair u y) (mkpair u' y));
+           [ exact Vρ
+           | apply /andP; split;
+               [ apply /andP; split; [ exact Vu' | exact Vy ]
+               | by rewrite Hu' ]
+           | exact H
+           | apply le_mkpair_intro; [ exact LE | exact (le_refl Vy) ] ].
+  - (* psnd M: ... and the SECOND *)
+    destruct (is_bot u') eqn:Hu'.
+    + destruct u'; done.
+    + destruct (is_bot u) eqn:Hu.
+      ++ destruct u; try done. apply le_bot_inv in LE. subst u'.
+         cbn in Hu'. done.
+      ++ destruct ER1 as [x H].
+         have Vp : valid (mkpair x u) by (eapply EvalRel_valid; exact H).
+         have Vx : valid x by (eapply valid_mkpair1; exact Vp).
+         exists x.
+         eapply (IHM ρ (mkpair x u) (mkpair x u'));
+           [ exact Vρ
+           | apply /andP; split;
+               [ apply /andP; split; [ exact Vx | exact Vu' ]
+               | by rewrite Hu' andbF ]
+           | exact H
+           | apply le_mkpair_intro; [ exact (le_refl Vx) | exact LE ] ].
 Qed.
 
 (** Index-preserving down-closure of the Kleene approximants of [fix_ M]
@@ -1041,7 +1184,7 @@ Proof.
     move: H1 => [wa [EMa Hba]].
     move: H2 => [wb [EMb Hbb]].
     move: (IHM1 _ _ _ Vρ EMa EMb) => [Cw hlubw].
-    destruct wa as [ | | | | va | | | | ], wb as [ | | | | vb | | | | ];
+    destruct wa as [ | | | | va | | | | | | ], wb as [ | | | | vb | | | | | | ];
       cbn in Hba, Hbb, Cw; try contradiction; try done.
     + (* bot, bot *)
       move: Hba => [_ La]; move: Hbb => [_ Lb].
@@ -1188,8 +1331,8 @@ Proof.
     move=> c LUB. subst c. exists k. exact Hk.
   - (* tid: componentwise, like [tpi] but with no function table *)
     move=> H1 H2.
-    destruct a as [ | | | | | | | ta ua wa | ]; try done;
-      destruct b as [ | | | | | | | tb ub wb | ]; try done.
+    destruct a as [ | | | | | | | ta ua wa | | | ]; try done;
+      destruct b as [ | | | | | | | tb ub wb | | | ]; try done.
     + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
     + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
     + split; [ apply compatible_bot
@@ -1216,8 +1359,8 @@ Proof.
         split; [ exact (hlu _ erefl) | exact (hlw _ erefl) ].
   - (* rfl: the witnesses join *)
     move=> H1 H2.
-    destruct a as [ | | | | | | | | wa ]; try done;
-      destruct b as [ | | | | | | | | wb ]; try done.
+    destruct a as [ | | | | | | | | wa | | ]; try done;
+      destruct b as [ | | | | | | | | wb | | ]; try done.
     + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
     + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
     + split; [ apply compatible_bot
@@ -1233,7 +1376,7 @@ Proof.
     move: H1 => [wa [EMa Hba]].
     move: H2 => [wb [EMb Hbb]].
     move: (IHM3 _ _ _ Vρ EMa EMb) => [Cw hlubw].
-    destruct wa as [ | | | | | | | | va ], wb as [ | | | | | | | | vb ];
+    destruct wa as [ | | | | | | | | va | | ], wb as [ | | | | | | | | vb | | ];
       cbn in Hba, Hbb, Cw; try contradiction; try done.
     + (* bot, bot *)
       move: Hba => [_ La]; move: Hbb => [_ Lb].
@@ -1297,6 +1440,105 @@ Proof.
       rewrite !app_cons_eq app_nil_eq lub_bot_r.
       rewrite (le_lub_left Cw Vva Vvb) (le_lub_right Cw Vva Vvb) /=.
       apply le_refl; exact Vla.
+  - (* tsig A B: the [tpi] case verbatim -- [compatible] and [lub] treat
+       [tsig] exactly as [tpi], guard included *)
+    rename M1 into A. rename M2 into B.
+    destruct a; try done; destruct b; try done.
+    + move=> _ _. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. done.
+    + move=> _ h1. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. subst. eapply h1.
+    + move=> h1 _. split; try done.
+      move=> c LUB. cbn in LUB. inversion LUB. subst. eapply h1.
+    + move=> [Va1 [Vg1 [EA1 [a1' [EA1' h1]]]]].
+      move=> [Va2 [Vg2 [EA2 [a2' [EA2' h2]]]]].
+      have Va1' : valid a1' by (eapply EvalRel_valid; eauto).
+      have Va2' : valid a2' by (eapply EvalRel_valid; eauto).
+      move: (IHM1 _ _ _ Vρ EA1 EA2) => [Ca1a2 h3].
+      move: (IHM1 _ _ _ Vρ EA1' EA2') => [Ca1'a2' h3'].
+      have [c' LUB'] : { c' & lub a1' a2' = c' } by exists (lub a1' a2').
+      destruct (EvalRel_fun_compatible Vρ IHM2 Ca1'a2' Va1' Vg1 h1 Va2' Vg2 h2 LUB')
+        as [Cgg EAPP].
+      split.
+      * cbn. apply /andP. split; [ exact Ca1a2 | exact Cgg ].
+      * move=> c LUB. cbn in LUB. rewrite Cgg in LUB. cbn in LUB. subst c.
+        split; [ by eapply valid_lub; eauto | ].
+        split; [ by eapply valid_append; eauto | ].
+        split; [ exact (h3 _ erefl) | ].
+        exists c'. split; [ exact (h3' _ LUB') | exact EAPP ].
+  - (* mkpair: componentwise, like [tid].  The join's "not both bot" conjunct
+       is exactly [lub_pair_nonbot]. *)
+    move=> H1 H2.
+    destruct a as [ | | | | | | | | | | xa ya ]; try done;
+      destruct b as [ | | | | | | | | | | xb yb ]; try done.
+    + split; [ done | move=> c LUB; cbn in LUB; subst c; done ].
+    + split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ].
+    + split; [ apply compatible_bot
+             | move=> c LUB; rewrite lub_bot_r in LUB; subst c; exact H1 ].
+    + move: H1 => [Va [EX1 EY1]].
+      move: H2 => [Vb [EX2 EY2]].
+      move: (IHM1 _ _ _ Vρ EX1 EX2) => [Cx hlx].
+      move: (IHM2 _ _ _ Vρ EY1 EY2) => [Cy hly].
+      have Vac := Va. cbn in Vac.
+      move: Vac => /andP. move=> [Vxya NBa]. move: Vxya => /andP. move=> [Vxa Vya].
+      have Vbc := Vb. cbn in Vbc.
+      move: Vbc => /andP. move=> [Vxyb _]. move: Vxyb => /andP. move=> [Vxb Vyb].
+      split.
+      * cbn. apply /andP. split; [ exact Cx | exact Cy ].
+      * move=> c LUB. cbn in LUB. subst c.
+        split.
+        { cbn. apply /andP. split.
+          - apply /andP. split.
+            + eapply valid_lub; [ exact Cx | exact Vxa | exact Vxb ].
+            + eapply valid_lub; [ exact Cy | exact Vya | exact Vyb ].
+          - eapply lub_pair_nonbot; [ exact Cx | exact Cy | exact NBa ]. }
+        split; [ exact (hlx _ erefl) | exact (hly _ erefl) ].
+  - (* pfst: the two pair codes join, and their first components join with
+       them.  [compatible] of the pairs *is* the componentwise conjunction, so
+       [compatible a b] falls straight out. *)
+    move=> H1 H2.
+    destruct (is_bot a) eqn:Ha.
+    { destruct a; try done.
+      split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ]. }
+    destruct (is_bot b) eqn:Hb.
+    { destruct b; try done.
+      split; [ apply compatible_bot
+             | move=> c LUB; rewrite lub_bot_r in LUB; subst c;
+               rewrite Ha; exact H1 ]. }
+    move: H1 => [ya EPa]. move: H2 => [yb EPb].
+    move: (IHM _ _ _ Vρ EPa EPb) => [Cp hlp].
+    have Cpc := Cp. cbn in Cpc.
+    have Cab : compatible a b.
+    { move: Cpc => /andP. move=> [h _]. exact h. }
+    split; [ exact Cab | ].
+    move=> c LUB. subst c.
+    have Nab : is_bot (lub a b) = false by (eapply lub_not_bot_l; eauto).
+    rewrite Nab.
+    have E : lub (mkpair a ya) (mkpair b yb)
+             = mkpair (lub a b) (lub ya yb) by (cbn; reflexivity).
+    exists (lub ya yb). exact (hlp _ E).
+  - (* psnd: symmetric *)
+    move=> H1 H2.
+    destruct (is_bot a) eqn:Ha.
+    { destruct a; try done.
+      split; [ done | move=> c LUB; rewrite lub_bot_l in LUB; subst c; exact H2 ]. }
+    destruct (is_bot b) eqn:Hb.
+    { destruct b; try done.
+      split; [ apply compatible_bot
+             | move=> c LUB; rewrite lub_bot_r in LUB; subst c;
+               rewrite Ha; exact H1 ]. }
+    move: H1 => [xa EPa]. move: H2 => [xb EPb].
+    move: (IHM _ _ _ Vρ EPa EPb) => [Cp hlp].
+    have Cpc := Cp. cbn in Cpc.
+    have Cab : compatible a b.
+    { move: Cpc => /andP. move=> [_ h]. exact h. }
+    split; [ exact Cab | ].
+    move=> c LUB. subst c.
+    have Nab : is_bot (lub a b) = false by (eapply lub_not_bot_l; eauto).
+    rewrite Nab.
+    have E : lub (mkpair xa a) (mkpair xb b)
+             = mkpair (lub xa xb) (lub a b) by (cbn; reflexivity).
+    exists (lub xa xb). exact (hlp _ E).
 Qed.
 
 (** Any two approximations of a term are compatible. *)

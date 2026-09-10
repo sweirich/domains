@@ -79,6 +79,26 @@ Import Raw.
     fixpoints [Val] and [EqVal] *instantiated at a smaller rank*, so that the
     recursion in [Val]/[EqVal] below stays structurally decreasing in the
     fuel. *)
+(* [Val], [EqVal] and [ValTy]/[EqValTy] all fall into a catch-all arm at the
+   Sigma codes ([tsig] as a type code, [mkpair] as an element), so they are
+   [True] there for now -- the [ValTySig]/[ValPair] records are step 7 of
+   [sigma_extension_plan.md].  Consequently every case analysis over the codes
+   acquires one or two extra, trivially-closed goals, and these discharge
+   them. *)
+Ltac sigma_pair_inert :=
+  match goal with
+  | [ H : wt (mkpair _ _) _ |- _ ] => dependent destruction H; exact I
+  end.
+
+Ltac sigma_inert :=
+  solve [ intros; exact I
+        | tauto | trivial | done
+        (* the goal can be a stuck [match] on a type code that is still a
+           variable (both [wt] derivations share the element), so the pair
+           derivation has to be destructed before [Val] reduces to [True] *)
+        | sigma_pair_inert
+        | (intros; sigma_pair_inert) ].
+
 Module Rec.
 
 (* This module defines various helper operations on the logical
@@ -282,6 +302,86 @@ Definition EqValId {n} (Γ : Ctx n)
           /\ conv Γ M0 N0 A0
           /\ EqVal Γ M0 N0 A0 (wt_rfl_wit h).
 
+(* ---------------------------------------------------------------
+   The Sigma fragment.
+
+   [ValTySig] is nearly free: a [tsig] type code carries exactly the same
+   table structure as a [tpi] one, so this is [ValTy]'s [tpi] arm with
+   [Core.tsig] for [Core.tpi], and the codomain edges are the *same*
+   [PiEdgeVal]/[PiEdgeEq], reached by routing the derivation through
+   [wt_tsig_tpi].
+
+   [ValPair] is the Sigma analogue of [ValId], NOT of [ValPi].  [ValPi] has
+   to quantify over all argument codes, which under type-in-type is not
+   rank-well-founded and is why its edges carry a [Selection] bound.
+   [ValPair] quantifies over nothing: its components sit at the *fixed*
+   sub-codes [a] and [app g x], with
+
+       rk a          <  rk (tsig a g)
+       rk (app g x) <=  rk_fun g  <  rk (tsig a g)
+
+   so there is no edge and no bound -- exactly the position [ValId]'s
+   witness is in.
+   --------------------------------------------------------------- *)
+
+Definition ValTySig {n} (Γ : Ctx n)
+  (M : Tm n) b g (h : wt (tsig b g) tuniv) : Prop :=
+  exists A B, HeadRed M (Core.tsig A B)
+       /\ typing Γ A Core.tuniv
+       /\ typing (Γ ++ A) B Core.tuniv
+       /\ valid (tsig b g)
+       /\ Val Γ A Core.tuniv (wt_tsig_dom h)
+       /\ PiEdgeVal Γ A B (wt_tsig_tpi h)
+       /\ PiEdgeEq Γ A B (wt_tsig_tpi h).
+
+(** [ValPair]: a pair value [mkpair x y : tsig a g] is related to [M : A] when
+    [A] head-reduces to a Sigma-type and [M] to a literal pair whose two
+    components are related at the two sub-codes.  As in [ValPi]/[ValId] the
+    conversions are *stored* rather than derived from the [HeadRed]s, because
+    red subset conv is only available after adequacy. *)
+Definition ValPair {n} (Γ : Ctx n)
+  (M A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)) : Prop :=
+  exists A0 B0,
+       HeadRed A (Core.tsig A0 B0)
+    /\ conv Γ A (Core.tsig A0 B0) Core.tuniv
+    /\ exists M1 M2,
+            HeadRed M (Core.mkpair M1 M2)
+         /\ conv Γ M (Core.mkpair M1 M2) A
+            (* the components' syntactic typing is *stored*, for [ValPi]'s
+               reason: recovering it from [conv Γ M (mkpair M1 M2) A] would
+               need Sigma-injectivity, which is only available after
+               adequacy *)
+         /\ typing Γ M1 A0
+         /\ typing Γ M2 B0[M1..]
+         /\ Val Γ M1 A0 (wt_mkpair_fst h)
+         /\ Val Γ M2 B0[M1..] (wt_mkpair_snd h).
+
+(** [EqValPair]: both sides are [ValPair] and their components are related.
+
+    The second-component equality lives at the type term [B0[M1..]], which
+    mentions only the LEFT side; the swapped statement wants it at [B0[N1..]].
+    Those two are convertible ([conv_subst_arg] on the first components'
+    conversion) and equal as types ([PiEdgeEq]: related arguments give equal
+    codomains), so [EqValPair_sym]/[EqValPair_trans] transport it across --
+    which is why [FwdPER]'s [SYM]/[TRANS] bound the type code as well as the
+    element code (see [FwdPER]).  Agda's [REqValSigma] has no [eqSnd] at all
+    and recovers [c_psnd] by re-running adequacy at the pair's component
+    codes; that is not available here, because Coq's [semantic_typing] bundles
+    the cross-substitution equality [EqVal M[σ] M[σ']] with the unary
+    statement. *)
+Definition EqValPair {n} (Γ : Ctx n)
+  (M N A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)) : Prop :=
+     @ValPair _ Γ M A x y a g h
+  /\ @ValPair _ Γ N A x y a g h
+  /\ exists A0 B0, HeadRed A (Core.tsig A0 B0)
+     /\ exists M1 M2 N1 N2,
+             HeadRed M (Core.mkpair M1 M2)
+          /\ HeadRed N (Core.mkpair N1 N2)
+          /\ conv Γ M1 N1 A0
+          /\ conv Γ M2 N2 B0[M1..]
+          /\ EqVal Γ M1 N1 A0 (wt_mkpair_fst h)
+          /\ EqVal Γ M2 N2 B0[M1..] (wt_mkpair_snd h).
+
 Definition ValTy {n} (Γ : Ctx n)
   (M : Tm n) u (h : wt u tuniv) : Prop  :=
   (match u return wt _ tuniv ->  Prop with
@@ -307,6 +407,8 @@ Definition ValTy {n} (Γ : Ctx n)
 
   | tid t u0 v0 =>
       fun (h : wt (tid t u0 v0) tuniv) => @ValTyId _ Γ M t u0 v0 h
+  | tsig b g =>
+      fun (h : wt (tsig b g) tuniv) => @ValTySig _ Γ M b g h
   | tnat => fun h1 => True
   | tuniv => fun h1  => True
   | _ => fun h1  => True
@@ -322,6 +424,20 @@ Definition PiEdgeEqTy {n} (Γ : Ctx n)
           Val  Γ P A WTu ->
           (* to (equal) related results *)
           EqVal Γ B[P..] B'[P..] Core.tuniv (wt_Selection_codU h Sel).
+
+(** [EqValTySig]: [EqValTy]'s [tpi] arm with [Core.tsig], reusing
+    [PiEdgeEqTy] through [wt_tsig_tpi]. *)
+Definition EqValTySig {n} (Γ : Ctx n)
+  (M N : Tm n) b g (h : wt (tsig b g) tuniv) : Prop :=
+     @ValTySig _ Γ M b g h
+  /\ @ValTySig _ Γ N b g h
+  /\ exists A B, HeadRed M (Core.tsig A B)
+     /\ exists A' B', HeadRed N (Core.tsig A' B')
+        /\ conv Γ A A' Core.tuniv
+        /\ conv (Γ ++ A) B B' Core.tuniv
+        /\ valid (tsig b g)
+        /\ EqVal Γ A A' Core.tuniv (wt_tsig_dom h)
+        /\ PiEdgeEqTy Γ A B B' (wt_tsig_tpi h).
 
 (** [EqValTy Γ M N a h]: the binary type relation (two convertible types
     related to the same type code [a]); the Π case additionally requires the
@@ -346,6 +462,8 @@ Definition EqValTy {n}
              /\ PiEdgeEqTy Γ A B B' h
   | tid t u0 v0 =>
       fun (h : wt (tid t u0 v0) tuniv) => @EqValTyId _ Γ M N t u0 v0 h
+  | tsig b g =>
+      fun (h : wt (tsig b g) tuniv) => @EqValTySig _ Γ M N b g h
   | _ => fun h => True
   end) h.
 
@@ -431,6 +549,15 @@ Fixpoint Val (k : nat) {n} (Γ : Ctx n)
                /\ @Rec.ValId (@Val k) (@EqVal k) _ Γ M A w tc uc vc h
            | _ => fun h => True
            end) h
+      | tsig bc gc => fun h =>
+          (* the Sigma fragment: only a *pair* value carries information, via
+             [Rec.ValPair] -- the [ValId] shape, not the [ValPi] one *)
+          (match u return wt _ (tsig bc gc) -> Prop with
+           | mkpair x y => fun (h : wt (mkpair x y) (tsig bc gc)) =>
+                 Rec.ValTy (@Val k) (@EqVal k) Γ A (wt_mkpair_ty h)
+               /\ @Rec.ValPair (@Val k) _ Γ M A x y bc gc h
+           | _ => fun h => True
+           end) h
       | _ => fun h  => True
        end) h
   end
@@ -498,6 +625,15 @@ with EqVal (k : nat) {n} (Γ : Ctx n)
                /\ @Rec.EqValId (@Val k) (@EqVal k) _ Γ M N A w tc uc vc h
            | _ => fun h => True
            end) h
+      | tsig bc gc => fun h =>
+          (match u return wt _ (tsig bc gc) -> Prop with
+           | mkpair x y => fun (h : wt (mkpair x y) (tsig bc gc)) =>
+                 Rec.ValTy (@Val k) (@EqVal k) Γ A (wt_mkpair_ty h)
+               /\ @Rec.ValPair (@Val k) _ Γ M A x y bc gc h
+               /\ @Rec.ValPair (@Val k) _ Γ N A x y bc gc h
+               /\ @Rec.EqValPair (@Val k) (@EqVal k) _ Γ M N A x y bc gc h
+           | _ => fun h => True
+           end) h
       | _ => fun h => True
     end) h
   end.
@@ -520,6 +656,10 @@ Notation ValTyId k    := (Rec.ValTyId (@Val k)).
 Notation EqValTyId k  := (Rec.EqValTyId (@Val k) (@EqVal k)).
 Notation ValId k      := (Rec.ValId (@Val k) (@EqVal k)).
 Notation EqValId k    := (Rec.EqValId (@Val k) (@EqVal k)).
+Notation ValTySig k   := (Rec.ValTySig (@Val k) (@EqVal k)).
+Notation EqValTySig k := (Rec.EqValTySig (@Val k) (@EqVal k)).
+Notation ValPair k    := (Rec.ValPair (@Val k)).
+Notation EqValPair k  := (Rec.EqValPair (@Val k) (@EqVal k)).
 
 Arguments Val _ {n} Γ M A {u} {a} h.
 Arguments EqVal _ {n} Γ M N A {u} {a} h.
@@ -593,6 +733,34 @@ Lemma EqVal_rfl {n} (Γ : Ctx n) M N A w t u v (h : wt (rfl w) (tid t u v)) k :
    /\ ValId k Γ N A h /\ EqValId k Γ M N A h).
 Proof. reflexivity. Qed.
 
+(* ---- the Sigma fragment ---- *)
+
+(* [tsig] is a type code, so it goes through [ValTy] exactly as [tpi]/[tid]. *)
+Lemma Val_tsig {n} (Γ : Ctx n) M t g (h : wt (tsig t g) tuniv) k :
+  Val (S k) Γ M Core.tuniv h = ValTy k Γ M h.
+Proof. reflexivity. Qed.
+
+Lemma ValTy_tsig {n} (Γ : Ctx n) M t g (h : wt (tsig t g) tuniv) k :
+  ValTy k Γ M h = ValTySig k Γ M h.
+Proof. reflexivity. Qed.
+
+Lemma EqValTy_tsig {n} (Γ : Ctx n) M N t g (h : wt (tsig t g) tuniv) k :
+  EqValTy k Γ M N h = EqValTySig k Γ M N h.
+Proof. reflexivity. Qed.
+
+Lemma Val_mkpair {n} (Γ : Ctx n) M A x y t g
+  (h : wt (mkpair x y) (tsig t g)) k :
+  Val (S k) Γ M A h =
+  (ValTy k Γ A (wt_mkpair_ty h) /\ ValPair k Γ M A h).
+Proof. reflexivity. Qed.
+
+Lemma EqVal_mkpair {n} (Γ : Ctx n) M N A x y t g
+  (h : wt (mkpair x y) (tsig t g)) k :
+  EqVal (S k) Γ M N A h =
+  (ValTy k Γ A (wt_mkpair_ty h) /\ ValPair k Γ M A h
+   /\ ValPair k Γ N A h /\ EqValPair k Γ M N A h).
+Proof. reflexivity. Qed.
+
 (* ============================================================
    Val2-Bot, EqVal2-Bot: at u = bot, both relations are total.
    ============================================================ *)
@@ -632,6 +800,34 @@ Proof. now rewrite (proof_irrelevance _ h h'). Qed.
 Lemma ValTy_irr {n} (Γ : Ctx n) (M : Tm n) u (h h' : wt u tuniv) k :
   ValTy k Γ M h -> ValTy k Γ M h'.
 Proof. now rewrite (proof_irrelevance _ h h'). Qed.
+
+(* The Pi edges are proof-irrelevant in the code derivation too: [h] occurs in
+   them only as the [wt] index of a [Val]/[EqVal], which [Val_irr]/[EqVal_irr]
+   already move.  Needed to hand a [tsig]-derived edge to a [tpi]-shaped
+   lemma. *)
+Lemma PiEdgeVal_irr {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) b f
+  (h h' : wt (tpi b f) tuniv) k :
+  PiEdgeVal k Γ A B h -> PiEdgeVal k Γ A B h'.
+Proof.
+  move=> H u v Sel WT N TyN VN.
+  eapply Val_irr. exact (H u v Sel WT N TyN VN).
+Qed.
+
+Lemma PiEdgeEq_irr {n} (Γ : Ctx n) (A : Tm n) (B : Tm (S n)) b f
+  (h h' : wt (tpi b f) tuniv) k :
+  PiEdgeEq k Γ A B h -> PiEdgeEq k Γ A B h'.
+Proof.
+  move=> H u v Sel WT N1 N2 Cv EV.
+  eapply EqVal_irr. exact (H u v Sel WT N1 N2 Cv EV).
+Qed.
+
+Lemma PiEdgeEqTy_irr {n} (Γ : Ctx n) (A : Tm n) (B B' : Tm (S n)) b f
+  (h h' : wt (tpi b f) tuniv) k :
+  PiEdgeEqTy k Γ A B B' h -> PiEdgeEqTy k Γ A B B' h'.
+Proof.
+  move=> H u v Sel WT P TyP VP.
+  eapply EqVal_irr. exact (H u v Sel WT P TyP VP).
+Qed.
 
 Lemma EqValTy_irr {n} (Γ : Ctx n) (M N : Tm n) u (h h' : wt u tuniv) k :
   EqValTy k Γ M N h -> EqValTy k Γ M N h'.
@@ -785,6 +981,34 @@ Proof.
       exists A0. exists a0. exists b0. split; [ exact RA | ].
       split; [ apply c_refl; exact (proj1 (conv_typing Ca)) | ].
       apply IH; exact VM0.
+    + (* tsig: the [tpi] case.  [PiEdgeEqTy] is built from the stored
+         [PiEdgeEq] by taking the argument to itself. *)
+      cbn.
+      move=> H. move: (H) => [A0 [B0 [R0 [TA0 [TB0 [Vts [VA0 [PEV PEE]]]]]]]].
+      split; [ exact H | ]. split; [ exact H | ].
+      split; [ exact H | ]. split; [ exact H | ].
+      exists A0. exists B0. split; [ exact R0 | ].
+      exists A0. exists B0. split; [ exact R0 | ].
+      split; [ apply c_refl; exact TA0 | ].
+      split; [ apply c_refl; exact TB0 | ].
+      split; [ exact Vts | ].
+      split; [ apply IH; exact VA0 | ].
+      move=> u v Sel WTu P TP VP.
+      specialize (PEE u v Sel WTu P P (c_refl _ _ _ _ TP)).
+      eapply PEE. eapply IH. exact VP.
+    + (* mkpair: the diagonal [EqValPair] -- [c_refl] on the two stored
+         component typings, [IH] on their stored unary validity *)
+      cbn.
+      move=> [VTA H]. move: (H) =>
+        [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]].
+      split; [ exact VTA | ]. split; [ exact H | ]. split; [ exact H | ].
+      split; [ exact H | ]. split; [ exact H | ].
+      exists A0. exists B0. split; [ exact RA | ].
+      exists M1. exists M2. exists M1. exists M2.
+      split; [ exact RM | ]. split; [ exact RM | ].
+      split; [ apply c_refl; exact T1 | ].
+      split; [ apply c_refl; exact T2 | ].
+      split; [ apply IH; exact V1 | apply IH; exact V2 ].
 Qed.
 
 
@@ -826,6 +1050,11 @@ Proof.
     rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
   - (* wt_rfl: keep the type record and the first side's [ValId] *)
     rewrite EqVal_rfl Val_rfl. move=> [hA [hM _]]. by split.
+  - (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+     i.e. structurally the [wt_tuniv] case *)
+    rewrite EqVal_tuniv Val_tuniv. by move=> [? _].
+  - (* wt_mkpair: keep the type record and the first side's [ValPair] *)
+    rewrite EqVal_mkpair Val_mkpair. move=> [hA [hM _]]. by split.
 Qed.
 
 
@@ -850,6 +1079,11 @@ Proof.
     rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
   - (* wt_rfl: keep the type record and the second side's [ValId] *)
     rewrite EqVal_rfl Val_rfl. move=> [hA [_ [hN _]]]. by split.
+  - (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+     i.e. structurally the [wt_tuniv] case *)
+    rewrite EqVal_tuniv Val_tuniv. by move=> [_ [? _]].
+  - (* wt_mkpair: keep the type record and the second side's [ValPair] *)
+    rewrite EqVal_mkpair Val_mkpair. move=> [hA [_ [hN _]]]. by split.
 Qed.
 
 (* ============================================================
@@ -876,6 +1110,28 @@ Proof.
   move=> R [A0 [a0 [b0 [R0 REST]]]].
   exists A0. exists a0. exists b0.
   split; [ eapply HeadRed_tid_contract; [ exact R | exact R0 ] | exact REST ].
+Qed.
+
+(* The [ValTySig] analogues.  As with [ValTyId], [EqValTySig]'s first two
+   components are [ValTySig]-shaped rather than [ValTy]-shaped, so the generic
+   [ValTy_HeadRed_expand] does not apply and these are needed instead.  Only
+   the recorded head reduction moves. *)
+Lemma ValTySig_headred_expand {n} (Γ : Ctx n) (M M' : Tm n) b g
+  (h : wt (tsig b g) tuniv) k :
+  HeadRed M' M -> ValTySig k Γ M h -> ValTySig k Γ M' h.
+Proof.
+  move=> R [A0 [B0 [R0 REST]]].
+  exists A0. exists B0.
+  split; [ eapply relations.ms_app; [ exact R | exact R0 ] | exact REST ].
+Qed.
+
+Lemma ValTySig_headred_contract {n} (Γ : Ctx n) (M M' : Tm n) b g
+  (h : wt (tsig b g) tuniv) k :
+  HeadRed M M' -> ValTySig k Γ M h -> ValTySig k Γ M' h.
+Proof.
+  move=> R [A0 [B0 [R0 REST]]].
+  exists A0. exists B0.
+  split; [ eapply HeadRed_tsig_contract; [ exact R | exact R0 ] | exact REST ].
 Qed.
 
 (* [ValId]/[EqValId] under head reduction of the *term*.  The type record
@@ -932,6 +1188,63 @@ Proof.
   split; [ eapply HeadRed_contract_to_multi; [ apply nf_rfl | exact RN | exact HN ] | exact REST ].
 Qed.
 
+(* The [ValPair]/[EqValPair] analogues.  [mkpair] is head-normal
+   ([nf_mkpair]), so the contract direction goes through
+   [HeadRed_contract_to_multi] exactly as [rfl]'s does.  Note the recorded
+   [conv Γ M (mkpair M1 M2) A] moves by [c_trans], but the *component*
+   typings do not move at all -- they are about [M1]/[M2], not [M]. *)
+Lemma ValPair_headred_expand {n} (Γ : Ctx n) (M M0 T : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) k :
+  HeadRed M0 M -> conv Γ M0 M T -> ValPair k Γ M T h -> ValPair k Γ M0 T h.
+Proof.
+  move=> R cv [A0 [B0 [RA [CA [M1 [M2 [RM [CM REST]]]]]]]].
+  exists A0. exists B0.
+  split; [ exact RA | ]. split; [ exact CA | ].
+  exists M1. exists M2.
+  split; [ eapply relations.ms_app; [ exact R | exact RM ] | ].
+  split; [ eapply c_trans; [ exact cv | exact CM ] | exact REST ].
+Qed.
+
+Lemma ValPair_headred_contract {n} (Γ : Ctx n) (M M0 T : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) k :
+  HeadRed M M0 -> conv Γ M0 M T -> ValPair k Γ M T h -> ValPair k Γ M0 T h.
+Proof.
+  move=> R cv [A0 [B0 [RA [CA [M1 [M2 [RM [CM REST]]]]]]]].
+  exists A0. exists B0.
+  split; [ exact RA | ]. split; [ exact CA | ].
+  exists M1. exists M2.
+  split; [ eapply HeadRed_contract_to_multi; [ apply nf_mkpair | exact R | exact RM ] | ].
+  split; [ eapply c_trans; [ exact cv | exact CM ] | exact REST ].
+Qed.
+
+Lemma EqValPair_headred_expand {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) k :
+  HeadRed M0 M -> HeadRed N0 N -> conv Γ M0 M T -> conv Γ N0 N T ->
+  EqValPair k Γ M N T h -> EqValPair k Γ M0 N0 T h.
+Proof.
+  move=> RM RN cvM cvN [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [HM [HN REST]]]]]]]]]]].
+  split; [ eapply ValPair_headred_expand; [ exact RM | exact cvM | exact VM ] | ].
+  split; [ eapply ValPair_headred_expand; [ exact RN | exact cvN | exact VN ] | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ eapply relations.ms_app; [ exact RM | exact HM ] | ].
+  split; [ eapply relations.ms_app; [ exact RN | exact HN ] | exact REST ].
+Qed.
+
+Lemma EqValPair_headred_contract {n} (Γ : Ctx n) (M M0 N N0 T : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) k :
+  HeadRed M M0 -> HeadRed N N0 -> conv Γ M0 M T -> conv Γ N0 N T ->
+  EqValPair k Γ M N T h -> EqValPair k Γ M0 N0 T h.
+Proof.
+  move=> RM RN cvM cvN [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [HM [HN REST]]]]]]]]]]].
+  split; [ eapply ValPair_headred_contract; [ exact RM | exact cvM | exact VM ] | ].
+  split; [ eapply ValPair_headred_contract; [ exact RN | exact cvN | exact VN ] | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ eapply HeadRed_contract_to_multi; [ apply nf_mkpair | exact RM | exact HM ] | ].
+  split; [ eapply HeadRed_contract_to_multi; [ apply nf_mkpair | exact RN | exact HN ] | exact REST ].
+Qed.
+
 Lemma ValTy_HeadRed1_expand {n} (Γ : Ctx n) (M M' : Tm n) u (h : wt u tuniv) k :
   HeadRed1 M' M -> ValTy k Γ M h -> ValTy k Γ M' h.
 Proof. 
@@ -949,6 +1262,16 @@ Proof.
   split. exact TA0.
   split. exact TB0.
   split. exact Vpi.
+  split. exact VA.
+  split. exact PEV.
+  exact PEE.
+  (* tsig: as [tpi] -- only the recorded head reduction moves *)
+  move=> [A0 [B0 [R0 [TA0 [TB0 [Vts [VA [PEV PEE]]]]]]]].
+  exists A0, B0.
+  split. { eapply HeadRed1_tsig_expand; eauto. }
+  split. exact TA0.
+  split. exact TB0.
+  split. exact Vts.
   split. exact VA.
   split. exact PEV.
   exact PEE.
@@ -980,6 +1303,16 @@ Proof.
   split. exact TA0.
   split. exact TB0.
   split. exact Vpi.
+  split. exact VA.
+  split. exact PEV.
+  exact PEE.
+  (* tsig: as [tpi] -- only the recorded head reduction moves *)
+  move=> [A0 [B0 [R0 [TA0 [TB0 [Vts [VA [PEV PEE]]]]]]]].
+  exists A0, B0.
+  split. { eapply HeadRed1_tsig_contract; eauto. }
+  split. exact TA0.
+  split. exact TB0.
+  split. exact Vts.
   split. exact VA.
   split. exact PEV.
   exact PEE.
@@ -1020,6 +1353,13 @@ Proof.
   split; [ eapply ValTy_HeadRed_expand; [ exact R2 | exact VM2 ] | ].
   exists A0, B0. split; [ eapply relations.ms_app; [ exact R1 | exact HM1 ] | ].
   exists A0', B0'. split; [ eapply relations.ms_app; [ exact R2 | exact HM2 ] | exact REST ].
+  (* tsig: the [tpi] case, but through [ValTySig_headred_expand] since
+     [EqValTySig]'s components are [ValTySig]-shaped *)
+  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
+  split; [ eapply ValTySig_headred_expand; [ exact R1 | exact VM1 ] | ].
+  split; [ eapply ValTySig_headred_expand; [ exact R2 | exact VM2 ] | ].
+  exists A0, B0. split; [ eapply relations.ms_app; [ exact R1 | exact HM1 ] | ].
+  exists A0', B0'. split; [ eapply relations.ms_app; [ exact R2 | exact HM2 ] | exact REST ].
 Qed.
 
 (* EqValTy2-headred-contract *)
@@ -1043,6 +1383,12 @@ Proof.
   split; [ eapply ValTy_headred_contract; [ exact R2 | exact VM2 ] | ].
   exists A0, B0. split; [ eapply HeadRed_tpi_contract; [ exact R1 | exact HM1 ] | ].
   exists A0', B0'. split; [ eapply HeadRed_tpi_contract; [ exact R2 | exact HM2 ] | exact REST ].
+  (* tsig: likewise, through [ValTySig_headred_contract] *)
+  move=> [VM1 [VM2 [A0 [B0 [HM1 [A0' [B0' [HM2 REST]]]]]]]].
+  split; [ eapply ValTySig_headred_contract; [ exact R1 | exact VM1 ] | ].
+  split; [ eapply ValTySig_headred_contract; [ exact R2 | exact VM2 ] | ].
+  exists A0, B0. split; [ eapply HeadRed_tsig_contract; [ exact R1 | exact HM1 ] | ].
+  exists A0', B0'. split; [ eapply HeadRed_tsig_contract; [ exact R2 | exact HM2 ] | exact REST ].
 Qed.
 
 (* ============================================================
@@ -1075,6 +1421,17 @@ Proof.
   move=> VT HR. cbn [Rec.ValTy] in VT.
   destruct VT as [A1 [B1 [HR1 [TA1 [TB1 _]]]]].
   have [E1 E2] := HeadRed_tpi_det HR1 HR. subst A1 B1.
+  split; assumption.
+Qed.
+
+Lemma ValTy_tsig_typings {n} {Δ : Ctx n} {S : Tm n} {A0} {B0} {bb} {ff}
+  {hh : wt (tsig bb ff) tuniv} {k} :
+  ValTy k Δ S hh -> HeadRed S (Core.tsig A0 B0) ->
+  typing Δ A0 Core.tuniv /\ typing (Δ ++ A0) B0 Core.tuniv.
+Proof.
+  move=> VT HR. cbn [Rec.ValTy Rec.ValTySig] in VT.
+  destruct VT as [A1 [B1 [HR1 [TA1 [TB1 _]]]]].
+  have [E1 E2] := HeadRed_tsig_det HR1 HR. subst A1 B1.
   split; assumption.
 Qed.
 
@@ -1213,6 +1570,12 @@ Proof.
         rewrite !Val_rfl. move=> [VTd VId].
         split; [ exact VTd
                | eapply ValId_headred_expand; [ exact R | exact cv | exact VId ] ].
+      * (* wt_tsig: a type code -- only [ValTySig]'s [HeadRed] moves *)
+        rewrite !Val_tuniv. eapply ValTySig_headred_expand; exact R.
+      * (* wt_mkpair: the type record is untouched; [ValPair] moves *)
+        rewrite !Val_mkpair. move=> [VTd VPr].
+        split; [ exact VTd
+               | eapply ValPair_headred_expand; [ exact R | exact cv | exact VPr ] ].
     + (* EqVal expand *)
       intros n Γ M M0 N N0 T u a h RM RN cvM cvN. dependent destruction h.
       * move=> _; apply EqVal_Bot.
@@ -1251,6 +1614,18 @@ Proof.
         split; [ eapply ValId_headred_expand; [ exact RN | exact cvN | exact VIdN ] | ].
         eapply EqValId_headred_expand;
           [ exact RM | exact RN | exact cvM | exact cvN | exact EId ].
+      * (* wt_tsig *)
+        rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
+        split; [ eapply ValTySig_headred_expand; [ exact RM | exact VTM ] | ].
+        split; [ eapply ValTySig_headred_expand; [ exact RN | exact VTN ] | ].
+        eapply EqValTy_headred_expand; [ exact RM | exact RN | exact ET ].
+      * (* wt_mkpair *)
+        rewrite !EqVal_mkpair. move=> [VTd [VPrM [VPrN EPr]]].
+        split; [ exact VTd | ].
+        split; [ eapply ValPair_headred_expand; [ exact RM | exact cvM | exact VPrM ] | ].
+        split; [ eapply ValPair_headred_expand; [ exact RN | exact cvN | exact VPrN ] | ].
+        eapply EqValPair_headred_expand;
+          [ exact RM | exact RN | exact cvM | exact cvN | exact EPr ].
     + (* Val contract *)
       intros n Γ M M0 T u a h R cv. dependent destruction h.
       * move=> _; apply Val_Bot.
@@ -1273,6 +1648,12 @@ Proof.
         rewrite !Val_rfl. move=> [VTd VId].
         split; [ exact VTd
                | eapply ValId_headred_contract; [ exact R | exact cv | exact VId ] ].
+      * (* wt_tsig: a type code -- only [ValTySig]'s [HeadRed] moves *)
+        rewrite !Val_tuniv. eapply ValTySig_headred_contract; exact R.
+      * (* wt_mkpair: the type record is untouched; [ValPair] moves *)
+        rewrite !Val_mkpair. move=> [VTd VPr].
+        split; [ exact VTd
+               | eapply ValPair_headred_contract; [ exact R | exact cv | exact VPr ] ].
     + (* EqVal contract *)
       intros n Γ M M0 N N0 T u a h RM RN cvM cvN. dependent destruction h.
       * move=> _; apply EqVal_Bot.
@@ -1313,6 +1694,18 @@ Proof.
         split; [ eapply ValId_headred_contract; [ exact RN | exact cvN | exact VIdN ] | ].
         eapply EqValId_headred_contract;
           [ exact RM | exact RN | exact cvM | exact cvN | exact EId ].
+      * (* wt_tsig *)
+        rewrite !EqVal_tuniv. move=> [VTM [VTN ET]].
+        split; [ eapply ValTySig_headred_contract; [ exact RM | exact VTM ] | ].
+        split; [ eapply ValTySig_headred_contract; [ exact RN | exact VTN ] | ].
+        eapply EqValTy_headred_contract; [ exact RM | exact RN | exact ET ].
+      * (* wt_mkpair *)
+        rewrite !EqVal_mkpair. move=> [VTd [VPrM [VPrN EPr]]].
+        split; [ exact VTd | ].
+        split; [ eapply ValPair_headred_contract; [ exact RM | exact cvM | exact VPrM ] | ].
+        split; [ eapply ValPair_headred_contract; [ exact RN | exact cvN | exact VPrN ] | ].
+        eapply EqValPair_headred_contract;
+          [ exact RM | exact RN | exact cvM | exact cvN | exact EPr ].
 Qed.
 
 (** Closure under head expansion for values (Agda: [Val2-beta-expand]): a term
@@ -1770,6 +2163,266 @@ Proof.
       [ exact Lw | eapply EqVal_irr; exact Eb ].
 Qed.
 
+(* ============================================================
+   Restricting the Pi-type edges along a shrinking code.
+
+   Factored out of [restrictVal_step]'s [tpi] case so that the [tsig] case can
+   reuse it: [ValTySig] is built from the *same* [PiEdgeVal]/[PiEdgeEq] (via
+   [wt_tsig_tpi]), so the edge reconstruction is literally one argument, not
+   two.  Stated as two single-edge lemmas rather than a conjunction so that
+   [eapply] unifies the small index [HTsmall] with whatever the goal has --
+   [wt_tpi h w w0 i] at a Pi code, [wt_tsig_tpi (wt_tsig h w w0 i)] at a Sigma
+   one.
+
+   The argument: a selection of the *smaller* graph [g] is lifted to the bigger
+   [g0] at the same key ([selectionBelow]); the argument is moved up to the
+   bigger domain ([UP]) and then restricted to the lifted key ([RES]); the
+   bigger edge fires; and the result is brought back down along
+   [Selection_le_app].
+   ============================================================ *)
+
+Lemma restrictPiEdgeVal (k : nat) (IH : UDR k) {n} (Γ : Ctx n)
+  (A : Tm n) (B : Tm (S n)) a g a0 g0
+  (HTsmall : wt (tpi a g) tuniv) (HTbig : wt (tpi a0 g0) tuniv) :
+  le a a0 -> le_fun g g0 ->
+  Val k Γ A Core.tuniv (wt_tpi_dom HTbig) ->
+  PiEdgeVal k Γ A B HTbig ->
+  PiEdgeVal k Γ A B HTsmall.
+Proof.
+  have UP  := proj1 IH.
+  have RES := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> LEb LEg VDom PEV.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg0 : valid_fun g0 by eauto with valid.
+  have hd  : wt a  tuniv := wt_tpi_dom HTsmall.
+  have hd0 : wt a0 tuniv := wt_tpi_dom HTbig.
+  cbn [Rec.PiEdgeVal]. move=> u0 v0 Sel0 WT0 N0 TyN0 VN0.
+  have Vu0 : valid u0 := wt_valid_tm WT0.
+  have [u1 [v1 [Sel1 [Le1 Eq1]]]] := selectionBelow Vg0 Vu0.
+  have WTu1 : wt u1 a0 := wt_Selection (wt_tpi_dom HTbig) Vg0 (wt_tpi_keys HTbig) Sel1.
+  have WTu0b : wt u0 a0 := wt_le WT0 LEb hd hd0.
+  have VN0b : Val k Γ N0 A WTu0b
+    by (eapply (UP _ Γ N0 A u0 a a0 WT0 WTu0b hd hd0);
+          [ exact LEb | exact VN0 | eapply Val_irr; exact VDom ]).
+  have VN1 : Val k Γ N0 A WTu1
+    by (eapply (RES _ Γ N0 A u0 u1 a0 WTu1 WTu0b); [ exact Le1 | exact VN0b ]).
+  have Res := PEV u1 v1 Sel1 WTu1 N0 TyN0 VN1.
+  subst v1.
+  have leV : le v0 (app g0 u0) := Selection_le_app Vg Vg0 LEg Vu0 Sel0.
+  eapply Val_irr.
+  eapply (RES _ Γ B[N0..] Core.tuniv (app g0 u0) v0 tuniv); [ exact leV | exact Res ].
+  Unshelve.
+  all: first [ exact (wt_Selection_codU HTsmall Sel0) | exact (wt_Selection_codU HTbig Sel1) ].
+Qed.
+
+Lemma restrictPiEdgeEq (k : nat) (IH : UDR k) {n} (Γ : Ctx n)
+  (A : Tm n) (B : Tm (S n)) a g a0 g0
+  (HTsmall : wt (tpi a g) tuniv) (HTbig : wt (tpi a0 g0) tuniv) :
+  le a a0 -> le_fun g g0 ->
+  Val k Γ A Core.tuniv (wt_tpi_dom HTbig) ->
+  PiEdgeEq k Γ A B HTbig ->
+  PiEdgeEq k Γ A B HTsmall.
+Proof.
+  have UPe  := proj1 (proj2 IH).
+  have RES  := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  have RESe := proj2 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> LEb LEg VDom PEE.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg0 : valid_fun g0 by eauto with valid.
+  have hd  : wt a  tuniv := wt_tpi_dom HTsmall.
+  have hd0 : wt a0 tuniv := wt_tpi_dom HTbig.
+  cbn [Rec.PiEdgeEq]. move=> u0 v0 Sel0 WT0 N1 N2 Cv EV0.
+  have Vu0 : valid u0 := wt_valid_tm WT0.
+  have [u1 [v1 [Sel1 [Le1 Eq1]]]] := selectionBelow Vg0 Vu0.
+  have WTu1 : wt u1 a0 := wt_Selection (wt_tpi_dom HTbig) Vg0 (wt_tpi_keys HTbig) Sel1.
+  have WTu0b : wt u0 a0 := wt_le WT0 LEb hd hd0.
+  have EVb : EqVal k Γ N1 N2 A WTu0b
+    by (eapply (UPe _ Γ N1 N2 A u0 a a0 WT0 WTu0b hd hd0);
+          [ exact LEb | exact EV0 | eapply Val_irr; exact VDom ]).
+  have EV1 : EqVal k Γ N1 N2 A WTu1
+    by (eapply (RESe _ Γ N1 N2 A u0 u1 a0 WTu1 WTu0b); [ exact Le1 | exact EVb ]).
+  have Res := PEE u1 v1 Sel1 WTu1 N1 N2 Cv EV1.
+  subst v1.
+  have leV : le v0 (app g0 u0) := Selection_le_app Vg Vg0 LEg Vu0 Sel0.
+  eapply EqVal_irr.
+  eapply (RESe _ Γ B[N1..] B[N2..] Core.tuniv (app g0 u0) v0 tuniv);
+    [ exact leV | exact Res ].
+  Unshelve.
+  all: first [ exact (wt_Selection_codU HTsmall Sel0) | exact (wt_Selection_codU HTbig Sel1) ].
+Qed.
+
+(* The cross type-edge, restricted the same way.  [restrictPiEdgeVal]'s
+   script with [RESe] on the result, since a [PiEdgeEqTy] result is an
+   [EqVal]. *)
+Lemma restrictPiEdgeEqTy (k : nat) (IH : UDR k) {n} (Γ : Ctx n)
+  (A : Tm n) (B B' : Tm (S n)) a g a0 g0
+  (HTsmall : wt (tpi a g) tuniv) (HTbig : wt (tpi a0 g0) tuniv) :
+  le a a0 -> le_fun g g0 ->
+  Val k Γ A Core.tuniv (wt_tpi_dom HTbig) ->
+  PiEdgeEqTy k Γ A B B' HTbig ->
+  PiEdgeEqTy k Γ A B B' HTsmall.
+Proof.
+  have UP   := proj1 IH.
+  have RES  := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  have RESe := proj2 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> LEb LEg VDom PEE.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg0 : valid_fun g0 by eauto with valid.
+  have hd  : wt a  tuniv := wt_tpi_dom HTsmall.
+  have hd0 : wt a0 tuniv := wt_tpi_dom HTbig.
+  cbn [Rec.PiEdgeEqTy]. move=> u0 v0 Sel0 WT0 P TyP VP.
+  have Vu0 : valid u0 := wt_valid_tm WT0.
+  have [u1 [v1 [Sel1 [Le1 Eq1]]]] := selectionBelow Vg0 Vu0.
+  have WTu1 : wt u1 a0 := wt_Selection (wt_tpi_dom HTbig) Vg0 (wt_tpi_keys HTbig) Sel1.
+  have WTu0b : wt u0 a0 := wt_le WT0 LEb hd hd0.
+  have VPb : Val k Γ P A WTu0b
+    by (eapply (UP _ Γ P A u0 a a0 WT0 WTu0b hd hd0);
+          [ exact LEb | exact VP | eapply Val_irr; exact VDom ]).
+  have VP1 : Val k Γ P A WTu1
+    by (eapply (RES _ Γ P A u0 u1 a0 WTu1 WTu0b); [ exact Le1 | exact VPb ]).
+  have Res := PEE u1 v1 Sel1 WTu1 P TyP VP1.
+  subst v1.
+  have leV : le v0 (app g0 u0) := Selection_le_app Vg Vg0 LEg Vu0 Sel0.
+  eapply EqVal_irr.
+  eapply (RESe _ Γ B[P..] B'[P..] Core.tuniv (app g0 u0) v0 tuniv);
+    [ exact leV | exact Res ].
+  Unshelve.
+  all: first [ exact (wt_Selection_codU HTsmall Sel0) | exact (wt_Selection_codU HTbig Sel1) ].
+Qed.
+
+(* The Sigma [_restrict] lemmas, mirroring [ValTyId_restrict]/[ValId_restrict]:
+   shrink the code and keep the relation.  Extracted so that both
+   [restrictVal_step] and [restrictEqVal_step] (and the [up_down_restrict]
+   conjuncts) share them. *)
+
+Lemma ValTySig_restrict (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M : Tm n)
+  a g a' g' (h1 : wt (tsig a g) tuniv) (h0 : wt (tsig a' g') tuniv) :
+  le a' a -> le_fun g' g -> ValTySig k Γ M h1 -> ValTySig k Γ M h0.
+Proof.
+  have RES := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> La Lg [A [B [HRM [TyA [TyB [vld [VDom [PEV PEE]]]]]]]].
+  exists A. exists B.
+  split; [ exact HRM | ]. split; [ exact TyA | ]. split; [ exact TyB | ].
+  split; [ exact (wt_valid_tm h0) | ].
+  split.
+  { eapply Val_irr.
+    eapply (RES _ Γ A Core.tuniv a a' tuniv (wt_tsig_dom h0) (wt_tsig_dom h1));
+      [ exact La | eapply Val_irr; exact VDom ]. }
+  split.
+  - eapply PiEdgeVal_irr.
+    eapply (@restrictPiEdgeVal k IH _ Γ A B a' g' a g
+              (wt_tsig_tpi h0) (wt_tsig_tpi h1) La Lg);
+      [ eapply Val_irr; exact VDom | eapply PiEdgeVal_irr; exact PEV ].
+  - eapply PiEdgeEq_irr.
+    eapply (@restrictPiEdgeEq k IH _ Γ A B a' g' a g
+              (wt_tsig_tpi h0) (wt_tsig_tpi h1) La Lg);
+      [ eapply Val_irr; exact VDom | eapply PiEdgeEq_irr; exact PEE ].
+Qed.
+
+(* [ValPair_restrict]: the type code [tsig a g] is FIXED (as in
+   [ValId_restrict], where [tid c x y] is), only the pair's two components
+   shrink.  The second component changes both its value code and its type
+   code, and the two moves have to be in this order -- see the comment in
+   [restrictVal_step]'s [mkpair] case. *)
+Lemma ValPair_restrict (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M A : Tm n)
+  x y x' y' a g (h1 : wt (mkpair x y) (tsig a g))
+  (h0 : wt (mkpair x' y') (tsig a g)) :
+  le x' x -> le y' y -> ValPair k Γ M A h1 -> ValPair k Γ M A h0.
+Proof.
+  have DOWN := proj1 (proj2 (proj2 IH)).
+  have RES  := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> Lx Ly [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]].
+  have G1  : wt x  a := wt_mkpair_fst h1.
+  have G0  : wt x' a := wt_mkpair_fst h0.
+  have H1  : wt y  (app g x)  := wt_mkpair_snd h1.
+  have H0  : wt y' (app g x') := wt_mkpair_snd h0.
+  have HU  : wt (tsig a g) tuniv := wt_mkpair_ty h0.
+  have Vg  : valid_fun g by eauto with valid.
+  have Vx  : valid x  := wt_valid_tm G1.
+  have Vx' : valid x' := wt_valid_tm G0.
+  have LEapp : le (app g x') (app g x) by (eapply le_fun_mono_arg; eauto).
+  have TU  : wt (app g x)  tuniv := all_app_is_tuniv (wt_tsig_tpi HU) Vx.
+  have TU' : wt (app g x') tuniv := all_app_is_tuniv (wt_tsig_tpi HU) Vx'.
+  have H0' : wt y' (app g x) := wt_le H0 LEapp TU' TU.
+  exists A0. exists B0.
+  split; [ exact RA | ]. split; [ exact CA | ].
+  exists M1. exists M2.
+  split; [ exact RM | ]. split; [ exact CM | ].
+  split; [ exact T1 | ]. split; [ exact T2 | ].
+  split.
+  - eapply Val_irr.
+    eapply (RES _ Γ M1 A0 x x' a G0 G1);
+      [ exact Lx | eapply Val_irr; exact V1 ].
+  - eapply Val_irr.
+    eapply (DOWN _ Γ M2 B0[M1..] y' (app g x') (app g x) H0 H0');
+      [ exact LEapp | ].
+    eapply (RES _ Γ M2 B0[M1..] y y' (app g x) H0' H1);
+      [ exact Ly | eapply Val_irr; exact V2 ].
+Qed.
+
+Lemma EqValTySig_restrict (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M N : Tm n)
+  a g a' g' (h1 : wt (tsig a g) tuniv) (h0 : wt (tsig a' g') tuniv) :
+  le a' a -> le_fun g' g -> EqValTySig k Γ M N h1 -> EqValTySig k Γ M N h0.
+Proof.
+  have RESe := proj2 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> La Lg [VM [VN [A0 [B0 [HM [A0' [B0' [HN [CA [CB [vld [EA PEE]]]]]]]]]]]].
+  (* the domain [Val] comes out of [VM]'s own record, identified with [A0] by
+     determinism of head reduction *)
+  move: (VM) => [A1 [B1 [HM1 [TyA1 [TyB1 [vld1 [VDom1 [PEV1 PEE1]]]]]]]].
+  have [E1 E2] := HeadRed_tsig_det HM1 HM. subst A1 B1.
+  split; [ eapply (ValTySig_restrict IH); [ exact La | exact Lg | exact VM ] | ].
+  split; [ eapply (ValTySig_restrict IH); [ exact La | exact Lg | exact VN ] | ].
+  exists A0. exists B0. split; [ exact HM | ].
+  exists A0'. exists B0'. split; [ exact HN | ].
+  split; [ exact CA | ]. split; [ exact CB | ].
+  split; [ exact (wt_valid_tm h0) | ].
+  split.
+  { eapply EqVal_irr.
+    eapply (RESe _ Γ A0 A0' Core.tuniv a a' tuniv (wt_tsig_dom h0) (wt_tsig_dom h1));
+      [ exact La | eapply EqVal_irr; exact EA ]. }
+  eapply PiEdgeEqTy_irr.
+  eapply (@restrictPiEdgeEqTy k IH _ Γ A0 B0 B0' a' g' a g
+            (wt_tsig_tpi h0) (wt_tsig_tpi h1) La Lg);
+    [ eapply Val_irr; exact VDom1 | eapply PiEdgeEqTy_irr; exact PEE ].
+Qed.
+
+Lemma EqValPair_restrict (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M N A : Tm n)
+  x y x' y' a g (h1 : wt (mkpair x y) (tsig a g))
+  (h0 : wt (mkpair x' y') (tsig a g)) :
+  le x' x -> le y' y -> EqValPair k Γ M N A h1 -> EqValPair k Γ M N A h0.
+Proof.
+  have DOWNe := proj1 (proj2 (proj2 (proj2 IH))).
+  have RESe  := proj2 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> Lx Ly [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [HM [HN [C1 [C2 [E1 E2]]]]]]]]]]]]]].
+  have G1  : wt x  a := wt_mkpair_fst h1.
+  have G0  : wt x' a := wt_mkpair_fst h0.
+  have H1  : wt y  (app g x)  := wt_mkpair_snd h1.
+  have H0  : wt y' (app g x') := wt_mkpair_snd h0.
+  have HU  : wt (tsig a g) tuniv := wt_mkpair_ty h0.
+  have Vg  : valid_fun g by eauto with valid.
+  have Vx  : valid x  := wt_valid_tm G1.
+  have Vx' : valid x' := wt_valid_tm G0.
+  have LEapp : le (app g x') (app g x) by (eapply le_fun_mono_arg; eauto).
+  have TU  : wt (app g x)  tuniv := all_app_is_tuniv (wt_tsig_tpi HU) Vx.
+  have TU' : wt (app g x') tuniv := all_app_is_tuniv (wt_tsig_tpi HU) Vx'.
+  have H0' : wt y' (app g x) := wt_le H0 LEapp TU' TU.
+  split; [ eapply (ValPair_restrict IH); [ exact Lx | exact Ly | exact VM ] | ].
+  split; [ eapply (ValPair_restrict IH); [ exact Lx | exact Ly | exact VN ] | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ exact HM | ]. split; [ exact HN | ].
+  split; [ exact C1 | ]. split; [ exact C2 | ].
+  split.
+  - eapply EqVal_irr.
+    eapply (RESe _ Γ M1 N1 A0 x x' a G0 G1);
+      [ exact Lx | eapply EqVal_irr; exact E1 ].
+  - eapply EqVal_irr.
+    eapply (DOWNe _ Γ M2 N2 B0[M1..] y' (app g x') (app g x) H0 H0');
+      [ exact LEapp | ].
+    eapply (RESe _ Γ M2 N2 B0[M1..] y y' (app g x) H0' H1);
+      [ exact Ly | eapply EqVal_irr; exact E2 ].
+Qed.
+
 Lemma restrictVal_step (k : nat) (IH : UDR k) :
   forall n (Γ : Ctx n) (M T : Tm n) u u' a
     (h0 : wt u' a) (h1 : wt u a),
@@ -1777,6 +2430,7 @@ Lemma restrictVal_step (k : nat) (IH : UDR k) :
 Proof.
   have UP    := proj1 IH.
   have UPe   := proj1 (proj2 IH).
+  have DOWN  := proj1 (proj2 (proj2 IH)).
   have RES   := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
   have RESe  := proj2 (proj2 (proj2 (proj2 (proj2 IH)))).
   move=> n Γ M T u u' a h0 h1 LE V.
@@ -1808,8 +2462,9 @@ Proof.
     rewrite Val_tuniv in V. cbn [Rec.ValTy] in V.
     destruct V as [A [B [HRM [TyA [TyB [vld [VDom [PEV PEE]]]]]]]].
     dependent destruction h0.
-    (* inner goals: bot, tuniv, tnat, tpi, tid *)
-    5: by autorewrite with le in LE.
+    (* inner goals: bot, tuniv, tnat, tpi, tid, tsig -- and [le] rules out
+       every code but [tpi] against [u = tpi b g] *)
+    5,6: by autorewrite with le in LE.
     + apply Val_Bot.
     + by autorewrite with le in LE.
     + by autorewrite with le in LE.
@@ -1963,6 +2618,76 @@ Proof.
       autorewrite with le in LE.
       split; [ eapply ValTy_irr; exact VTd | ].
       eapply (ValId_restrict IH); [ exact LE | exact VId ].
+  - (* wt_tsig: the [tpi] case, with the two edges supplied by
+       [restrictPiEdgeVal]/[restrictPiEdgeEq] -- [ValTySig] is built from the
+       same edges, so there is nothing Sigma-specific here *)
+    rewrite Val_tuniv in V. cbn [Rec.ValTy] in V.
+    destruct V as [A [B [HRM [TyA [TyB [vld [VDom [PEV PEE]]]]]]]].
+    have HTbig : wt (tsig a g) tuniv by (eapply wt_tsig; eauto).
+    dependent destruction h0.
+    (* inner goals: bot, tuniv, tnat, tpi, tid, tsig -- and [le] rules out
+       every code but [tsig] against [u = tsig a g] *)
+    2,3,4,5: by autorewrite with le in LE.
+    + apply Val_Bot.
+    + (* NB the inner [dependent destruction] renames the outer names, so
+         post-rename the SMALL code is [tsig a g] and the big one
+         [tsig a0 g0] -- the same convention as the [tpi] case. *)
+      rewrite le_sig in LE. case/andP: LE => LEb LEg.
+      rewrite Val_tuniv. cbn [Rec.ValTy].
+      have HTsmall : wt (tsig a g) tuniv by (eapply wt_tsig; eauto).
+      exists A, B.
+      split; [ exact HRM | ]. split; [ exact TyA | ]. split; [ exact TyB | ].
+      split; [ exact i | ].
+      split. { eapply Val_irr.
+               eapply (RES _ Γ A Core.tuniv a0 a tuniv); [ exact LEb | exact VDom ].
+               Unshelve. exact h0. }
+      split.
+      * eapply PiEdgeVal_irr.
+        eapply (@restrictPiEdgeVal k IH _ Γ A B a g a0 g0
+                  (wt_tsig_tpi HTsmall) (wt_tsig_tpi HTbig) LEb LEg);
+          [ eapply Val_irr; exact VDom | eapply PiEdgeVal_irr; exact PEV ].
+      * eapply PiEdgeEq_irr.
+        eapply (@restrictPiEdgeEq k IH _ Γ A B a g a0 g0
+                  (wt_tsig_tpi HTsmall) (wt_tsig_tpi HTbig) LEb LEg);
+          [ eapply Val_irr; exact VDom | eapply PiEdgeEq_irr; exact PEE ].
+  - (* wt_mkpair: restrict both components.  The TYPE code [tsig a g] is
+       unchanged (only the element shrinks), so the type record moves by
+       [ValTy_irr].  The first component is a plain value-code restriction at
+       the fixed domain [a].  The second changes BOTH codes -- value
+       [y0 -> y] and type [app g x0 -> app g x] -- so it is a [RES] followed
+       by a [DOWN], in that order: the [wt] derivation the [DOWN] needs is
+       exactly [h0_2], while the one [RES] needs comes from [wt_le] along
+       [le (app g x) (app g x0)]. *)
+    rewrite Val_mkpair in V. move: V => [VTd VPr].
+    dependent destruction h0.
+    + (* u' = bot *) apply Val_Bot.
+    + rewrite Val_mkpair.
+      autorewrite with le in LE. move: LE => /andP. move=> [LEx LEy].
+      split; [ eapply ValTy_irr; exact VTd | ].
+      move: VPr => [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]].
+      exists A0. exists B0.
+      split; [ exact RA | ]. split; [ exact CA | ].
+      exists M1. exists M2.
+      split; [ exact RM | ]. split; [ exact CM | ].
+      split; [ exact T1 | ]. split; [ exact T2 | ].
+      have Vg  : valid_fun g by eauto with valid.
+      have Vx  : valid x  by (eapply wt_valid_tm; exact h0_1).
+      have Vx0 : valid x0 by (eapply wt_valid_tm; exact h1_1).
+      have LEapp : le (app g x) (app g x0) by (eapply le_fun_mono_arg; eauto).
+      have TU  : wt (app g x)  tuniv
+        := all_app_is_tuniv (wt_tsig_tpi h0_3) Vx.
+      have TU0 : wt (app g x0) tuniv
+        := all_app_is_tuniv (wt_tsig_tpi h0_3) Vx0.
+      have WTy0 : wt y (app g x0) := wt_le h0_2 LEapp TU TU0.
+      split.
+      * eapply Val_irr.
+        eapply (RES _ Γ M1 A0 x0 x a h0_1 h1_1);
+          [ exact LEx | eapply Val_irr; exact V1 ].
+      * eapply Val_irr.
+        eapply (DOWN _ Γ M2 B0[M1..] y (app g x) (app g x0) h0_2 WTy0);
+          [ exact LEapp | ].
+        eapply (RES _ Γ M2 B0[M1..] y0 y (app g x0) WTy0 h1_2);
+          [ exact LEy | eapply Val_irr; exact V2 ].
 Qed.
 
 (* Binary companions of the two transports above. *)
@@ -2057,8 +2782,9 @@ Proof.
   - (* wt_tpi: type-code -- EqValTy edge reconstruction (PiEdgeEqTy) *)
     rewrite EqVal_tuniv in V. destruct V as [VTyM1 [VTyN1 EQT1]].
     dependent destruction h0.
-    (* inner goals: bot, tuniv, tnat, tpi, tid *)
-    5: by autorewrite with le in LE.
+    (* inner goals: bot, tuniv, tnat, tpi, tid, tsig -- and [le] rules out
+       every code but [tpi] against [u = tpi b g] *)
+    5,6: by autorewrite with le in LE.
     + apply EqVal_Bot.
     + by autorewrite with le in LE.
     + by autorewrite with le in LE.
@@ -2185,6 +2911,30 @@ Proof.
       split; [ eapply (ValId_restrict IH); [ exact LE | exact VIdM ] | ].
       split; [ eapply (ValId_restrict IH); [ exact LE | exact VIdN ] | ].
       eapply (EqValId_restrict IH); [ exact LE | exact EId ].
+  - (* wt_tsig: same shape as [wt_tpi], with all three edges moved by the
+       [restrictPiEdge*] family inside [EqValTySig_restrict]. *)
+    rewrite EqVal_tuniv in V. move: V => [VM [VN EQ]].
+    dependent destruction h0.
+    2,3,4,5: by autorewrite with le in LE.
+    + apply EqVal_Bot.
+    + (* post-rename: SMALL is [tsig a g], BIG is [tsig a0 g0] *)
+      rewrite le_sig in LE. case/andP: LE => LEb LEg.
+      rewrite EqVal_tuniv. rewrite ValTy_tsig ValTy_tsig EqValTy_tsig.
+      split; [ eapply (ValTySig_restrict IH); [ exact LEb | exact LEg | exact VM ] | ].
+      split; [ eapply (ValTySig_restrict IH); [ exact LEb | exact LEg | exact VN ] | ].
+      eapply (EqValTySig_restrict IH); [ exact LEb | exact LEg | exact EQ ].
+  - (* wt_mkpair: shrink both element codes; the type code is fixed, so the
+       type record moves by [EqValTy_irr] and the three pair records by
+       [ValPair_restrict]/[EqValPair_restrict]. *)
+    rewrite EqVal_mkpair in V. move: V => [VTd [VPM [VPN EP]]].
+    dependent destruction h0.
+    + apply EqVal_Bot.
+    + rewrite EqVal_mkpair.
+      autorewrite with le in LE. move: LE => /andP. move=> [LEx LEy].
+      split; [ eapply ValTy_irr; exact VTd | ].
+      split; [ eapply (ValPair_restrict IH); [ exact LEx | exact LEy | exact VPM ] | ].
+      split; [ eapply (ValPair_restrict IH); [ exact LEx | exact LEy | exact VPN ] | ].
+      eapply (EqValPair_restrict IH); [ exact LEx | exact LEy | exact EP ].
   Unshelve.
   all: try eassumption.
   all: eapply (wt_tpi_inv2 (wt_tpi h0 w w0 i) (u := u0)); eauto with valid.
@@ -2298,6 +3048,196 @@ Proof.
     [ exact Lc | eapply EqVal_irr; exact Ew | eapply Val_irr; exact VAd ].
 Qed.
 
+(* ---------------------------------------------------------------------
+   Moving the Sigma pair records along a change of the *type* code
+   [tsig a' g' -> tsig a g].
+
+   Both components move: the first at the domain codes [a' -> a], the
+   second at the codomain codes [app g' x -> app g x] (monotone in the
+   graph by [le_fun_mono_arg]).  Shrinking needs nothing extra
+   ([DOWN]/[DOWNe]); growing needs the two type validities ([UP]/[UPe]):
+   the domain one is [ValTySig]'s own [Val A0 tuniv] field, and the
+   codomain one is read off [ValTySig]'s Pi edge at the canonical
+   selection below [x] ([sig_cod_valid]).
+   --------------------------------------------------------------------- *)
+
+(* The codomain type is valid at the code [app g x]: instantiate the edge at
+   the canonical selection below [x] ([selectionBelow] gives [app g x] as its
+   value-join), having first restricted the argument's own record down to the
+   selection's key-join. *)
+Lemma sig_cod_valid (k : nat) (IH : UDR k) {n} (Γ : Ctx n)
+  (A0 M1 : Tm n) (B0 : Tm (S n)) x a g
+  (hU1 : wt (tsig a g) tuniv) (G1 : wt x a) :
+  typing Γ M1 A0 ->
+  Val k Γ M1 A0 G1 ->
+  PiEdgeVal k Γ A0 B0 (wt_tsig_tpi hU1) ->
+  Val k Γ B0[M1..] Core.tuniv (all_app_is_tuniv (wt_tsig_tpi hU1) (wt_valid_tm G1)).
+Proof.
+  have RES := proj1 (proj2 (proj2 (proj2 (proj2 IH)))).
+  move=> Ty1 V1 PEV.
+  have hpi : wt (tpi a g) tuniv := wt_tsig_tpi hU1.
+  have Vg : valid_fun g by eauto with valid.
+  have Vx : valid x := wt_valid_tm G1.
+  have [u1 [v1 [Sel1 [Le1 Eq1]]]] := selectionBelow Vg Vx.
+  have WTu1 : wt u1 a := wt_Selection (wt_tpi_dom hpi) Vg (wt_tpi_keys hpi) Sel1.
+  have V1' : Val k Γ M1 A0 WTu1
+    by (eapply (RES _ Γ M1 A0 x u1 a WTu1 G1); [ exact Le1 | exact V1 ]).
+  have Res := PEV u1 v1 Sel1 WTu1 M1 Ty1 V1'.
+  subst v1.
+  eapply Val_irr. exact Res.
+Qed.
+
+Lemma ValPair_up (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M A : Tm n)
+  x y a g a' g'
+  (h0 : wt (mkpair x y) (tsig a' g')) (h1 : wt (mkpair x y) (tsig a g))
+  (hU1 : wt (tsig a g) tuniv) :
+  le a' a -> le_fun g' g ->
+  ValTy k Γ A hU1 -> ValPair k Γ M A h0 -> ValPair k Γ M A h1.
+Proof.
+  have UP := proj1 IH.
+  move=> La Lg VT.
+  move: (VT) => [A1 [B1 [RA1 [TyA1 [TyB1 [vld1 [VDom1 [PEV1 PEE1]]]]]]]].
+  move=> [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]].
+  have [E1 E2] := HeadRed_tsig_det RA RA1. subst A1 B1.
+  have G0  : wt x a' := wt_mkpair_fst h0.
+  have G1  : wt x a  := wt_mkpair_fst h1.
+  have H0  : wt y (app g' x) := wt_mkpair_snd h0.
+  have H1  : wt y (app g x)  := wt_mkpair_snd h1.
+  have hd  : wt a' tuniv := wt_tsig_dom (wt_mkpair_ty h0).
+  have hd1 : wt a  tuniv := wt_tsig_dom hU1.
+  have VA0 : Val k Γ A0 Core.tuniv hd1 by (eapply Val_irr; exact VDom1).
+  have VM1 : Val k Γ M1 A0 G1
+    by (eapply (UP _ Γ M1 A0 x a' a G0 G1 hd hd1);
+          [ exact La | eapply Val_irr; exact V1 | exact VA0 ]).
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have Vx  : valid x := wt_valid_tm G1.
+  have LEapp : le (app g' x) (app g x) by (eapply le_fun_mono; eauto).
+  have TU' : wt (app g' x) tuniv
+    := all_app_is_tuniv (wt_tsig_tpi (wt_mkpair_ty h0)) Vx.
+  have TU  : wt (app g x) tuniv := all_app_is_tuniv (wt_tsig_tpi hU1) Vx.
+  have Vcod := sig_cod_valid IH T1 VM1 PEV1.
+  exists A0. exists B0.
+  split; [ exact RA | ]. split; [ exact CA | ].
+  exists M1. exists M2.
+  split; [ exact RM | ]. split; [ exact CM | ].
+  split; [ exact T1 | ]. split; [ exact T2 | ].
+  split; [ eapply Val_irr; exact VM1 | ].
+  eapply Val_irr.
+  eapply (UP _ Γ M2 B0[M1..] y (app g' x) (app g x) H0 H1 TU' TU);
+    [ exact LEapp | eapply Val_irr; exact V2 | eapply Val_irr; exact Vcod ].
+Qed.
+
+Lemma EqValPair_up (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M N A : Tm n)
+  x y a g a' g'
+  (h0 : wt (mkpair x y) (tsig a' g')) (h1 : wt (mkpair x y) (tsig a g))
+  (hU1 : wt (tsig a g) tuniv) :
+  le a' a -> le_fun g' g ->
+  ValTy k Γ A hU1 -> EqValPair k Γ M N A h0 -> EqValPair k Γ M N A h1.
+Proof.
+  have UPe := proj1 (proj2 IH).
+  move=> La Lg VT.
+  move: (VT) => [A1 [B1 [RA1 [TyA1 [TyB1 [vld1 [VDom1 [PEV1 PEE1]]]]]]]].
+  move=> [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]].
+  have [Ea Eb] := HeadRed_tsig_det RA RA1. subst A1 B1.
+  have G0  : wt x a' := wt_mkpair_fst h0.
+  have G1  : wt x a  := wt_mkpair_fst h1.
+  have H0  : wt y (app g' x) := wt_mkpair_snd h0.
+  have H1  : wt y (app g x)  := wt_mkpair_snd h1.
+  have hd  : wt a' tuniv := wt_tsig_dom (wt_mkpair_ty h0).
+  have hd1 : wt a  tuniv := wt_tsig_dom hU1.
+  have VA0 : Val k Γ A0 Core.tuniv hd1 by (eapply Val_irr; exact VDom1).
+  (* the unary records first: they also supply the [M1] record the codomain
+     type validity needs *)
+  have VMb : ValPair k Γ M A h1
+    by (eapply (ValPair_up IH); [ exact La | exact Lg | exact VT | exact VM ]).
+  move: (VMb) => [A2 [B2 [RA2 [_ [M1' [M2' [RM' [_ [T1 [_ [VM1 _]]]]]]]]]]].
+  have [Ea2 Eb2] := HeadRed_tsig_det RA2 RA. subst A2 B2.
+  have [Em1 Em2] := HeadRed_mkpair_det RM' RM. subst M1' M2'.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have Vx  : valid x := wt_valid_tm G1.
+  have LEapp : le (app g' x) (app g x) by (eapply le_fun_mono; eauto).
+  have TU' : wt (app g' x) tuniv
+    := all_app_is_tuniv (wt_tsig_tpi (wt_mkpair_ty h0)) Vx.
+  have TU  : wt (app g x) tuniv := all_app_is_tuniv (wt_tsig_tpi hU1) Vx.
+  have Vcod := sig_cod_valid IH T1 VM1 PEV1.
+  split; [ exact VMb | ].
+  split; [ eapply (ValPair_up IH); [ exact La | exact Lg | exact VT | exact VN ] | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ exact RM | ]. split; [ exact RN | ].
+  split; [ exact C1 | ]. split; [ exact C2 | ].
+  split.
+  - eapply EqVal_irr.
+    eapply (UPe _ Γ M1 N1 A0 x a' a G0 G1 hd hd1);
+      [ exact La | eapply EqVal_irr; exact E1 | exact VA0 ].
+  - eapply EqVal_irr.
+    eapply (UPe _ Γ M2 N2 B0[M1..] y (app g' x) (app g x) H0 H1 TU' TU);
+      [ exact LEapp | eapply EqVal_irr; exact E2 | eapply Val_irr; exact Vcod ].
+Qed.
+
+Lemma ValPair_down (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M A : Tm n)
+  x y a g a' g'
+  (h0 : wt (mkpair x y) (tsig a' g')) (h1 : wt (mkpair x y) (tsig a g)) :
+  le a' a -> le_fun g' g ->
+  ValPair k Γ M A h1 -> ValPair k Γ M A h0.
+Proof.
+  have DOWN := proj1 (proj2 (proj2 IH)).
+  move=> La Lg [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]].
+  have G0 : wt x a' := wt_mkpair_fst h0.
+  have G1 : wt x a  := wt_mkpair_fst h1.
+  have H0 : wt y (app g' x) := wt_mkpair_snd h0.
+  have H1 : wt y (app g x)  := wt_mkpair_snd h1.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have Vx  : valid x := wt_valid_tm G1.
+  have LEapp : le (app g' x) (app g x) by (eapply le_fun_mono; eauto).
+  exists A0. exists B0.
+  split; [ exact RA | ]. split; [ exact CA | ].
+  exists M1. exists M2.
+  split; [ exact RM | ]. split; [ exact CM | ].
+  split; [ exact T1 | ]. split; [ exact T2 | ].
+  split.
+  - eapply Val_irr.
+    eapply (DOWN _ Γ M1 A0 x a' a G0 G1); [ exact La | eapply Val_irr; exact V1 ].
+  - eapply Val_irr.
+    eapply (DOWN _ Γ M2 B0[M1..] y (app g' x) (app g x) H0 H1);
+      [ exact LEapp | eapply Val_irr; exact V2 ].
+Qed.
+
+Lemma EqValPair_down (k : nat) (IH : UDR k) {n} (Γ : Ctx n) (M N A : Tm n)
+  x y a g a' g'
+  (h0 : wt (mkpair x y) (tsig a' g')) (h1 : wt (mkpair x y) (tsig a g)) :
+  le a' a -> le_fun g' g ->
+  EqValPair k Γ M N A h1 -> EqValPair k Γ M N A h0.
+Proof.
+  have DOWNe := proj1 (proj2 (proj2 (proj2 IH))).
+  move=> La Lg.
+  move=> [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]].
+  have G0 : wt x a' := wt_mkpair_fst h0.
+  have G1 : wt x a  := wt_mkpair_fst h1.
+  have H0 : wt y (app g' x) := wt_mkpair_snd h0.
+  have H1 : wt y (app g x)  := wt_mkpair_snd h1.
+  have Vg  : valid_fun g  by eauto with valid.
+  have Vg' : valid_fun g' by eauto with valid.
+  have Vx  : valid x := wt_valid_tm G1.
+  have LEapp : le (app g' x) (app g x) by (eapply le_fun_mono; eauto).
+  split; [ eapply (ValPair_down IH); [ exact La | exact Lg | exact VM ] | ].
+  split; [ eapply (ValPair_down IH); [ exact La | exact Lg | exact VN ] | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ exact RM | ]. split; [ exact RN | ].
+  split; [ exact C1 | ]. split; [ exact C2 | ].
+  split.
+  - eapply EqVal_irr.
+    eapply (DOWNe _ Γ M1 N1 A0 x a' a G0 G1);
+      [ exact La | eapply EqVal_irr; exact E1 ].
+  - eapply EqVal_irr.
+    eapply (DOWNe _ Γ M2 N2 B0[M1..] y (app g' x) (app g x) H0 H1);
+      [ exact LEapp | eapply EqVal_irr; exact E2 ].
+Qed.
+
 (** All six up/down/restrict monotonicity facts, bundled in [UDR k] and proven
     together by induction on the fuel [k]; the named projections appear just
     below. *)
@@ -2327,6 +3267,20 @@ Proof.
         split; [ eapply ValTy_irr; eapply Val_ValTy; exact VT | ].
         eapply (ValId_up IH);
           [ exact Lc | eapply ValTy_irr; eapply Val_ValTy; exact VT | exact VId ].
+      * (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        dependent destruction h0; eapply Val_irr; eassumption.
+      * (* wt_mkpair: grow the type code [tsig a' g' -> tsig a g].  The type
+           record at the bigger code is [VT] itself; both pair components move
+           by [ValPair_up]. *)
+        dependent destruction h0.
+        rewrite Val_mkpair in V. rewrite Val_mkpair.
+        rewrite le_sig in LE. case/andP: LE => La Lg.
+        move: V => [VTd VPr].
+        split; [ eapply ValTy_irr; eapply Val_ValTy; exact VT | ].
+        eapply (ValPair_up IH);
+          [ exact La | exact Lg | eapply ValTy_irr; eapply Val_ValTy; exact VT
+          | exact VPr ].
     + intros n Γ M N T u a0 a1 h0 h1 hUa0 hUa1 LE V VT.
       dependent destruction h1.
       * apply EqVal_Bot.
@@ -2354,6 +3308,24 @@ Proof.
                    | exact VIdN ] | ].
         eapply (EqValId_up IH);
           [ exact Lc | eapply ValTy_irr; eapply Val_ValTy; exact VT | exact EId ].
+      * (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        dependent destruction h0; eapply EqVal_irr; eassumption.
+      * (* wt_mkpair: the binary twin of the [UP] case *)
+        dependent destruction h0.
+        rewrite EqVal_mkpair in V. rewrite EqVal_mkpair.
+        rewrite le_sig in LE. case/andP: LE => La Lg.
+        move: V => [VTd [VPM [VPN EP]]].
+        split; [ eapply ValTy_irr; eapply Val_ValTy; exact VT | ].
+        split; [ eapply (ValPair_up IH);
+                   [ exact La | exact Lg
+                   | eapply ValTy_irr; eapply Val_ValTy; exact VT | exact VPM ] | ].
+        split; [ eapply (ValPair_up IH);
+                   [ exact La | exact Lg
+                   | eapply ValTy_irr; eapply Val_ValTy; exact VT | exact VPN ] | ].
+        eapply (EqValPair_up IH);
+          [ exact La | exact Lg | eapply ValTy_irr; eapply Val_ValTy; exact VT
+          | exact EP ].
     + intros n Γ M T u a0 a1 h0 h1 LE V.
       dependent destruction h1.
       * apply Val_Bot.
@@ -2379,6 +3351,18 @@ Proof.
         split; [ eapply (ValTyId_restrict IH);
                    [ exact Lc | exact Lx | exact Ly | exact VTd ] | ].
         eapply (ValId_down IH); [ exact Lc | exact VId ].
+      * (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        dependent destruction h0; eapply Val_irr; eassumption.
+      * (* wt_mkpair: shrink the type code.  No extra validity is needed: the
+           type record shrinks by [ValTySig_restrict] and the components by
+           [ValPair_down]. *)
+        dependent destruction h0.
+        rewrite Val_mkpair in V. rewrite Val_mkpair.
+        rewrite le_sig in LE. case/andP: LE => La Lg.
+        move: V => [VTd VPr].
+        split; [ eapply (ValTySig_restrict IH); [ exact La | exact Lg | exact VTd ] | ].
+        eapply (ValPair_down IH); [ exact La | exact Lg | exact VPr ].
     + intros n Γ M N T u a0 a1 h0 h1 LE V.
       dependent destruction h1.
       * apply EqVal_Bot.
@@ -2406,12 +3390,25 @@ Proof.
         split; [ eapply (ValId_down IH); [ exact Lc | exact VIdM ] | ].
         split; [ eapply (ValId_down IH); [ exact Lc | exact VIdN ] | ].
         eapply (EqValId_down IH); [ exact Lc | exact EId ].
+      * (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        dependent destruction h0; eapply EqVal_irr; eassumption.
+      * (* wt_mkpair: the binary twin of the [DOWN] case *)
+        dependent destruction h0.
+        rewrite EqVal_mkpair in V. rewrite EqVal_mkpair.
+        rewrite le_sig in LE. case/andP: LE => La Lg.
+        move: V => [VTd [VPM [VPN EP]]].
+        split; [ eapply (ValTySig_restrict IH); [ exact La | exact Lg | exact VTd ] | ].
+        split; [ eapply (ValPair_down IH); [ exact La | exact Lg | exact VPM ] | ].
+        split; [ eapply (ValPair_down IH); [ exact La | exact Lg | exact VPN ] | ].
+        eapply (EqValPair_down IH); [ exact La | exact Lg | exact EP ].
     + exact (restrictVal_step IH).
     + exact (restrictEqVal_step IH).
   (* A few proof-irrelevant [wt _ tuniv] witnesses are left shelved by the
      [eapply]s above; any inhabitant works (they only index [Val]/[EqVal],
      which are proof-irrelevant -- see [Val_irr]/[EqVal_irr]). *)
-  Unshelve. all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot, wt_tid.
+  Unshelve.
+  all: eauto using wt_tuniv, wt_tnat, wt_tpi, wt_bot, wt_tid, wt_tsig.
 Qed.
 
 (** Monotonicity of the relation in the *type* and *value* code, exported as
@@ -2645,9 +3642,24 @@ Definition HEI (k : nat) : Prop :=
     (EqValId k Γ M N A h -> EqValId (S k) Γ M N A h)
     /\ (EqValId (S k) Γ M N A h -> EqValId k Γ M N A h).
 
+(* Fuel stability of the two Sigma pair records, the analogues of [HVI]/[HEI].
+   Both codes are bounded, as for [HVP]: the second component sits at the
+   codomain code [app g x], whose rank is bounded by [rk_fun g] ([rk_app]),
+   hence by the type rank. *)
+Definition HVPr (k : nat) : Prop :=
+  forall n (Γ : Ctx n) (M A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)),
+    rk (mkpair x y) <= k -> rk (tsig a g) <= k ->
+    (ValPair k Γ M A h -> ValPair (S k) Γ M A h)
+    /\ (ValPair (S k) Γ M A h -> ValPair k Γ M A h).
+Definition HEPr (k : nat) : Prop :=
+  forall n (Γ : Ctx n) (M N A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)),
+    rk (mkpair x y) <= k -> rk (tsig a g) <= k ->
+    (EqValPair k Γ M N A h -> EqValPair (S k) Γ M N A h)
+    /\ (EqValPair (S k) Γ M N A h -> EqValPair k Γ M N A h).
+
 Definition FuelStable (k : nat) : Prop :=
   FU k /\ FD k /\ FEU k /\ FED k /\ HVT k /\ HET k /\ HVP k /\ HEP k
-  /\ HVI k /\ HEI k.
+  /\ HVI k /\ HEI k /\ HVPr k /\ HEPr k.
 
 (* ---- promotion of a [Val]/[EqVal] at the constant type [tuniv].
    The type rank [rk tuniv = 1] forces a [bot] case-split: when the
@@ -2776,6 +3788,38 @@ Proof.
              [ lia | lia | exact Va ].
          + apply (VD _ Γ b0 A0 y c (wt_tid_rhs (wt_tid h1 h2 h3)));
              [ lia | lia | exact Vb ]. }
+  2: { (* tsig: [ValTySig] has exactly the shape of [ValTyPi] -- a domain
+          [Val] at [tuniv] plus the two Pi edges -- so this is the [tpi]
+          script verbatim, with the edges read at [wt_tsig_tpi h]. *)
+       cbn in Hu. split.
+       - intro V; cbn [Rec.ValTy Rec.ValTySig] in V |- *.
+         move: V => [A [B [HR [TA [TB [vld2 [VDom [PEV PEE]]]]]]]].
+         exists A, B; do 4 (split; [eassumption|]); split; [|split].
+         + apply (Val_tuniv_up VU); [ lia | exact VDom ].
+         + cbn [Rec.PiEdgeVal] in PEV |- *. intros u0 v0 Sel WT N0 TN VN.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have VN' : Val (S k) Γ N0 A WT
+             by (apply (VD _ Γ N0 A u0 _ WT); [ lia | lia | exact VN ]).
+           apply (Val_tuniv_up VU); [ lia | exact (PEV u0 v0 Sel WT N0 TN VN') ].
+         + cbn [Rec.PiEdgeEq] in PEE |- *. intros u0 v0 Sel WT N1 N2 Cv EV.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have EV' : EqVal (S k) Γ N1 N2 A WT
+             by (apply (ED _ Γ N1 N2 A u0 _ WT); [ lia | lia | exact EV ]).
+           apply (EqVal_tuniv_up EU); [ lia | exact (PEE u0 v0 Sel WT N1 N2 Cv EV') ].
+       - intro V; cbn [Rec.ValTy Rec.ValTySig] in V |- *.
+         move: V => [A [B [HR [TA [TB [vld2 [VDom [PEV PEE]]]]]]]].
+         exists A, B; do 4 (split; [eassumption|]); split; [|split].
+         + apply (Val_tuniv_down VD); [ lia | exact VDom ].
+         + cbn [Rec.PiEdgeVal] in PEV |- *. intros u0 v0 Sel WT N0 TN VN.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have VN' : Val (S (S k)) Γ N0 A WT
+             by (apply (VU _ Γ N0 A u0 _ WT); [ lia | lia | exact VN ]).
+           apply (Val_tuniv_down VD); [ lia | exact (PEV u0 v0 Sel WT N0 TN VN') ].
+         + cbn [Rec.PiEdgeEq] in PEE |- *. intros u0 v0 Sel WT N1 N2 Cv EV.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have EV' : EqVal (S (S k)) Γ N1 N2 A WT
+             by (apply (EU _ Γ N1 N2 A u0 _ WT); [ lia | lia | exact EV ]).
+           apply (EqVal_tuniv_down ED); [ lia | exact (PEE u0 v0 Sel WT N1 N2 Cv EV') ]. }
   cbn in Hu. split.
   - (* up: ValTy (S k) -> ValTy (S (S k)) *)
     intro V; cbn [Rec.ValTy] in V |- *.
@@ -2839,6 +3883,34 @@ Proof.
              [ lia | lia | exact Ea ].
          + apply (ED _ Γ b0 b0' A0 y c (wt_tid_rhs (wt_tid h1 h2 h3)));
              [ lia | lia | exact Eb ]. }
+  2: { (* tsig: [EqValTySig] has the shape of the [tpi] arm of [EqValTy] --
+          two unary records, a domain [EqVal] at [tuniv] and the cross type
+          edge -- so this is the [tpi] script verbatim. *)
+       have Hu' := Hu. cbn in Hu. split.
+       - intro V; cbn [Rec.EqValTy Rec.EqValTySig] in V |- *.
+         move: V => [VTyM [VTyN [A [B [HRM [A' [B' [HRN [CvA [CvB [vld2 [EDom EPT]]]]]]]]]]]].
+         split; [ exact (proj1 (FVT _ Γ M _ _ Hu') VTyM) | ].
+         split; [ exact (proj1 (FVT _ Γ N _ _ Hu') VTyN) | ].
+         exists A, B; split; [exact HRM|]; exists A', B'; split; [exact HRN|].
+         split; [exact CvA|]; split; [exact CvB|]; split; [exact vld2|]; split.
+         + apply (EqVal_tuniv_up EU); [ lia | exact EDom ].
+         + cbn [Rec.PiEdgeEqTy] in EPT |- *. intros u0 v0 Sel WTu P TP VP.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have VP' : Val (S k) Γ P A WTu
+             by (apply (VD _ Γ P A u0 _ WTu); [ lia | lia | exact VP ]).
+           apply (EqVal_tuniv_up EU); [ lia | exact (EPT u0 v0 Sel WTu P TP VP') ].
+       - intro V; cbn [Rec.EqValTy Rec.EqValTySig] in V |- *.
+         move: V => [VTyM [VTyN [A [B [HRM [A' [B' [HRN [CvA [CvB [vld2 [EDom EPT]]]]]]]]]]]].
+         split; [ exact (proj2 (FVT _ Γ M _ _ Hu') VTyM) | ].
+         split; [ exact (proj2 (FVT _ Γ N _ _ Hu') VTyN) | ].
+         exists A, B; split; [exact HRM|]; exists A', B'; split; [exact HRN|].
+         split; [exact CvA|]; split; [exact CvB|]; split; [exact vld2|]; split.
+         + apply (EqVal_tuniv_down ED); [ lia | exact EDom ].
+         + cbn [Rec.PiEdgeEqTy] in EPT |- *. intros u0 v0 Sel WTu P TP VP.
+           move: (rk_Selection_key Sel) (rk_Selection_val Sel) => HK HV.
+           have VP' : Val (S (S k)) Γ P A WTu
+             by (apply (VU _ Γ P A u0 _ WTu); [ lia | lia | exact VP ]).
+           apply (EqVal_tuniv_down ED); [ lia | exact (EPT u0 v0 Sel WTu P TP VP') ]. }
   have Hu' := Hu. cbn in Hu. split.
   - (* up *)
     intro V; cbn [Rec.EqValTy] in V |- *.
@@ -2965,9 +4037,67 @@ Proof.
     apply (ED _ Γ M0 N0 A0 w c (wt_rfl_wit h)); [ lia | lia | exact Ew ].
 Qed.
 
+(* The Sigma pair records are fuel-stable for free: both components are plain
+   [Val]/[EqVal] occurrences at the sub-codes [x] and [app g x], with no Pi
+   edge to re-index, so [VU]/[VD] (resp. [EU]/[ED]) move them directly. *)
+Lemma fuel_ValPair_S (k : nat) (VU : FU (S k)) (VD : FD (S k)) : HVPr (S k).
+Proof.
+  unfold HVPr. intros n Γ M A x y a g h Hu1 Hu2.
+  have Happ := rk_app g x.
+  cbn in Hu1, Hu2.
+  split; intro V;
+    move: V => [A0 [B0 [RA [CA [M1 [M2 [RM [CM [T1 [T2 [V1 V2]]]]]]]]]]];
+    exists A0; exists B0;
+    (split; [ exact RA | ]); (split; [ exact CA | ]);
+    exists M1; exists M2;
+    (split; [ exact RM | ]); (split; [ exact CM | ]);
+    (split; [ exact T1 | ]); (split; [ exact T2 | ]).
+  - split.
+    + apply (VU _ Γ M1 A0 x a (wt_mkpair_fst h)); [ lia | lia | exact V1 ].
+    + apply (VU _ Γ M2 B0[M1..] y (app g x) (wt_mkpair_snd h));
+        [ lia | lia | exact V2 ].
+  - split.
+    + apply (VD _ Γ M1 A0 x a (wt_mkpair_fst h)); [ lia | lia | exact V1 ].
+    + apply (VD _ Γ M2 B0[M1..] y (app g x) (wt_mkpair_snd h));
+        [ lia | lia | exact V2 ].
+Qed.
+
+Lemma fuel_EqValPair_S (k : nat) (EU : FEU (S k)) (ED : FED (S k))
+  (FVPr : HVPr (S k)) : HEPr (S k).
+Proof.
+  unfold HEPr. intros n Γ M N A x y a g h Hu1 Hu2.
+  have H1 := Hu1. have H2 := Hu2.
+  have Happ := rk_app g x.
+  cbn in Hu1, Hu2.
+  split; intro V;
+    move: V => [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2
+                 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]].
+  - split; [ exact (proj1 (FVPr n Γ M A x y a g h H1 H2) VM) | ].
+    split; [ exact (proj1 (FVPr n Γ N A x y a g h H1 H2) VN) | ].
+    exists A0. exists B0. split; [ exact RA | ].
+    exists M1. exists M2. exists N1. exists N2.
+    split; [ exact RM | ]. split; [ exact RN | ].
+    split; [ exact C1 | ]. split; [ exact C2 | ].
+    split.
+    + apply (EU _ Γ M1 N1 A0 x a (wt_mkpair_fst h)); [ lia | lia | exact E1 ].
+    + apply (EU _ Γ M2 N2 B0[M1..] y (app g x) (wt_mkpair_snd h));
+        [ lia | lia | exact E2 ].
+  - split; [ exact (proj2 (FVPr n Γ M A x y a g h H1 H2) VM) | ].
+    split; [ exact (proj2 (FVPr n Γ N A x y a g h H1 H2) VN) | ].
+    exists A0. exists B0. split; [ exact RA | ].
+    exists M1. exists M2. exists N1. exists N2.
+    split; [ exact RM | ]. split; [ exact RN | ].
+    split; [ exact C1 | ]. split; [ exact C2 | ].
+    split.
+    + apply (ED _ Γ M1 N1 A0 x a (wt_mkpair_fst h)); [ lia | lia | exact E1 ].
+    + apply (ED _ Γ M2 N2 B0[M1..] y (app g x) (wt_mkpair_snd h));
+        [ lia | lia | exact E2 ].
+Qed.
+
 (* ---- the four top-level facts at level [S k] (from the helpers at [k]) ---- *)
 
-Lemma Val_fuel_up_S (k : nat) (FVT : HVT k) (FVP : HVP k) (FVI : HVI k) : FU (S k).
+Lemma Val_fuel_up_S (k : nat) (FVT : HVT k) (FVP : HVP k) (FVI : HVI k)
+  (FVPr : HVPr k) : FU (S k).
 Proof.
   unfold FU. intros n Γ M T u a h Hu Ha V. dependent destruction h.
   - apply Val_Bot.
@@ -2987,9 +4117,17 @@ Proof.
     rewrite Val_rfl in V |- *. destruct V as [VTy VId]. split.
     + refine (proj1 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
     + refine (proj1 (FVI n Γ M T _ _ _ _ _ _ _) VId); cbn in Hu, Ha |- *; lia.
+  - (* wt_tsig: a type code -- [FVT] moves the [ValTy] *)
+    rewrite Val_tuniv in V |- *.
+    refine (proj1 (FVT n Γ M _ _ _) V). cbn in Hu |- *; lia.
+  - (* wt_mkpair: [FVT] moves the type record, [FVPr] the pair record *)
+    rewrite Val_mkpair in V |- *. destruct V as [VTy VPr]. split.
+    + refine (proj1 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
+    + refine (proj1 (FVPr n Γ M T _ _ _ _ _ _ _) VPr); cbn in Hu, Ha |- *; lia.
 Qed.
 
-Lemma Val_fuel_down_S (k : nat) (FVT : HVT k) (FVP : HVP k) (FVI : HVI k) : FD (S k).
+Lemma Val_fuel_down_S (k : nat) (FVT : HVT k) (FVP : HVP k) (FVI : HVI k)
+  (FVPr : HVPr k) : FD (S k).
 Proof.
   unfold FD. intros n Γ M T u a h Hu Ha V. dependent destruction h.
   - apply Val_Bot.
@@ -3009,10 +4147,17 @@ Proof.
     rewrite Val_rfl in V |- *. destruct V as [VTy VId]. split.
     + refine (proj2 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
     + refine (proj2 (FVI n Γ M T _ _ _ _ _ _ _) VId); cbn in Hu, Ha |- *; lia.
+  - (* wt_tsig: a type code -- [FVT] moves the [ValTy] *)
+    rewrite Val_tuniv in V |- *.
+    refine (proj2 (FVT n Γ M _ _ _) V). cbn in Hu |- *; lia.
+  - (* wt_mkpair: [FVT] moves the type record, [FVPr] the pair record *)
+    rewrite Val_mkpair in V |- *. destruct V as [VTy VPr]. split.
+    + refine (proj2 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
+    + refine (proj2 (FVPr n Γ M T _ _ _ _ _ _ _) VPr); cbn in Hu, Ha |- *; lia.
 Qed.
 
 Lemma EqVal_fuel_up_S (k : nat) (FVT : HVT k) (FET : HET k) (FVP : HVP k)
-  (FEP : HEP k) (FVI : HVI k) (FEI : HEI k) : FEU (S k).
+  (FEP : HEP k) (FVI : HVI k) (FEI : HEI k) (FVPr : HVPr k) (FEPr : HEPr k) : FEU (S k).
 Proof.
   unfold FEU. intros n Γ M N T u a h Hu Ha V. dependent destruction h.
   - apply EqVal_Bot.
@@ -3044,10 +4189,23 @@ Proof.
     + refine (proj1 (FVI n Γ M T _ _ _ _ _ _ _) VIdM); cbn in Hu, Ha |- *; lia.
     + refine (proj1 (FVI n Γ N T _ _ _ _ _ _ _) VIdN); cbn in Hu, Ha |- *; lia.
     + refine (proj1 (FEI n Γ M N T _ _ _ _ _ _ _) EId); cbn in Hu, Ha |- *; lia.
+  - (* wt_tsig: a type code *)
+    rewrite EqVal_tuniv in V |- *. destruct V as [VTyM [VTyN VEqTy]].
+    split; [ | split ].
+    + refine (proj1 (FVT n Γ M _ _ _) VTyM). cbn in Hu |- *; lia.
+    + refine (proj1 (FVT n Γ N _ _ _) VTyN). cbn in Hu |- *; lia.
+    + refine (proj1 (FET n Γ M N _ _ _) VEqTy). cbn in Hu |- *; lia.
+  - (* wt_mkpair *)
+    rewrite EqVal_mkpair in V |- *. destruct V as [VTy [VPrM [VPrN EPr]]].
+    split; [ | split; [ | split ] ].
+    + refine (proj1 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
+    + refine (proj1 (FVPr n Γ M T _ _ _ _ _ _ _) VPrM); cbn in Hu, Ha |- *; lia.
+    + refine (proj1 (FVPr n Γ N T _ _ _ _ _ _ _) VPrN); cbn in Hu, Ha |- *; lia.
+    + refine (proj1 (FEPr n Γ M N T _ _ _ _ _ _ _) EPr); cbn in Hu, Ha |- *; lia.
 Qed.
 
 Lemma EqVal_fuel_down_S (k : nat) (FVT : HVT k) (FET : HET k) (FVP : HVP k)
-  (FEP : HEP k) (FVI : HVI k) (FEI : HEI k) : FED (S k).
+  (FEP : HEP k) (FVI : HVI k) (FEI : HEI k) (FVPr : HVPr k) (FEPr : HEPr k) : FED (S k).
 Proof.
   unfold FED. intros n Γ M N T u a h Hu Ha V. dependent destruction h.
   - apply EqVal_Bot.
@@ -3079,6 +4237,19 @@ Proof.
     + refine (proj2 (FVI n Γ M T _ _ _ _ _ _ _) VIdM); cbn in Hu, Ha |- *; lia.
     + refine (proj2 (FVI n Γ N T _ _ _ _ _ _ _) VIdN); cbn in Hu, Ha |- *; lia.
     + refine (proj2 (FEI n Γ M N T _ _ _ _ _ _ _) EId); cbn in Hu, Ha |- *; lia.
+  - (* wt_tsig: a type code *)
+    rewrite EqVal_tuniv in V |- *. destruct V as [VTyM [VTyN VEqTy]].
+    split; [ | split ].
+    + refine (proj2 (FVT n Γ M _ _ _) VTyM). cbn in Hu |- *; lia.
+    + refine (proj2 (FVT n Γ N _ _ _) VTyN). cbn in Hu |- *; lia.
+    + refine (proj2 (FET n Γ M N _ _ _) VEqTy). cbn in Hu |- *; lia.
+  - (* wt_mkpair *)
+    rewrite EqVal_mkpair in V |- *. destruct V as [VTy [VPrM [VPrN EPr]]].
+    split; [ | split; [ | split ] ].
+    + refine (proj2 (FVT n Γ T _ _ _) VTy). cbn in Ha |- *; lia.
+    + refine (proj2 (FVPr n Γ M T _ _ _ _ _ _ _) VPrM); cbn in Hu, Ha |- *; lia.
+    + refine (proj2 (FVPr n Γ N T _ _ _ _ _ _ _) VPrN); cbn in Hu, Ha |- *; lia.
+    + refine (proj2 (FEPr n Γ M N T _ _ _ _ _ _ _) EPr); cbn in Hu, Ha |- *; lia.
 Qed.
 
 (** Fuel stability (the bundle [FuelStable k], proven by induction on [k]):
@@ -3104,20 +4275,26 @@ Proof.
     split; [ unfold HVP; intros n Γ M A g b f h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1) | ].
     split; [ unfold HEP; intros n Γ M N A g b f h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1) | ].
     split; [ unfold HVI; intros n Γ M A w c x y h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1) | ].
-    unfold HEI; intros n Γ M N A w c x y h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1).
-  - have [VU0 [VD0 [EU0 [ED0 [HVT0 [HET0 [HVP0 [HEP0 [HVI0 HEI0]]]]]]]]] := IH.
-    have VU : FU (S k) := Val_fuel_up_S HVT0 HVP0 HVI0.
-    have VD : FD (S k) := Val_fuel_down_S HVT0 HVP0 HVI0.
-    have EU : FEU (S k) := EqVal_fuel_up_S HVT0 HET0 HVP0 HEP0 HVI0 HEI0.
-    have ED : FED (S k) := EqVal_fuel_down_S HVT0 HET0 HVP0 HEP0 HVI0 HEI0.
+    split; [ unfold HEI; intros n Γ M N A w c x y h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1) | ].
+    split; [ unfold HVPr; intros n Γ M A x y a g h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1) | ].
+    unfold HEPr; intros n Γ M N A x y a g h Hu1 Hu2; exfalso; cbn in Hu1; exact (Nat.nle_succ_0 _ Hu1).
+  - have [VU0 [VD0 [EU0 [ED0 [HVT0 [HET0 [HVP0 [HEP0 [HVI0 [HEI0
+        [HVPr0 HEPr0]]]]]]]]]]] := IH.
+    have VU : FU (S k) := Val_fuel_up_S HVT0 HVP0 HVI0 HVPr0.
+    have VD : FD (S k) := Val_fuel_down_S HVT0 HVP0 HVI0 HVPr0.
+    have EU : FEU (S k) := EqVal_fuel_up_S HVT0 HET0 HVP0 HEP0 HVI0 HEI0 HVPr0 HEPr0.
+    have ED : FED (S k) := EqVal_fuel_down_S HVT0 HET0 HVP0 HEP0 HVI0 HEI0 HVPr0 HEPr0.
     have FVT : HVT (S k) := fuel_ValTy_S VU VD EU ED.
     have FET : HET (S k) := fuel_EqValTy_S VU VD EU ED FVT.
     have FVP : HVP (S k) := fuel_ValPi_S VU VD EU ED.
     have FEP : HEP (S k) := fuel_EqValPi_S VU VD EU ED.
     have FVI : HVI (S k) := fuel_ValId_S VU VD EU ED.
     have FEI : HEI (S k) := fuel_EqValId_S VU VD EU ED FVI.
+    have FVPr : HVPr (S k) := fuel_ValPair_S VU VD.
+    have FEPr : HEPr (S k) := fuel_EqValPair_S EU ED FVPr.
     exact (conj VU (conj VD (conj EU (conj ED (conj FVT (conj FET
-             (conj FVP (conj FEP (conj FVI FEI))))))))).
+             (conj FVP (conj FEP (conj FVI (conj FEI
+               (conj FVPr FEPr))))))))))).
 Qed.
 
 (* ---- the canonical fuel lemmas (corollaries of the bundle) ---- *)
@@ -3130,7 +4307,9 @@ Definition fuel_EqValTy k : HET k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (f
 Definition fuel_ValPi   k : HVP k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))).
 Definition fuel_EqValPi k : HEP k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k)))))))).
 Definition fuel_ValId   k : HVI k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))))).
-Definition fuel_EqValId k : HEI k := proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))))).
+Definition fuel_EqValId k : HEI k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k)))))))))).
+Definition fuel_ValPair   k : HVPr k := proj1 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))))))).
+Definition fuel_EqValPair k : HEPr k := proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (proj2 (fuel_stable k))))))))))).
 
 
 
@@ -3231,11 +4410,22 @@ Definition FwdPER (k : nat) : Prop :=
   /\ (forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
       rk u < k -> rk a < k -> conv Γ A B Core.tuniv ->
       EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h)
+  (* [SYM]/[TRANS] bound the TYPE code as well as the element code.  The
+     element bound alone does not do: the Sigma [mkpair] case has to move its
+     second-component equality from the type term [B0[M1..]] to [B0[N1..]]
+     (they are convertible, not equal), and that transport goes through
+     [IHEfwd], whose own guard is [rk a < k] at the codomain code [app g x].
+     Bounding the Sigma code gives it: [rk (app g x) <= rk_fun g <
+     rk (tsig a g) <= k].  The bound is [<=], not [<]: that is exactly what
+     makes every OTHER case's recursive call go through with no boundary
+     analysis ([rk tnat <= k] in the [succ] case, [rk (app f uu) <= k] in the
+     [abs] case, [rk c <= k] under [tid]/[rfl]).  Every caller has a rank guard on both codes anyway --
+     [EqVal] is only ever used at above-rank fuels. *)
   /\ (forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-      rk u < k ->
+      rk u < k -> rk a < k ->
       EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
   /\ (forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-      rk u < k ->
+      rk u < k -> rk a < k ->
       EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
   /\ (forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
       rk u < k ->
@@ -3273,7 +4463,8 @@ Variable IHEfwd : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : 
     rk u < k -> rk a < k -> conv Γ A B Core.tuniv ->
     EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h.
 Variable IHtrans : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-    rk u < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h.
+    rk u < k -> rk a < k ->
+    EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h.
 
 Lemma ValId_fwd {n} (Γ : Ctx n) (M A B : Tm n) w c x y
   (h : wt (rfl w) (tid c x y)) (h' : wt (tid c x y) tuniv) :
@@ -3313,9 +4504,9 @@ Proof.
   have V1 : Val k Γ M0 A1' Gw.
   { eapply IHfwd; [ lia | lia | exact CA1 | eapply Val_irr; exact VM0 | exact ETA ]. }
   have Ea2 : EqVal k Γ M0 a1' A0 Gw.
-  { eapply IHtrans; [ lia | eapply EqVal_irr; exact Ea | exact Ea1k ]. }
+  { eapply IHtrans; [ lia | lia | eapply EqVal_irr; exact Ea | exact Ea1k ]. }
   have Eb2 : EqVal k Γ M0 b1' A0 Gw.
-  { eapply IHtrans; [ lia | eapply EqVal_irr; exact Eb | exact Eb1k ]. }
+  { eapply IHtrans; [ lia | lia | eapply EqVal_irr; exact Eb | exact Eb1k ]. }
   have Ea3 : EqVal k Γ M0 a1' A1' Gw.
   { eapply IHEfwd; [ lia | lia | exact CA1 | exact Ea2 | exact ETA ]. }
   have Eb3 : EqVal k Γ M0 b1' A1' Gw.
@@ -3350,6 +4541,117 @@ Proof.
   eapply EqVal_irr; exact Ew1.
 Qed.
 
+(* ---------------------------------------------------------------------
+   The Sigma companions of [ValId_fwd]/[EqValId_fwd]: move a pair record
+   along a conversion of its type term.  The first component is retyped by
+   the type equality's domain [EqVal]; the second needs the codomain type
+   equality at the code [app g x], which is the cross type edge
+   [PiEdgeEqTy] instantiated at the canonical selection below [x].
+   [EqValPair] carries no second-component equality, so its transport is
+   just the two unary records plus the first-component [EqVal].
+   --------------------------------------------------------------------- *)
+Lemma ValPair_fwd {n} (Γ : Ctx n) (M A B : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) (h' : wt (tsig a g) tuniv) :
+  rk x < k -> rk y < k -> rk a < k -> rk_fun g < k ->
+  conv Γ A B Core.tuniv ->
+  ValPair k Γ M A h -> EqValTySig (S k) Γ A B h' -> ValPair k Γ M B h.
+Proof.
+  move=> Hx Hy Ha Hg cvAB
+    [A0 [B0 [RA [CA [M1 [M2 [RM [CM [TyM1 [TyM2 [V1 V2]]]]]]]]]]] HE.
+  move: (HE) => [VTyA [VTyB [A1 [B1 [HMA [A1' [B1' [HMB
+                 [CA1 [CB1 [vld [EA1 PEEty]]]]]]]]]]]].
+  have [Eq1 Eq2] := HeadRed_tsig_det RA HMA. subst A1 B1.
+  have [TAd TBd] := ValTy_tsig_typings VTyA HMA.
+  have [TAe TBe] := ValTy_tsig_typings VTyB HMB.
+  have hpi : wt (tpi a g) tuniv := wt_tsig_tpi h'.
+  have Gx : wt x a := wt_mkpair_fst h.
+  have Gy : wt y (app g x) := wt_mkpair_snd h.
+  have VFg : valid_fun g by eauto with valid.
+  have Vx : valid x := wt_valid_tm Gx.
+  have Happ := rk_app g x.
+  have CTB : conv Γ B (Core.tsig A1' B1') Core.tuniv.
+  { eapply c_trans; [ apply c_sym; exact cvAB | ].
+    eapply c_trans; [ exact CA | ].
+    eapply c_tsig;
+      [ exact TAd | exact TAe | exact TBd | exact TBe | exact CA1 | exact CB1 ]. }
+  have ETA : EqValTy k Γ A0 A1' (wt_tsig_dom h') := EqVal_EqValTy EA1.
+  have TyM1' : typing Γ M1 A1' by (eapply t_conv; [ exact TyM1 | exact CA1 ]).
+  have CB1s : conv Γ B0[M1..] B1'[M1..] Core.tuniv := conv_subst1 CB1 TyM1.
+  have TyM2' : typing Γ M2 B1'[M1..] by (eapply t_conv; [ exact TyM2 | exact CB1s ]).
+  have V1' : Val k Γ M1 A1' Gx.
+  { eapply IHfwd; [ lia | lia | exact CA1 | eapply Val_irr; exact V1 | exact ETA ]. }
+  have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow VFg Vx.
+  have WTuf := wt_Selection (wt_tpi_dom hpi) VFg (wt_tpi_keys hpi) Selg.
+  have VM1uf : Val k Γ M1 A0 WTuf := restrictVal WTuf Leuf V1.
+  have VM1ufS : Val (S k) Γ M1 A0 WTuf.
+  { apply Val_fuel_up;
+      [ move: (rk_Selection_key Selg) => Hkf; lia | lia | exact VM1uf ]. }
+  subst vf.
+  have Eedge := PEEty uf (app g x) Selg WTuf M1 TyM1 VM1ufS.
+  have V2' : Val k Γ M2 B1'[M1..] Gy.
+  { eapply IHfwd;
+      [ lia | lia | exact CB1s | eapply Val_irr; exact V2
+      | exact (EqVal_EqValTy Eedge) ]. }
+  exists A1'. exists B1'.
+  split; [ exact HMB | ]. split; [ exact CTB | ].
+  exists M1. exists M2.
+  split; [ exact RM | ].
+  split; [ eapply c_conv; [ exact CM | exact cvAB ] | ].
+  split; [ exact TyM1' | ]. split; [ exact TyM2' | ].
+  split; [ eapply Val_irr; exact V1' | eapply Val_irr; exact V2' ].
+Qed.
+
+Lemma EqValPair_fwd {n} (Γ : Ctx n) (M N A B : Tm n) x y a g
+  (h : wt (mkpair x y) (tsig a g)) (h' : wt (tsig a g) tuniv) :
+  rk x < k -> rk y < k -> rk a < k -> rk_fun g < k ->
+  conv Γ A B Core.tuniv ->
+  EqValPair k Γ M N A h -> EqValTySig (S k) Γ A B h' -> EqValPair k Γ M N B h.
+Proof.
+  move=> Hx Hy Ha Hg cvAB
+    [VPM [VPN [A0 [B0 [RA [M1 [M2 [N1 [N2 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]] HE.
+  move: (HE) => [VTyA [VTyB [A1 [B1 [HMA [A1' [B1' [HMB
+                 [CA1 [CB1 [vld [EA1 PEEty]]]]]]]]]]]].
+  have [Eq1 Eq2] := HeadRed_tsig_det RA HMA. subst A1 B1.
+  move: (VPM) => [A2 [B2 [RA2 [_ [M1' [M2' [RM' [_ [TyM1 [_ [V1 _]]]]]]]]]]].
+  have [r1 r2] := HeadRed_tsig_det RA2 RA. subst A2 B2.
+  have [s1 s2] := HeadRed_mkpair_det RM' RM. subst M1' M2'.
+  have Gx : wt x a := wt_mkpair_fst h.
+  have Gy : wt y (app g x) := wt_mkpair_snd h.
+  have hpi : wt (tpi a g) tuniv := wt_tsig_tpi h'.
+  have VFg : valid_fun g by eauto with valid.
+  have Vx : valid x := wt_valid_tm Gx.
+  have Happ := rk_app g x.
+  have ETA : EqValTy k Γ A0 A1' (wt_tsig_dom h') := EqVal_EqValTy EA1.
+  have CB1s : conv Γ B0[M1..] B1'[M1..] Core.tuniv := conv_subst1 CB1 TyM1.
+  have E1' : EqVal k Γ M1 N1 A1' Gx.
+  { eapply IHEfwd;
+      [ lia | lia | exact CA1 | eapply EqVal_irr; exact E1 | exact ETA ]. }
+  (* the second component moves along the CROSS type edge, exactly as in
+     [ValPair_fwd] *)
+  have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow VFg Vx.
+  have WTuf := wt_Selection (wt_tpi_dom hpi) VFg (wt_tpi_keys hpi) Selg.
+  have VM1uf : Val k Γ M1 A0 WTuf := restrictVal WTuf Leuf V1.
+  have VM1ufS : Val (S k) Γ M1 A0 WTuf.
+  { apply Val_fuel_up;
+      [ move: (rk_Selection_key Selg) => Hkf; lia | lia | exact VM1uf ]. }
+  subst vf.
+  have Eedge := PEEty uf (app g x) Selg WTuf M1 TyM1 VM1ufS.
+  have E2' : EqVal k Γ M2 N2 B1'[M1..] Gy.
+  { eapply IHEfwd;
+      [ lia | lia | exact CB1s | eapply EqVal_irr; exact E2
+      | exact (EqVal_EqValTy Eedge) ]. }
+  split; [ eapply ValPair_fwd;
+             [ lia | lia | lia | lia | exact cvAB | exact VPM | exact HE ] | ].
+  split; [ eapply ValPair_fwd;
+             [ lia | lia | lia | lia | exact cvAB | exact VPN | exact HE ] | ].
+  exists A1'. exists B1'. split; [ exact HMB | ].
+  exists M1. exists M2. exists N1. exists N2.
+  split; [ exact RM | ]. split; [ exact RN | ].
+  split; [ eapply c_conv; [ exact C1 | exact CA1 ] | ].
+  split; [ eapply c_conv; [ exact C2 | exact CB1s ] | ].
+  split; [ eapply EqVal_irr; exact E1' | eapply EqVal_irr; exact E2' ].
+Qed.
+
 End IdFwd.
 
 (* [fuel_EqValTy]'s two directions, as plain lemmas (cf. [ValTy_fuel_down_le]). *)
@@ -3371,7 +4673,7 @@ Proof. move=> H V. exact (proj2 (@fuel_EqValTy k n Γ M N u h H) V). Qed.
 
 Lemma EqValTyId_sym (k : nat)
   (IHsym : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-      rk u < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
+      rk u < k -> rk a < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
   (IHTsym : forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
       rk u < k -> EqValTy k Γ M N h -> EqValTy k Γ N M h)
   (EFWD : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
@@ -3395,7 +4697,7 @@ Proof.
       EqVal (S k) Γ X Y Z hv -> EqVal (S k) Γ Y X Z hv.
   { move=> X Y Z e a1 hv He Ha1 E.
     apply (@EqVal_fuel_up k _ Γ Y X Z e a1 hv He Ha1).
-    apply IHsym; [ exact He | ].
+    apply IHsym; [ exact He | lia | ].
     apply (@EqVal_fuel_down k _ Γ X Y Z e a1 hv He Ha1). exact E. }
   have HUc : wt c tuniv := wt_tid_dom h.
   have Gx : wt x c := wt_tid_lhs h.
@@ -3428,7 +4730,8 @@ Qed.
 
 Lemma EqValTyId_trans (k : nat)
   (IHtrans : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-      rk u < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
+      rk u < k -> rk a < k ->
+      EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
   (IHTtrans : forall n (Γ : Ctx n) (A B C : Tm n) u (h : wt u tuniv),
       rk u < k -> EqValTy k Γ A B h -> EqValTy k Γ B C h -> EqValTy k Γ A C h)
   (EFWD : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
@@ -3460,7 +4763,7 @@ Proof.
   { move=> X Y Z W e a1 hv He Ha1 E1' E2'.
     apply (@EqVal_fuel_up k _ Γ X Z W e a1 hv He Ha1).
     eapply IHtrans;
-      [ exact He
+      [ exact He | lia
       | apply (@EqVal_fuel_down k _ Γ X Y W e a1 hv He Ha1); exact E1'
       | apply (@EqVal_fuel_down k _ Γ Y Z W e a1 hv He Ha1); exact E2' ]. }
   have HUc : wt c tuniv := wt_tid_dom h.
@@ -3499,26 +4802,27 @@ Qed.
 
 Lemma EqValId_sym (k : nat)
   (IHsym : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-      rk u < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
+      rk u < k -> rk a < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
   {n} (Γ : Ctx n) (M N A : Tm n) w c x y (h : wt (rfl w) (tid c x y)) :
-  rk w < k -> EqValId k Γ M N A h -> EqValId k Γ N M A h.
+  rk w < k -> rk c < k -> EqValId k Γ M N A h -> EqValId k Γ N M A h.
 Proof.
-  move=> Hw [VM [VN [M0 [N0 [HM [HN [A0 [a0 [b0 [RA [Cw Ew]]]]]]]]]]].
+  move=> Hw Hc [VM [VN [M0 [N0 [HM [HN [A0 [a0 [b0 [RA [Cw Ew]]]]]]]]]]].
   split; [ exact VN | ]. split; [ exact VM | ].
   exists N0. exists M0. split; [ exact HN | ]. split; [ exact HM | ].
   exists A0. exists a0. exists b0. split; [ exact RA | ].
   split; [ apply c_sym; exact Cw | ].
-  eapply IHsym; [ lia | exact Ew ].
+  eapply IHsym; [ lia | lia | exact Ew ].
 Qed.
 
 Lemma EqValId_trans (k : nat)
   (IHtrans : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-      rk u < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
+      rk u < k -> rk a < k ->
+      EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
   {n} (Γ : Ctx n) (M N P A : Tm n) w c x y (h : wt (rfl w) (tid c x y)) :
-  rk w < k ->
+  rk w < k -> rk c < k ->
   EqValId k Γ M N A h -> EqValId k Γ N P A h -> EqValId k Γ M P A h.
 Proof.
-  move=> Hw [VM [VN [M0 [N0 [HM [HN [A0 [a0 [b0 [RA [Cw Ew]]]]]]]]]]]
+  move=> Hw Hc [VM [VN [M0 [N0 [HM [HN [A0 [a0 [b0 [RA [Cw Ew]]]]]]]]]]]
             [_ [VP [N1 [P0 [HN' [HP [A1 [a1 [b1 [RA1 [Cw1 Ew1]]]]]]]]]]].
   have E := HeadRed_rfl_det HN HN'. subst N1.
   have [E1 [E2 E3]] := HeadRed_tid_det RA RA1. subst A1 a1 b1.
@@ -3526,7 +4830,143 @@ Proof.
   exists M0. exists P0. split; [ exact HM | ]. split; [ exact HP | ].
   exists A0. exists a0. exists b0. split; [ exact RA | ].
   split; [ eapply c_trans; [ exact Cw | exact Cw1 ] | ].
-  eapply IHtrans; [ lia | exact Ew | exact Ew1 ].
+  eapply IHtrans; [ lia | lia | exact Ew | exact Ew1 ].
+Qed.
+
+(* ---------------------------------------------------------------------
+   Symmetry and transitivity of [EqValPair].  Both are immediate because the
+   record's only binary field sits at the fixed type term [A0]: swapping (or
+   composing) the two unary records needs nothing, and the stored [conv] at
+   [B0[M1..]] is retyped by [conv_subst_arg] along the first-component
+   conversion.  This is exactly why [EqValPair] carries no second-component
+   [EqVal] -- see its definition.
+   --------------------------------------------------------------------- *)
+Lemma EqValPair_sym (k : nat)
+  (IHsym : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
+      rk u < k -> rk a < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
+  (IHEfwd : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
+      rk u < k -> rk a < k -> conv Γ A B Core.tuniv ->
+      EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h)
+  {n} (Γ : Ctx n) (M N A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)) :
+  rk x < k -> rk y < k -> rk (tsig a g) <= k ->
+  ValTy k Γ A (wt_mkpair_ty h) ->
+  EqValPair k Γ M N A h -> EqValPair k Γ N M A h.
+Proof.
+  move=> Hx Hy Hsig VTA
+    [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]].
+  have [TyA0 TyB0] := ValTy_tsig_typings VTA RA.
+  move: (VM) => [A2 [B2 [RA2 [_ [M1' [M2' [RM' [_ [TyM1 [_ [_ _]]]]]]]]]]].
+  have [r1 r2] := HeadRed_tsig_det RA2 RA. subst A2 B2.
+  have [s1 s2] := HeadRed_mkpair_det RM' RM. subst M1' M2'.
+  move: (VN) => [A3 [B3 [RA3 [_ [N1' [N2' [RN' [_ [TyN1 [_ [_ _]]]]]]]]]]].
+  have [t1 t2] := HeadRed_tsig_det RA3 RA. subst A3 B3.
+  have [w1 w2] := HeadRed_mkpair_det RN' RN. subst N1' N2'.
+  have CB : conv Γ B0[M1..] B0[N1..] Core.tuniv
+    := conv_subst_arg Γ A0 B0 M1 N1 TyA0 TyB0 TyM1 TyN1 C1.
+  (* the codomain TYPE equality: [PiEdgeEq] says related arguments give equal
+     codomains, and the two first components ARE related ([E1]) *)
+  have VTA' := VTA. rewrite ValTy_tsig in VTA'.
+  move: (VTA') => [A4 [B4 [RA4 [_ [_ [_ [_ [_ PEE]]]]]]]].
+  have [q1 q2] := HeadRed_tsig_det RA4 RA. subst A4 B4.
+  have hpi : wt (tpi a g) tuniv := wt_tsig_tpi (wt_mkpair_ty h).
+  have Vg : valid_fun g by eauto with valid.
+  have Vx : valid x := wt_valid_tm (wt_mkpair_fst h).
+  have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow Vg Vx.
+  have WTuf : wt uf a := wt_Selection (wt_tpi_dom hpi) Vg (wt_tpi_keys hpi) Selg.
+  have E1r : EqVal k Γ M1 N1 A0 WTuf := restrictEqVal WTuf Leuf E1.
+  have Ecod := PEE uf vf Selg WTuf M1 N1 C1 E1r.
+  subst vf.
+  have Happ := rk_app g x.
+  have Hgf : rk_fun g < rk (tsig a g) by (cbn; lia).
+  have Hga : rk a < rk (tsig a g) by (cbn; lia).
+  destruct k as [|k']; first (exfalso; lia).
+  have ETy : EqValTy (S k') Γ B0[M1..] B0[N1..]
+               (wt_Selection_codU (wt_tsig_tpi (wt_mkpair_ty h)) Selg)
+    by (eapply EqValTy_fuel_up_le; [ lia | eapply EqVal_EqValTy; exact Ecod ]).
+  have E2s : EqVal (S k') Γ N2 M2 B0[M1..] (wt_mkpair_snd h)
+    by (eapply IHsym; [ exact Hy | lia | exact E2 ]).
+  have E2t : EqVal (S k') Γ N2 M2 B0[N1..] (wt_mkpair_snd h)
+    by (eapply IHEfwd; [ exact Hy | lia | exact CB | exact E2s | exact ETy ]).
+  split; [ exact VN | ]. split; [ exact VM | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists N1. exists N2. exists M1. exists M2.
+  split; [ exact RN | ]. split; [ exact RM | ].
+  split; [ apply c_sym; exact C1 | ].
+  split; [ eapply c_conv; [ apply c_sym; exact C2 | exact CB ] | ].
+  split; [ eapply IHsym; [ exact Hx | lia | exact E1 ] | exact E2t ].
+Qed.
+
+Lemma EqValPair_trans (k : nat)
+  (IHsym : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
+      rk u < k -> rk a < k -> EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h)
+  (IHtrans : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
+      rk u < k -> rk a < k ->
+      EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h)
+  (IHEfwd : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
+      rk u < k -> rk a < k -> conv Γ A B Core.tuniv ->
+      EqVal k Γ M N A h -> EqValTy k Γ A B h' -> EqVal k Γ M N B h)
+  {n} (Γ : Ctx n) (M N P A : Tm n) x y a g (h : wt (mkpair x y) (tsig a g)) :
+  rk x < k -> rk y < k -> rk (tsig a g) <= k ->
+  ValTy k Γ A (wt_mkpair_ty h) ->
+  EqValPair k Γ M N A h -> EqValPair k Γ N P A h -> EqValPair k Γ M P A h.
+Proof.
+  move=> Hx Hy Hsig VTA
+    [VM [VN [A0 [B0 [RA [M1 [M2 [N1 [N2 [RM [RN [C1 [C2 [E1 E2]]]]]]]]]]]]]]
+    [_ [VP [A0' [B0' [RA' [N1b [N2b [P1 [P2 [RNb [RP [C1' [C2' [E1' E2']]]]]]]]]]]]]].
+  have [p1 p2] := HeadRed_tsig_det RA' RA. subst A0' B0'.
+  have [z1 z2] := HeadRed_mkpair_det RNb RN. subst N1b N2b.
+  have [TyA0 TyB0] := ValTy_tsig_typings VTA RA.
+  move: (VM) => [A2 [B2 [RA2 [_ [M1' [M2' [RM' [_ [TyM1 [_ [_ _]]]]]]]]]]].
+  have [r1 r2] := HeadRed_tsig_det RA2 RA. subst A2 B2.
+  have [s1 s2] := HeadRed_mkpair_det RM' RM. subst M1' M2'.
+  move: (VN) => [A3 [B3 [RA3 [_ [N1' [N2' [RN' [_ [TyN1 [_ [_ _]]]]]]]]]]].
+  have [t1 t2] := HeadRed_tsig_det RA3 RA. subst A3 B3.
+  have [w1 w2] := HeadRed_mkpair_det RN' RN. subst N1' N2'.
+  have CB : conv Γ B0[M1..] B0[N1..] Core.tuniv
+    := conv_subst_arg Γ A0 B0 M1 N1 TyA0 TyB0 TyM1 TyN1 C1.
+  have VTA' := VTA. rewrite ValTy_tsig in VTA'.
+  move: (VTA') => [A4 [B4 [RA4 [_ [_ [_ [_ [_ PEE]]]]]]]].
+  have [q1 q2] := HeadRed_tsig_det RA4 RA. subst A4 B4.
+  have hpi : wt (tpi a g) tuniv := wt_tsig_tpi (wt_mkpair_ty h).
+  have Vg : valid_fun g by eauto with valid.
+  have Vx : valid x := wt_valid_tm (wt_mkpair_fst h).
+  have [uf [vf [Selg [Leuf Eqvf]]]] := selectionBelow Vg Vx.
+  have WTuf : wt uf a := wt_Selection (wt_tpi_dom hpi) Vg (wt_tpi_keys hpi) Selg.
+  have E1r : EqVal k Γ M1 N1 A0 WTuf := restrictEqVal WTuf Leuf E1.
+  have Happ := rk_app g x.
+  have Hgf : rk_fun g < rk (tsig a g) by (cbn; lia).
+  have Hga : rk a < rk (tsig a g) by (cbn; lia).
+  destruct k as [|k']; first (exfalso; lia).
+  have E1rs : EqVal (S k') Γ N1 M1 A0 WTuf
+    by (eapply IHsym; [ move: (rk_Selection_key Selg) => Hkf; lia | lia | exact E1r ]).
+  (* [B0[N1..] -> B0[M1..]], the direction the second record's field needs *)
+  have Ecod := PEE uf vf Selg WTuf N1 M1 (c_sym _ _ _ _ _ C1) E1rs.
+  subst vf.
+  have ETy : EqValTy (S k') Γ B0[N1..] B0[M1..]
+               (wt_Selection_codU (wt_tsig_tpi (wt_mkpair_ty h)) Selg)
+    by (eapply EqValTy_fuel_up_le; [ lia | eapply EqVal_EqValTy; exact Ecod ]).
+  have E2m : EqVal (S k') Γ N2 P2 B0[M1..] (wt_mkpair_snd h)
+    by (eapply IHEfwd;
+          [ exact Hy | lia | apply c_sym; exact CB | exact E2' | exact ETy ]).
+  split; [ exact VM | ]. split; [ exact VP | ].
+  exists A0. exists B0. split; [ exact RA | ].
+  exists M1. exists M2. exists P1. exists P2.
+  split; [ exact RM | ]. split; [ exact RP | ].
+  split; [ eapply c_trans; [ exact C1 | exact C1' ] | ].
+  split; [ eapply c_trans;
+             [ exact C2 | eapply c_conv; [ exact C2' | apply c_sym; exact CB ] ] | ].
+  split.
+  - eapply IHtrans; [ exact Hx | lia | exact E1 | exact E1' ].
+  - eapply IHtrans; [ exact Hy | lia | exact E2 | exact E2m ].
+Qed.
+
+(* At a [bot] element code every relation is total, so a code of rank 0 needs
+   no argument at all.  Used for the [rk _ < k] boundary of the [succ] cases of
+   [SYM]/[TRANS], where the strict type-code bound is one short. *)
+Lemma EqVal_rk0 {n} (Γ : Ctx n) (M N T : Tm n) u a (h : wt u a) k :
+  rk u <= 0 -> EqVal k Γ M N T h.
+Proof.
+  move=> H. move: h. rewrite (rk_bot_inv u H). move=> h. apply EqVal_Bot.
 Qed.
 
 Lemma fwd_per_all : forall k, FwdPER k.
@@ -3637,7 +5077,21 @@ Proof.
         + eapply ValTy_fuel_down_le; [ cbn; lia | ].
           eapply ValTy_irr. exact (proj1 (proj2 HE)).
         + eapply (ValId_fwd IHfwd IHEfwd IHtrans);
-            [ lia | lia | lia | lia | exact cvAB | exact VId | exact HE ]. }
+            [ lia | lia | lia | lia | exact cvAB | exact VId | exact HE ].
+      - (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        exact HV.
+      - (* wt_mkpair: the type record is [HE]'s [B] component, the pair record
+           moves by [ValPair_fwd] *)
+        cbn in Hu, Ha.
+        rewrite Val_mkpair in HV. rewrite Val_mkpair.
+        move: HV => [VTA VPr].
+        split.
+        + eapply ValTy_fuel_down_le; [ cbn; lia | ].
+          eapply ValTy_irr. exact (proj1 (proj2 HE)).
+        + eapply (ValPair_fwd IHfwd);
+            [ lia | lia | lia | lia | exact cvAB | exact VPr | exact HE ].
+      }
     (* ---- efwd (EqVal), same shape ---- *)
     have EFWD : forall n (Γ : Ctx n) (M N A B : Tm n) u a (h : wt u a) (h' : wt a tuniv),
         rk u < S k -> rk a < S k -> conv Γ A B Core.tuniv ->
@@ -3722,7 +5176,24 @@ Proof.
         split; [ eapply (ValId_fwd IHfwd IHEfwd IHtrans);
                    [ lia | lia | lia | lia | exact cvAB | exact VIdN | exact HE ] | ].
         eapply (EqValId_fwd IHfwd IHEfwd IHtrans);
-          [ lia | lia | lia | lia | exact cvAB | exact EId | exact HE ]. }
+          [ lia | lia | lia | lia | exact cvAB | exact EId | exact HE ].
+      - (* wt_tsig: a [tsig] code is a type code with an inert [ValTy],
+         i.e. structurally the [wt_tuniv] case *)
+        exact HV.
+      - (* wt_mkpair: the binary twin *)
+        cbn in Hu, Ha.
+        rewrite EqVal_mkpair in HV. rewrite EqVal_mkpair.
+        move: HV => [VTA [VPM [VPN EP]]].
+        split.
+        + eapply ValTy_fuel_down_le; [ cbn; lia | ].
+          eapply ValTy_irr. exact (proj1 (proj2 HE)).
+        + split; [ eapply (ValPair_fwd IHfwd);
+                     [ lia | lia | lia | lia | exact cvAB | exact VPM | exact HE ] | ].
+          split; [ eapply (ValPair_fwd IHfwd);
+                     [ lia | lia | lia | lia | exact cvAB | exact VPN | exact HE ] | ].
+          eapply (EqValPair_fwd IHfwd IHEfwd);
+            [ lia | lia | lia | lia | exact cvAB | exact EP | exact HE ].
+      }
     (* ---- EqValTy_sym at [S k]: tpi case uses FWD (just built) + the [k] IH ---- *)
     have ETSYM : forall n (Γ : Ctx n) (M N : Tm n) u (h : wt u tuniv),
         rk u < S k -> EqValTy (S k) Γ M N h -> EqValTy (S k) Γ N M h.
@@ -3732,6 +5203,38 @@ Proof.
            cbn in Hu.
            eapply (EqValTyId_sym IHsym IHTsym EFWD);
              [ lia | lia | lia | exact HE ]. }
+      2: { (* tsig: [EqValTySig] has the [tpi] shape, so this is the [tpi]
+              script verbatim *)
+           have flipU : forall (X Y : Tm n) v (hv : wt v tuniv),
+               rk v < k -> EqVal (S k) Γ X Y Core.tuniv hv -> EqVal (S k) Γ Y X Core.tuniv hv.
+           { move=> X Y v hv Hv E. rewrite EqVal_tuniv in E. rewrite EqVal_tuniv.
+             move: E => [VX [VY Et]]. split; [ exact VY | split; [ exact VX | ] ].
+             apply IHTsym; [ exact Hv | exact Et ]. }
+           cbn [Rec.EqValTy Rec.EqValTySig] in HE |- *.
+           move: HE => [VM [VN [A0 [B0 [HRM [A0' [B0' [HRN [cvA [cvB [vld [Edom PEEty]]]]]]]]]]]].
+           cbn in Hu.
+           have Hark : rk a < k by lia.
+           have Edom' := flipU A0 A0' _ _ Hark Edom.
+           have EtA'0 := EqVal_EqValTy Edom'.
+           split; [ exact VN | split; [ exact VM | ] ].
+           exists A0', B0'. split; [ exact HRN | ].
+           exists A0, B0. split; [ exact HRM | ].
+           split; [ eapply c_sym; exact cvA | ].
+           split; [ eapply ctx_conv_conv; [ exact cvA | eapply c_sym; exact cvB ] | ].
+           split; [ exact vld | ].
+           split; [ exact Edom' | ].
+           cbn [Rec.PiEdgeEqTy].
+           move=> u' v' Sel WTu' P TyP VP.
+           have Hu'rk : rk u' < k by (move: (rk_Selection_key Sel) => Hk; lia).
+           have TyP0 : typing Γ P A0 by (eapply t_conv; [ exact TyP | eapply c_sym; exact cvA ]).
+           have VP0 : Val (S k) Γ P A0 WTu'.
+           { apply Val_fuel_up; [ exact Hu'rk | exact Hark | ].
+             eapply IHfwd;
+               [ exact Hu'rk | exact Hark | apply c_sym; exact cvA
+               | apply Val_fuel_down; [ exact Hu'rk | exact Hark | exact VP ]
+               | exact EtA'0 ]. }
+           have Eres := PEEty u' v' Sel WTu' P TyP0 VP0.
+           eapply flipU; [ move: (rk_Selection_val Sel) => Hr; lia | exact Eres ]. }
       (* tpi: conv-sym + ctx-conv + domain-flip + PiEdgeEqTy-sym (mirrors Agda
          [Esym PiCode], [Validity/Props.agda]) *)
       have flipU : forall (X Y : Tm n) v (hv : wt v tuniv),
@@ -3773,6 +5276,41 @@ Proof.
            cbn in Hu.
            eapply (EqValTyId_trans IHtrans IHTtrans EFWD ETSYM);
              [ lia | lia | lia | exact HAB | exact HBC ]. }
+      2: { (* tsig: the [tpi] script verbatim *)
+           have transU : forall (X Y Z : Tm n) v (hv : wt v tuniv),
+               rk v < k -> EqVal (S k) Γ X Y Core.tuniv hv -> EqVal (S k) Γ Y Z Core.tuniv hv ->
+               EqVal (S k) Γ X Z Core.tuniv hv.
+           { move=> X Y Z v hv Hv E1 E2. rewrite EqVal_tuniv in E1, E2. rewrite EqVal_tuniv.
+             move: E1 => [VX [VY Et1]]. move: E2 => [_ [VZ Et2]].
+             split; [ exact VX | split; [ exact VZ | ] ].
+             eapply IHTtrans; [ exact Hv | exact Et1 | exact Et2 ]. }
+           cbn [Rec.EqValTy Rec.EqValTySig] in HAB, HBC |- *.
+           move: HAB => [VTyA [VTyB [A0 [B0 [HRA [A0m [B0m [Hk [cvAB [cvBB [vldAB [EdomAB PEEtyAB]]]]]]]]]]]].
+           move: HBC => [_ [VTyC [A0n [B0n [Hkn [A0c [B0c [HRC [cvBC [cvCC [vldBC [EdomBC PEEtyBC]]]]]]]]]]]].
+           have [eqA0m eqB0m] := HeadRed_tsig_det Hkn Hk. subst A0n B0n.
+           cbn in Hu. have Hark : rk a < k by lia.
+           have EtAm : EqValTy k Γ A0 A0m h := EqVal_EqValTy EdomAB.
+           split; [ exact VTyA | split; [ exact VTyC | ] ].
+           exists A0, B0. split; [ exact HRA | ].
+           exists A0c, B0c. split; [ exact HRC | ].
+           split; [ eapply c_trans; [ exact cvAB | exact cvBC ] | ].
+           split; [ eapply c_trans; [ exact cvBB | eapply ctx_conv_conv; [ eapply c_sym; exact cvAB | exact cvCC ] ] | ].
+           split; [ exact vldAB | ].
+           split; [ eapply transU; [ exact Hark | exact EdomAB | exact EdomBC ] | ].
+           cbn [Rec.PiEdgeEqTy].
+           move=> u' v' Sel WTu' P TyP VP.
+           have Hu'rk : rk u' < k by (move: (rk_Selection_key Sel) => Hk'; lia).
+           have Vrk : rk v' < k by (move: (rk_Selection_val Sel) => Hk'; lia).
+           have VPm : Val k Γ P A0m WTu'.
+           { eapply IHfwd;
+               [ exact Hu'rk | exact Hark | exact cvAB
+               | apply Val_fuel_down; [ exact Hu'rk | exact Hark | exact VP ]
+               | exact EtAm ]. }
+           have VPmS : Val (S k) Γ P A0m WTu' by (apply Val_fuel_up; [ exact Hu'rk | exact Hark | exact VPm ]).
+           have TyPm : typing Γ P A0m by (eapply t_conv; [ exact TyP | exact cvAB ]).
+           have EresAB := PEEtyAB u' v' Sel WTu' P TyP VP.
+           have EresBC := PEEtyBC u' v' Sel WTu' P TyPm VPmS.
+           eapply transU; [ exact Vrk | exact EresAB | exact EresBC ]. }
       (* tpi: conv-trans + ctx-conv + domain/codomain EqVal-trans (all edges over
          the type graph, so no value/type-graph mismatch) *)
       have transU : forall (X Y Z : Tm n) v (hv : wt v tuniv),
@@ -3811,8 +5349,8 @@ Proof.
       eapply transU; [ exact Vrk | exact EresAB | exact EresBC ]. }
     (* ---- EqVal_sym (PER): tpi bounces its [k] content through ETSYM (S k) ---- *)
     have SYM : forall n (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a),
-        rk u < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M1 A h.
-    { intros n Γ M1 M2 A u a h. dependent destruction h; move=> Hu HV.
+        rk u < S k -> rk a < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M1 A h.
+    { intros n Γ M1 M2 A u a h. dependent destruction h; move=> Hu Ha HV.
       - apply EqVal_Bot.
       - rewrite EqVal_tuniv. move: HV => _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
       - rewrite EqVal_tuniv. move: HV => _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
@@ -3823,7 +5361,10 @@ Proof.
         rewrite EqVal_succ. exists a2. split; [ exact Ha2 | ]. split; [ exact Ca2 | ].
         exists a1. split; [ exact Ha1 | ]. split; [ exact Ca1 | ].
         split; [ apply c_sym; exact Cp | ].
-        eapply IHsym; [ cbn in Hu; lia | exact HE ].
+        destruct (le_lt_dec 2 k) as [Hk|Hk].
+        + eapply IHsym; [ cbn in Hu; lia | cbn in Hu |- *; lia | exact HE ].
+        + (* [k <= 1]: the predecessor's code is forced to [bot] *)
+          eapply EqVal_rk0; cbn in Hu; lia.
       - (* tpi: bounce EqValTy [k] content up through ETSYM (S k) and back *)
         rewrite EqVal_tuniv in HV. rewrite EqVal_tuniv.
         move: HV => [VM1 [VM2 ET]].
@@ -3839,6 +5380,7 @@ Proof.
         move=> uu vv Sel WT P TP VP.
         eapply IHsym;
           [ move: (rk_Selection_val Sel) => Hv; cbn in Hu; lia
+          | move: (rk_app g uu) => Hfa; cbn in Ha; lia
           | exact (PAEV uu vv Sel WT P TP VP) ].
       - (* wt_tid: bounce the [EqValTy] content up through [ETSYM] and back *)
         rewrite EqVal_tuniv in HV. rewrite EqVal_tuniv.
@@ -3852,11 +5394,28 @@ Proof.
         move: HV => [VTA [VIdM [VIdN EId]]].
         cbn in Hu.
         split; [ exact VTA | ]. split; [ exact VIdN | ]. split; [ exact VIdM | ].
-        eapply (EqValId_sym IHsym); [ lia | exact EId ]. }
+        eapply (EqValId_sym IHsym); [ lia | cbn in Ha; lia | exact EId ].
+      - (* wt_tsig: a type code -- bounce the [EqValTy] through [ETSYM] *)
+        rewrite EqVal_tuniv in HV. rewrite EqVal_tuniv.
+        move: HV => [VM1 [VM2 ET]].
+        split; [ exact VM2 | split; [ exact VM1 | ] ].
+        eapply EqValTy_fuel_down_le; [ cbn in Hu |- *; lia | ].
+        eapply ETSYM; [ exact Hu | ].
+        eapply EqValTy_fuel_up_le; [ cbn in Hu |- *; lia | exact ET ].
+      - (* wt_mkpair: swap the two unary records, flip the first-component
+           equality *)
+        cbn in Hu.
+        rewrite EqVal_mkpair in HV. rewrite EqVal_mkpair.
+        move: HV => [VTA [VPM [VPN EP]]].
+        split; [ exact VTA | ]. split; [ exact VPN | ]. split; [ exact VPM | ].
+        eapply (EqValPair_sym IHsym IHEfwd);
+          [ lia | lia | cbn in Ha |- *; lia | exact VTA | exact EP ].
+      }
     (* ---- EqVal_trans (PER): tpi bounces through ETTRANS (S k) ---- *)
     have TRANS : forall n (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a),
-        rk u < S k -> EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M3 A h -> EqVal (S k) Γ M1 M3 A h.
-    { intros n Γ M1 M2 M3 A u a h. dependent destruction h; move=> Hu HV HW.
+        rk u < S k -> rk a < S k ->
+        EqVal (S k) Γ M1 M2 A h -> EqVal (S k) Γ M2 M3 A h -> EqVal (S k) Γ M1 M3 A h.
+    { intros n Γ M1 M2 M3 A u a h. dependent destruction h; move=> Hu Ha HV HW.
       - apply EqVal_Bot.
       - rewrite EqVal_tuniv. move: HV HW => _ _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
       - rewrite EqVal_tuniv. move: HV HW => _ _. cbn [Rec.ValTy Rec.EqValTy]. tauto.
@@ -3869,7 +5428,10 @@ Proof.
         exists a1. split; [ exact Ha1 | ]. split; [ exact Ca1 | ].
         exists a3. split; [ exact Ha3 | ]. split; [ exact Ca3 | ].
         split; [ eapply c_trans; [ exact Cp12 | exact Cp23 ] | ].
-        eapply IHtrans; [ cbn in Hu; lia | exact HE12 | exact HE23 ].
+        destruct (le_lt_dec 2 k) as [Hk|Hk].
+        + eapply IHtrans;
+            [ cbn in Hu; lia | cbn in Hu |- *; lia | exact HE12 | exact HE23 ].
+        + eapply EqVal_rk0; cbn in Hu; lia.
       - (* tpi: bounce both EqValTy [k] components up through ETTRANS (S k) *)
         rewrite EqVal_tuniv in HV HW. rewrite EqVal_tuniv.
         move: HV => [VM1 [VM2 ET12]]. move: HW => [_ [VM3 ET23]].
@@ -3889,6 +5451,7 @@ Proof.
         move=> uu vv Sel WT P TP VP.
         eapply IHtrans;
           [ move: (rk_Selection_val Sel) => Hv; cbn in Hu; lia
+          | move: (rk_app g uu) => Hfa; cbn in Ha; lia
           | exact (PAEV12 uu vv Sel WT P TP VP) | exact (PAEV23 uu vv Sel WT P TP VP) ].
       - (* wt_tid: bounce both [EqValTy] components up through [ETTRANS] *)
         rewrite EqVal_tuniv in HV, HW. rewrite EqVal_tuniv.
@@ -3904,7 +5467,24 @@ Proof.
         move: HV => [VTA [VIdM1 [_ EId12]]]. move: HW => [_ [_ [VIdM3 EId23]]].
         cbn in Hu.
         split; [ exact VTA | ]. split; [ exact VIdM1 | ]. split; [ exact VIdM3 | ].
-        eapply (EqValId_trans IHtrans); [ lia | exact EId12 | exact EId23 ]. }
+        eapply (EqValId_trans IHtrans); [ lia | cbn in Ha; lia | exact EId12 | exact EId23 ].
+      - (* wt_tsig: a type code -- bounce both components through [ETTRANS] *)
+        rewrite EqVal_tuniv in HV, HW. rewrite EqVal_tuniv.
+        move: HV => [VM1 [VM2 ET12]]. move: HW => [_ [VM3 ET23]].
+        split; [ exact VM1 | split; [ exact VM3 | ] ].
+        eapply EqValTy_fuel_down_le; [ cbn in Hu |- *; lia | ].
+        eapply ETTRANS;
+          [ exact Hu
+          | eapply EqValTy_fuel_up_le; [ cbn in Hu |- *; lia | exact ET12 ]
+          | eapply EqValTy_fuel_up_le; [ cbn in Hu |- *; lia | exact ET23 ] ].
+      - (* wt_mkpair: compose the first-component equalities *)
+        cbn in Hu.
+        rewrite EqVal_mkpair in HV, HW. rewrite EqVal_mkpair.
+        move: HV => [VTA [VPM [_ EP1]]]. move: HW => [_ [_ [VPP EP2]]].
+        split; [ exact VTA | ]. split; [ exact VPM | ]. split; [ exact VPP | ].
+        eapply (EqValPair_trans IHsym IHtrans IHEfwd);
+          [ lia | lia | cbn in Ha |- *; lia | exact VTA | exact EP1 | exact EP2 ].
+      }
     unfold FwdPER. repeat split;
       [ exact FWD | exact EFWD | exact SYM | exact TRANS | exact ETSYM | exact ETTRANS ].
 Qed.
@@ -3928,13 +5508,13 @@ Proof. exact (proj1 (proj2 (fwd_per_all k)) n Γ M N A B u a h h'). Qed.
 
 (** Symmetry of [EqVal] (the PER's symmetry; Agda: [EqVal2-sym]). *)
 Lemma EqVal_sym {n} (Γ : Ctx n) (M1 M2 A : Tm n) u a (h : wt u a) k :
-  rk u < k ->
+  rk u < k -> rk a < k ->
   EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M1 A h.
 Proof. exact (proj1 (proj2 (proj2 (fwd_per_all k))) n Γ M1 M2 A u a h). Qed.
 
 (** Transitivity of [EqVal] (Agda: [EqVal2-trans]). *)
 Lemma EqVal_trans {n} (Γ : Ctx n) (M1 M2 M3 A : Tm n) u a (h : wt u a) k :
-  rk u < k ->
+  rk u < k -> rk a < k ->
   EqVal k Γ M1 M2 A h -> EqVal k Γ M2 M3 A h -> EqVal k Γ M1 M3 A h.
 Proof. exact (proj1 (proj2 (proj2 (proj2 (fwd_per_all k)))) n Γ M1 M2 M3 A u a h). Qed.
 
@@ -4039,7 +5619,7 @@ Proof.
   move=> Hb LE WT.
   unfold singleton in LE. rewrite Hb in LE.
   have [gV [EV LEf]] := le_abs_inv LE. subst V.
-  destruct aV as [ | | | | | bV fV | | | ];
+  destruct aV as [ | | | | | bV fV | | | | | ];
     try solve [ exfalso; clear -WT; inversion WT ].
   exists gV, bV, fV.
   split; [ reflexivity | split; [ reflexivity | ] ].
