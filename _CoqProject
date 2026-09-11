@@ -62,12 +62,14 @@ theories/autosubst/core.v
 theories/autosubst/fintype.v
 theories/examples/syntax/syntax.v
 theories/examples/syntax/typing.v
+theories/examples/syntax/minimal_typing.v
 theories/examples/syntax/relations.v
 theories/examples/syntax/reduction.v
 
 theories/examples/finelt/utils.v
 theories/examples/finelt/findom.v
 theories/examples/finelt/types.v
+theories/examples/finelt/minimal_types.v
 theories/examples/finelt/selection.v
 theories/examples/finelt/raw_semantics.v
 theories/examples/finelt/eval_substitution.v
